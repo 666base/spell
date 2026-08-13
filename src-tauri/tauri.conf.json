@@ -1,0 +1,52 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Spell",
+  "version": "1.0.0",
+  "identifier": "com.base666.spell",
+  "build": {
+    "beforeDevCommand": "npm run web:dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Spell",
+        "width": 1080,
+        "height": 720,
+        "minWidth": 600,
+        "minHeight": 400,
+        "resizable": true,
+        "devtools": false,
+        "decorations": false,
+        "visible": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self' ipc: http://ipc.localhost https://ipc.localhost; connect-src 'self' ipc: http://ipc.localhost https://ipc.localhost https://*.supabase.co wss://*.supabase.co; img-src 'self' asset: http://asset.localhost https://asset.localhost data:; style-src 'self' 'unsafe-inline'",
+      "assetProtocol": {
+        "enable": true,
+        "scope": {
+          "requireLiteralLeadingDot": true,
+          "allow": ["$HOME/**"]
+        }
+      }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["deb"],
+    "fileAssociations": [
+      {
+        "ext": ["md", "markdown"],
+        "mimeType": "text/markdown",
+        "description": "Markdown Document"
+      }
+    ],
+    "icon": [
+      "icons/128x128.png",
+      "icons/128x128@2x.png"
+    ]
+  }
+}

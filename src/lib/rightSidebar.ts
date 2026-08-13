@@ -1,0 +1,3 @@
+export const RIGHT_SIDEBAR_DEFAULT_PX = 304;
+export const RIGHT_SIDEBAR_MIN_PX = 248;
+export const RIGHT_SIDEBAR_MAX_PX = 520;

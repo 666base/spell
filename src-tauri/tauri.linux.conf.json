@@ -1,0 +1,17 @@
+{
+  "app": {
+    "windows": [
+      {
+        "title": "Spell",
+        "width": 1080,
+        "height": 720,
+        "minWidth": 600,
+        "minHeight": 400,
+        "resizable": true,
+        "devtools": false,
+        "decorations": false,
+        "visible": true
+      }
+    ]
+  }
+}

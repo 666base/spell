@@ -1,0 +1,209 @@
+import type { RealtimeChannel } from "@supabase/supabase-js";
+import type { Note } from "../types/note";
+import * as notesService from "./notes";
+import { getCloudSession, getSupabase } from "./supabase";
+
+interface CloudNoteRow {
+  owner_id: string;
+  path: string;
+  content: string;
+  modified_at: number;
+  deleted: boolean;
+  updated_at: string;
+}
+
+interface CloudMutation {
+  path: string;
+  content: string;
+  modifiedAt: number;
+  deleted: boolean;
+}
+
+const queuePrefix = "spell-cloud-queue:";
+let activeUserId: string | null = null;
+let flushTimer: number | null = null;
+let flushPromise: Promise<void> | null = null;
+
+function queueKey(userId: string): string {
+  return `${queuePrefix}${userId}`;
+}
+
+function readQueue(userId: string): CloudMutation[] {
+  try {
+    const stored = localStorage.getItem(queueKey(userId));
+    return stored ? (JSON.parse(stored) as CloudMutation[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeQueue(userId: string, queue: CloudMutation[]): void {
+  if (queue.length === 0) {
+    localStorage.removeItem(queueKey(userId));
+  } else {
+    localStorage.setItem(queueKey(userId), JSON.stringify(queue));
+  }
+}
+
+function addMutation(mutation: CloudMutation): void {
+  if (!activeUserId) return;
+  const queue = readQueue(activeUserId).filter(
+    (queued) => queued.path !== mutation.path,
+  );
+  queue.push(mutation);
+  writeQueue(activeUserId, queue);
+  scheduleFlush();
+}
+
+function scheduleFlush(): void {
+  if (flushTimer !== null) window.clearTimeout(flushTimer);
+  flushTimer = window.setTimeout(() => {
+    flushTimer = null;
+    void flushCloudQueue();
+  }, 900);
+}
+
+export function setActiveCloudUser(userId: string | null): void {
+  activeUserId = userId;
+}
+
+export function queueCloudUpsert(note: Note): void {
+  addMutation({
+    path: note.id,
+    content: note.content,
+    modifiedAt: Math.max(note.modified, Math.floor(Date.now() / 1000)),
+    deleted: false,
+  });
+}
+
+export function queueCloudDelete(path: string): void {
+  addMutation({
+    path,
+    content: "",
+    modifiedAt: Math.floor(Date.now() / 1000),
+    deleted: true,
+  });
+}
+
+export async function flushCloudQueue(): Promise<void> {
+  if (flushPromise) return flushPromise;
+  if (!activeUserId || !navigator.onLine) return;
+
+  const userId = activeUserId;
+  flushPromise = (async () => {
+    const session = await getCloudSession();
+    if (!session || session.user.id !== userId) return;
+    const supabase = await getSupabase();
+
+    for (const mutation of readQueue(userId)) {
+      const { error } = await supabase.rpc("spell_sync_note", {
+        p_path: mutation.path,
+        p_content: mutation.content,
+        p_modified_at: mutation.modifiedAt,
+        p_deleted: mutation.deleted,
+      });
+      if (error) throw error;
+
+      const currentQueue = readQueue(userId);
+      const unchanged = currentQueue.find(
+        (queued) =>
+          queued.path === mutation.path &&
+          queued.modifiedAt === mutation.modifiedAt &&
+          queued.deleted === mutation.deleted,
+      );
+      if (unchanged) {
+        writeQueue(
+          userId,
+          currentQueue.filter((queued) => queued !== unchanged),
+        );
+      }
+    }
+  })().finally(() => {
+    flushPromise = null;
+  });
+
+  return flushPromise;
+}
+
+async function applyRemoteRow(row: CloudNoteRow): Promise<boolean> {
+  let localNote: Note | null = null;
+  try {
+    localNote = await notesService.readNote(row.path);
+  } catch {
+    localNote = null;
+  }
+
+  if (localNote && localNote.modified > row.modified_at) return false;
+
+  if (row.deleted) {
+    if (!localNote) return false;
+    await notesService.deleteNote(row.path);
+    return true;
+  }
+
+  if (localNote && localNote.modified === row.modified_at) return false;
+  await notesService.applyCloudNote(row.path, row.content, row.modified_at);
+  return true;
+}
+
+export async function syncCloudNotes(userId: string): Promise<boolean> {
+  setActiveCloudUser(userId);
+  await flushCloudQueue();
+
+  const supabase = await getSupabase();
+  const { data, error } = await supabase
+    .from("spell_notes")
+    .select("owner_id,path,content,modified_at,deleted,updated_at")
+    .order("modified_at", { ascending: true });
+  if (error) throw error;
+
+  const remoteRows = (data ?? []) as CloudNoteRow[];
+  const remoteByPath = new Map(remoteRows.map((row) => [row.path, row]));
+  const localNotes = await notesService.listNotes();
+  let localChanged = false;
+
+  for (const metadata of localNotes) {
+    const remote = remoteByPath.get(metadata.id);
+    if (!remote || metadata.modified > remote.modified_at) {
+      const note = await notesService.readNote(metadata.id);
+      queueCloudUpsert(note);
+    }
+  }
+
+  for (const remote of remoteRows) {
+    localChanged = (await applyRemoteRow(remote)) || localChanged;
+  }
+
+  await flushCloudQueue();
+  return localChanged;
+}
+
+export async function subscribeToCloudNotes(
+  userId: string,
+  onLocalChange: () => void,
+): Promise<() => Promise<void>> {
+  const supabase = await getSupabase();
+  const channel: RealtimeChannel = supabase
+    .channel(`spell-notes:${userId}`)
+    .on(
+      "postgres_changes",
+      {
+        event: "*",
+        schema: "public",
+        table: "spell_notes",
+        filter: `owner_id=eq.${userId}`,
+      },
+      (payload) => {
+        const row = payload.new as CloudNoteRow | Record<string, never>;
+        if (!("path" in row)) return;
+        void applyRemoteRow(row as CloudNoteRow).then((changed) => {
+          if (changed) onLocalChange();
+        });
+      },
+    )
+    .subscribe();
+
+  return async () => {
+    await supabase.removeChannel(channel);
+  };
+}

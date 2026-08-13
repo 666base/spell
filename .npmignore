@@ -1,0 +1,14 @@
+.env
+.env.*
+!.env.example
+
+.github/
+.idea/
+AGENTS.md
+CLAUDE.md
+CONTEXT.md
+
+node_modules/
+dist/
+src-tauri/target/
+*.log

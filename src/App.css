@@ -1,0 +1,1641 @@
+@import "tailwindcss";
+@plugin "@tailwindcss/typography";
+
+/* Use class-based dark mode instead of media query */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Theme color tokens - Light mode (default) */
+:root {
+  --color-bg: #fdfdfc;
+  --color-bg-secondary: #f7f7f5;
+  --color-bg-muted: rgba(28, 25, 23, 0.06);
+  --color-bg-emphasis: rgba(28, 25, 23, 0.09);
+  --color-text: #1c1917;
+  --color-text-muted: #78716c;
+  --color-text-inverse: #fafaf9;
+  --color-border: rgba(28, 25, 23, 0.08);
+  --color-accent: #1c1917;
+  --color-selection: rgba(250, 204, 21, 0.4); /* Tailwind yellow-400 */
+
+  /* Shared interaction language. Keep dynamic UI quick and interruptible. */
+  --motion-fast: 140ms;
+  --motion-base: 180ms;
+  --motion-slow: 240ms;
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+  --shadow-surface: 0 16px 40px rgba(28, 25, 23, 0.12), 0 2px 8px rgba(28, 25, 23, 0.06);
+
+  /* Editor font settings - simplified (overridden by ThemeContext) */
+  --editor-font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
+    Arial, sans-serif;
+  --editor-base-font-size: 16px;
+  --editor-bold-weight: 700;
+  --editor-line-height: 1.6;
+  --editor-paragraph-spacing: 1em;
+
+  /* Computed header sizes (set by ThemeContext based on base size) */
+  --editor-h1-size: 36px;
+  --editor-h2-size: 28px;
+  --editor-h3-size: 24px;
+  --editor-h4-size: 20px;
+  --editor-h5-size: 16px;
+  --editor-h6-size: 16px;
+
+  /* Syntax highlighting colors - Light (GitHub) */
+  --color-syntax-keyword: #d73a49;
+  --color-syntax-string: #032f62;
+  --color-syntax-number: #005cc5;
+  --color-syntax-comment: #6a737d;
+  --color-syntax-function: #6f42c1;
+  --color-syntax-variable: #e36209;
+  --color-syntax-type: #22863a;
+  --color-syntax-operator: #d73a49;
+  --color-syntax-attr: #005cc5;
+
+  /* Inline code color */
+  --color-code: #d73a49;
+}
+
+/* Theme color tokens - Dark mode */
+.dark {
+  --color-bg: rgb(23, 21, 20);
+  --color-bg-secondary: rgb(16, 14, 13);
+  --color-bg-muted: rgba(250, 249, 249, 0.05);
+  --color-bg-emphasis: rgba(250, 249, 249, 0.08);
+  --color-text: #fafaf9;
+  --color-text-muted: #a8a29e;
+  --color-text-inverse: #0c0a09;
+  --color-border: rgba(250, 249, 249, 0.07);
+  --color-accent: #fafaf9;
+  --color-selection: rgba(253, 224, 71, 0.35); /* Tailwind yellow-300 */
+  --shadow-surface: 0 18px 44px rgba(20, 18, 16, 0.3), 0 2px 10px rgba(20, 18, 16, 0.15);
+
+  /* Syntax highlighting colors - Dark (GitHub) */
+  --color-syntax-keyword: #ea4a5a;
+  --color-syntax-string: #79b8ff;
+  --color-syntax-number: #79b8ff;
+  --color-syntax-comment: #959da5;
+  --color-syntax-function: #b392f0;
+  --color-syntax-variable: #fb8532;
+  --color-syntax-type: #7bcc72;
+  --color-syntax-operator: #ea4a5a;
+  --color-syntax-attr: #79b8ff;
+
+  /* Inline code color */
+  --color-code: #ea4a5a;
+}
+
+/* Register theme colors with Tailwind */
+@theme {
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
+    Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+  --font-serif:
+    ui-serif, Georgia, Cambria, "Times New Roman", Times, serif,
+    "Apple Color Emoji";
+  --font-mono:
+    ui-monospace, "SF Mono", SFMono-Regular, Menlo, Monaco, "Courier New",
+    monospace;
+
+  /* Custom font sizes */
+  --text-2xs: 0.75rem; /* 12px */
+  --text-2xs--line-height: 1rem;
+  --text-xs: 0.8125rem; /* 13px */
+  --text-xs--line-height: 1.25rem;
+
+  /* Background colors */
+  --color-bg: var(--color-bg);
+  --color-bg-secondary: var(--color-bg-secondary);
+  --color-bg-muted: var(--color-bg-muted);
+  --color-bg-emphasis: var(--color-bg-emphasis);
+
+  /* Text colors */
+  --color-text: var(--color-text);
+  --color-text-muted: var(--color-text-muted);
+  --color-text-inverse: var(--color-text-inverse);
+
+  /* Border colors */
+  --color-border: var(--color-border);
+
+  /* Accent colors */
+  --color-accent: var(--color-accent);
+}
+
+/* Base styles */
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+/* Windows keeps its native title bar (no in-app titlebar spacer); a top border
+   separates the app content from the themed caption. */
+.platform-windows #root {
+  border-top: 1px solid var(--color-border);
+}
+
+/* macOS transparent title bar support */
+.titlebar-drag-region {
+  -webkit-app-region: drag;
+}
+
+.titlebar-no-drag {
+  -webkit-app-region: no-drag;
+}
+
+/* Center the wordmark against the window, never against either sidebar or
+   toolbar. No optical nudge: the title bar must retain one exact midpoint. */
+.titlebar-brand {
+  left: 50%;
+  transform: translate3d(-50%, 0, 0);
+}
+
+body {
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background: var(--color-bg-secondary);
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+/* The UI has three deliberate reading levels: 14px for primary controls,
+   13px for dense navigation, and 11px for supporting metadata. Menus use the
+   middle level so they feel precise without looking cramped. */
+.spell-menu {
+  min-width: 11rem;
+  padding: 0.25rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0.625rem;
+  background: var(--color-bg);
+  box-shadow: var(--shadow-surface);
+  color: var(--color-text);
+  font-size: 0.8125rem;
+  line-height: 1rem;
+  letter-spacing: -0.005em;
+}
+
+.spell-menu-item {
+  display: flex;
+  width: 100%;
+  min-height: 1.875rem;
+  align-items: center;
+  gap: 0.5rem;
+  border-radius: 0.375rem;
+  padding: 0.375rem 0.5rem;
+  color: var(--color-text);
+  text-align: left;
+  font-size: inherit;
+  font-weight: 500;
+  line-height: inherit;
+  outline: none;
+  transition: background-color var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out);
+}
+
+.spell-menu-item:hover,
+.spell-menu-item:focus,
+.spell-menu-item[data-highlighted] {
+  background: var(--color-bg-muted);
+}
+
+.spell-menu-item-danger {
+  color: #e11d48;
+}
+
+.spell-menu-item-danger:hover,
+.spell-menu-item-danger:focus,
+.spell-menu-item-danger[data-highlighted] {
+  background: color-mix(in srgb, #f43f5e 10%, transparent);
+  color: #e11d48;
+}
+
+.spell-menu-separator {
+  height: 1px;
+  margin: 0.25rem 0.125rem;
+  background: var(--color-border);
+}
+
+.spell-menu-shortcut {
+  margin-left: auto;
+  padding-left: 1.25rem;
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  line-height: 1rem;
+  letter-spacing: -0.02em;
+  white-space: nowrap;
+}
+
+/* Editor suggestions share the exact surface and selection language of
+   context menus. Their richer rows only add a little vertical room for a
+   description; they are not separate floating-card components. */
+.spell-suggestion-menu {
+  max-height: min(22rem, calc(100vh - 2rem));
+  overflow-y: auto;
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  transform-origin: top left;
+  transition: opacity var(--motion-fast) var(--ease-out), transform var(--motion-fast) var(--ease-out);
+
+  @starting-style {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.985);
+  }
+}
+
+.spell-suggestion-item {
+  min-height: 2.75rem;
+  padding: 0.375rem 0.5rem;
+}
+
+.spell-suggestion-empty {
+  padding: 0.5rem;
+  color: var(--color-text-muted);
+  font-size: inherit;
+  line-height: 1.25rem;
+}
+
+/* Dropdowns use the same measured menu geometry as context menus instead of
+   delegating their open state and option list to the operating system. */
+.spell-select-trigger[data-open="true"] {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-accent) 15%, transparent);
+}
+
+.spell-select-chevron {
+  transform-origin: center;
+  transition: transform var(--motion-fast) var(--ease-out);
+}
+
+.spell-select-trigger[data-open="true"] .spell-select-chevron {
+  transform: rotate(180deg);
+}
+
+.spell-select-menu {
+  min-width: var(--radix-dropdown-menu-trigger-width);
+  max-width: min(20rem, var(--radix-dropdown-menu-content-available-width));
+  max-height: min(18rem, var(--radix-dropdown-menu-content-available-height));
+  overflow-y: auto;
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  transform-origin: var(--radix-dropdown-menu-content-transform-origin, center);
+  transition: opacity var(--motion-fast) var(--ease-out), transform var(--motion-fast) var(--ease-out);
+
+  @starting-style {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.985);
+  }
+}
+
+.spell-select-option {
+  justify-content: space-between;
+}
+
+.spell-select-option[data-disabled] {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+@media (pointer: coarse) {
+  .spell-menu-item {
+    min-height: 2.25rem;
+    padding-top: 0.5rem;
+    padding-bottom: 0.5rem;
+  }
+
+  .spell-suggestion-item {
+    min-height: 3rem;
+  }
+}
+
+button,
+[role="button"] {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Controls acknowledge a pointer press without adding hover bounce. Their
+   semantic state changes carry the more visible motion below. */
+.motion-interactive {
+  transition-property: background-color, border-color, color, box-shadow, opacity;
+  transition-duration: var(--motion-fast);
+  transition-timing-function: var(--ease-out);
+}
+
+button.motion-interactive:not(:disabled):active,
+[role="button"].motion-interactive:not([aria-disabled="true"]):active {
+  opacity: 0.78;
+  transition-duration: 100ms;
+}
+
+/* The task panel is a parallel workspace, not a blocking modal. Its quiet,
+   short entrance preserves the board as the point of reference. */
+.kanban-task-panel {
+  opacity: 1;
+  transform: translateX(0);
+  transition: transform 220ms var(--ease-drawer), opacity var(--motion-base) var(--ease-out);
+
+  @starting-style {
+    opacity: 0;
+    transform: translateX(16px);
+  }
+}
+
+/* Kanban motion is structural: a card lands after a drop, a destination
+   acknowledges it, and a newly created task enters from its insertion point. */
+.kanban-column {
+  transition: background-color var(--motion-fast) var(--ease-out), box-shadow var(--motion-fast) var(--ease-out);
+}
+
+.kanban-column-over {
+  background-color: color-mix(in srgb, var(--color-bg) 70%, var(--color-accent) 3%);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 14%, transparent);
+}
+
+.kanban-card-tile {
+  transform-origin: center;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .kanban-card-tile:not(.kanban-card-enter):hover {
+    box-shadow: 0 7px 18px color-mix(in srgb, var(--color-text) 7%, transparent), 0 1px 2px color-mix(in srgb, var(--color-text) 4%, transparent);
+  }
+}
+
+.kanban-card-enter {
+  animation: kanban-card-enter var(--motion-base) var(--ease-out) both;
+}
+
+@keyframes kanban-card-enter {
+  from {
+    opacity: 0.01;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.kanban-todo-toggle {
+  transition: background-color var(--motion-fast) var(--ease-out), border-color var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kanban-task-panel {
+    transform: none;
+    transition: opacity 150ms ease-out;
+  }
+
+  .spell-select-menu {
+    transform: none;
+
+    @starting-style {
+      opacity: 0;
+      transform: none;
+    }
+  }
+
+  .spell-suggestion-menu {
+    transform: none;
+
+    @starting-style {
+      opacity: 0;
+      transform: none;
+    }
+  }
+
+  .state-checkmark-svg {
+    transition: opacity 120ms var(--ease-out);
+  }
+
+  .state-checkmark-svg :is(path, polyline, line) {
+    stroke-dashoffset: 0;
+    transition: none;
+  }
+
+  ul[data-type="taskList"] li > label input[type="checkbox"]::after {
+    transform: none;
+    transition: opacity 120ms var(--ease-out), clip-path var(--motion-fast) var(--ease-out), -webkit-clip-path var(--motion-fast) var(--ease-out);
+  }
+
+  .kanban-card-enter {
+    animation: kanban-card-fade var(--motion-fast) var(--ease-out) both;
+  }
+}
+
+@keyframes kanban-card-fade {
+  from { opacity: 0.01; }
+  to { opacity: 1; }
+}
+
+/* Lucide/Obsidian-style optical defaults for icon-only controls. */
+.ui-icon {
+  display: block;
+  flex: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  shape-rendering: geometricPrecision;
+}
+
+/* Semantic icon motion: directional disclosure, line-drawn confirmation, and
+   a small crossfade for an icon changing meaning. No spring, overshoot, or
+   hover bounce is used. */
+.state-disclosure {
+  transform-origin: center;
+  transition: transform var(--motion-fast) var(--ease-out);
+}
+
+.state-disclosure[data-open="true"],
+details[open] > summary .state-disclosure {
+  transform: rotate(90deg);
+}
+
+/* Panel controls show the window layout itself: a side rail quietly appears
+   and recedes as its sidebar changes state. */
+.state-panel-toggle {
+  display: inline-block;
+  width: 1rem;
+  height: 1rem;
+  flex: none;
+}
+
+.state-panel-toggle > svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  stroke: currentColor;
+}
+
+.titlebar-panel-control .icon-button {
+  border-color: transparent;
+  background: transparent;
+  color: var(--color-text-muted);
+}
+
+.titlebar-panel-control .icon-button:hover {
+  border-color: transparent;
+  background: transparent;
+  color: var(--color-text);
+}
+
+.state-panel-toggle-rail,
+.state-panel-toggle-divider {
+  transform-box: fill-box;
+  transform-origin: center;
+  transition:
+    opacity var(--motion-fast) var(--ease-out),
+    transform var(--motion-fast) var(--ease-out);
+}
+
+.state-panel-toggle-rail {
+  opacity: 0.28;
+}
+
+.state-panel-toggle[data-open="false"] .state-panel-toggle-rail {
+  opacity: 0;
+  transform: scaleX(0.25);
+}
+
+.state-panel-toggle[data-open="false"] .state-panel-toggle-divider {
+  opacity: 0;
+  transform: scaleX(0.25);
+}
+
+.state-checkmark {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+}
+
+.state-checkmark-svg {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  opacity: 0;
+  transition: opacity 100ms var(--ease-out);
+}
+
+.state-checkmark-svg :is(path, polyline, line) {
+  stroke-dasharray: 30;
+  stroke-dashoffset: 30;
+  transition: stroke-dashoffset var(--motion-base) var(--ease-out);
+}
+
+.state-checkmark[data-state="unchecked"] .state-checkmark-svg {
+  opacity: 0;
+}
+
+.state-checkmark[data-state="checked"] .state-checkmark-svg {
+  opacity: 1;
+}
+
+.state-checkmark[data-state="checked"] .state-checkmark-svg :is(path, polyline, line) {
+  stroke-dashoffset: 0;
+}
+
+.state-icon-swap {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+}
+
+.state-icon-swap > svg {
+  grid-area: 1 / 1;
+  transition: opacity var(--motion-fast) var(--ease-out), transform var(--motion-fast) var(--ease-out);
+}
+
+.state-icon-swap[data-state="idle"] > svg:last-child,
+.state-icon-swap[data-state="complete"] > svg:first-child {
+  opacity: 0;
+}
+
+.state-icon-swap[data-state="idle"] > svg:last-child {
+  transform: translateY(1px);
+}
+
+.state-icon-swap[data-state="complete"] > svg:first-child {
+  transform: translateY(-1px);
+}
+
+.app-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  color: var(--color-text-muted);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+
+.app-loading-mark {
+  display: grid;
+  place-items: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: 0.875rem;
+  background: var(--color-bg);
+  box-shadow: var(--shadow-surface);
+}
+
+/* Text and image selection highlight */
+::selection {
+  background-color: var(--color-selection);
+}
+
+::-moz-selection {
+  background-color: var(--color-selection);
+}
+
+/* Keep every surface scrollable without showing browser-native scrollbars. */
+* {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+*::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+/* Keep layout width stable when vertical scrollbar appears */
+.scrollbar-gutter-stable {
+  scrollbar-gutter: stable;
+}
+
+/* Link tooltip in editor */
+.prose a {
+  position: relative;
+}
+
+.prose a::after {
+  content: "Ctrl + click to open";
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 0.25rem 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 400;
+  color: var(--color-text-inverse);
+  background-color: var(--color-text);
+  border-radius: 0.25rem;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s;
+  margin-bottom: 0.25rem;
+  z-index: 50;
+}
+
+/* Mac-specific tooltip */
+.platform-mac .prose a::after {
+  content: "⌘ + click to open";
+}
+
+.prose a:hover::after {
+  opacity: 1;
+}
+
+/* Smooth theme transitions */
+html {
+  color-scheme: light;
+}
+
+html.dark {
+  color-scheme: dark;
+}
+
+/* Desktop panels move from their own edge. The layout only releases their
+   space after the visual exit has completed, keeping motion on the compositor
+   and making rapid toggles reverse naturally. */
+.app-sidebar-panel,
+.app-right-sidebar-panel,
+.app-titlebar-sidebar-panel {
+  transition:
+    transform var(--motion-slow) var(--ease-drawer),
+    opacity var(--motion-fast) var(--ease-out);
+}
+
+.app-sidebar-panel[data-state="closed"],
+.app-titlebar-sidebar-panel[data-state="closed"] {
+  opacity: 0;
+  transform: translate3d(-100%, 0, 0);
+}
+
+.app-right-sidebar-panel[data-state="closed"] {
+  opacity: 0;
+  transform: translate3d(100%, 0, 0);
+}
+
+@keyframes spin-slow {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-spin-slow {
+  animation: spin-slow 2s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+
+  .animate-spin-slow {
+    animation: none;
+  }
+}
+
+/* Finance detail panes are part of the workspace. They arrive from their
+   own edge rather than appearing as floating dialog boxes. */
+.workspace-detail-panel {
+  opacity: 1;
+  transform: translateX(0);
+  transition:
+    transform 220ms var(--ease-drawer),
+    opacity var(--motion-base) var(--ease-out);
+
+  @starting-style {
+    opacity: 0;
+    transform: translateX(18px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .workspace-detail-panel {
+    transform: none;
+    transition: opacity 150ms var(--ease-out);
+
+    @starting-style {
+      opacity: 0;
+      transform: none;
+    }
+  }
+}
+
+/* Editor layout - max-width from settings */
+.ProseMirror {
+  max-width: var(--editor-max-width, 48rem) !important;
+  margin-left: auto;
+  margin-right: auto;
+  min-height: calc(100vh - 150px);
+  outline: none;
+}
+
+@media (max-width: 767px) {
+  .ProseMirror {
+    max-width: 100% !important;
+    min-height: calc(100dvh - 9rem);
+    padding: 1.75rem 1.125rem 8rem !important;
+  }
+
+  .prose {
+    font-size: max(var(--editor-base-font-size), 16px);
+  }
+
+  .prose h1 {
+    font-size: clamp(1.9rem, 8vw, var(--editor-h1-size));
+    letter-spacing: -0.035em;
+  }
+
+  .prose h2,
+  .prose h3 {
+    letter-spacing: -0.025em;
+  }
+}
+
+/* Editor font customization - simplified */
+.prose {
+  font-family: var(--editor-font-family);
+  font-size: var(--editor-base-font-size);
+  font-weight: 400;
+  line-height: var(--editor-line-height);
+  color: var(--color-text);
+}
+
+/* Ensure prose text color follows theme in dark mode */
+.prose
+  :where(p, li, blockquote, code, pre, td, th):not(
+    :where([class~="not-prose"], [class~="not-prose"] *)
+  ) {
+  color: var(--color-text);
+}
+
+.prose
+  :where(h1, h2, h3, h4, h5, h6):not(
+    :where([class~="not-prose"], [class~="not-prose"] *)
+  ) {
+  color: var(--color-text);
+}
+
+/* Headings - all use the same font family with computed sizes */
+.prose h1 {
+  font-family: var(--editor-font-family);
+  font-size: var(--editor-h1-size);
+  font-weight: var(--editor-bold-weight);
+  line-height: 1.2;
+  margin-top: 1em;
+  margin-bottom: 0.35em;
+}
+
+.prose h2 {
+  font-family: var(--editor-font-family);
+  font-size: var(--editor-h2-size);
+  font-weight: var(--editor-bold-weight);
+  line-height: 1.3;
+  margin-top: 1em;
+  margin-bottom: 0.35em;
+}
+
+.prose h3 {
+  font-family: var(--editor-font-family);
+  font-size: var(--editor-h3-size);
+  font-weight: var(--editor-bold-weight);
+  line-height: 1.3;
+  margin-top: 1em;
+  margin-bottom: 0.5em;
+}
+
+.prose h4 {
+  font-family: var(--editor-font-family);
+  font-size: var(--editor-h4-size);
+  font-weight: var(--editor-bold-weight);
+  line-height: 1.3;
+  margin-top: 1.25em;
+  margin-bottom: 0.5em;
+}
+
+.prose h5,
+.prose h6 {
+  font-family: var(--editor-font-family);
+  font-size: var(--editor-h5-size);
+  font-weight: var(--editor-bold-weight);
+  line-height: 1.3;
+  margin-top: 0.5em;
+  margin-bottom: 0.25em;
+}
+
+/* Bold text uses the same weight as headings */
+.prose strong,
+.prose b {
+  font-weight: var(--editor-bold-weight);
+  color: var(--color-text);
+}
+
+/* Code blocks and inline code */
+.prose :where(code):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+  color: var(--color-code);
+  background-color: var(--color-bg-muted);
+  padding: 0.15em 0.3em;
+  border-radius: 0.25rem;
+  font-size: 0.875em;
+  font-weight: 500;
+}
+
+/* Remove backticks from inline code */
+.prose
+  :where(code):not(
+    :where([class~="not-prose"], [class~="not-prose"] *)
+  )::before,
+.prose
+  :where(code):not(
+    :where([class~="not-prose"], [class~="not-prose"] *)
+  )::after {
+  content: "";
+}
+
+/* Code blocks via NodeView wrapper */
+.code-block-wrapper {
+  position: relative;
+  margin: 1em 0;
+}
+
+.code-block-wrapper pre {
+  background-color: var(--color-bg-muted);
+  color: var(--color-text);
+  border-radius: 0.5rem;
+  padding: 2rem 1rem 0.75rem;
+  overflow-x: auto;
+}
+
+.code-block-wrapper pre code {
+  background-color: transparent;
+  color: var(--color-text);
+  padding: 0;
+  font-size: 0.933em;
+  font-weight: 400;
+}
+
+/* Language selector */
+.code-block-language-selector {
+  position: absolute;
+  top: 0.375rem;
+  right: 0.5rem;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  opacity: 0.5;
+  transition: opacity 0.15s;
+}
+
+.code-block-wrapper:hover .code-block-language-selector,
+.code-block-language-selector:focus-within {
+  opacity: 1;
+}
+
+/* Mermaid diagram */
+.mermaid-wrapper {
+  margin: 1em 0;
+  position: relative;
+}
+
+.mermaid-diagram svg {
+  max-width: 100%;
+  height: auto;
+}
+
+/* Syntax highlighting tokens */
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-built_in {
+  color: var(--color-syntax-keyword);
+}
+
+.hljs-string,
+.hljs-doctag,
+.hljs-regexp {
+  color: var(--color-syntax-string);
+}
+
+.hljs-number,
+.hljs-literal {
+  color: var(--color-syntax-number);
+}
+
+.hljs-comment {
+  color: var(--color-syntax-comment);
+  font-style: italic;
+}
+
+.hljs-function,
+.hljs-title.function_ {
+  color: var(--color-syntax-function);
+}
+
+.hljs-variable,
+.hljs-template-variable,
+.hljs-tag {
+  color: var(--color-syntax-variable);
+}
+
+.hljs-type,
+.hljs-title.class_ {
+  color: var(--color-syntax-type);
+}
+
+.hljs-meta,
+.hljs-symbol {
+  color: var(--color-syntax-operator);
+}
+
+.hljs-attr,
+.hljs-attribute,
+.hljs-params {
+  color: var(--color-syntax-attr);
+}
+
+.hljs-section,
+.hljs-name {
+  color: var(--color-syntax-variable);
+}
+
+.hljs-deletion {
+  color: var(--color-syntax-variable);
+  background-color: rgba(224, 108, 117, 0.1);
+}
+
+.hljs-addition {
+  color: var(--color-syntax-string);
+  background-color: rgba(152, 195, 121, 0.1);
+}
+
+.hljs-emphasis {
+  font-style: italic;
+}
+
+.hljs-strong {
+  font-weight: var(--editor-bold-weight);
+}
+
+/* Fallback for code blocks not using NodeView (e.g. frontmatter pre) */
+.prose
+  :where(pre):not(
+    :where(
+      .code-block-wrapper pre,
+      [class~="not-prose"],
+      [class~="not-prose"] *
+    )
+  ) {
+  background-color: var(--color-bg-muted);
+  color: var(--color-text);
+  border-radius: 0.5rem;
+  padding: 0.75rem 1rem;
+  overflow-x: auto;
+}
+
+.prose
+  :where(pre code):not(
+    :where(
+      .code-block-wrapper pre code,
+      [class~="not-prose"],
+      [class~="not-prose"] *
+    )
+  ) {
+  background-color: transparent;
+  padding: 0;
+  font-size: 0.933em;
+  font-weight: 400;
+}
+
+/* KaTeX math */
+.prose .tiptap-mathematics-render {
+  color: var(--color-text);
+}
+
+.prose .tiptap-mathematics-render[data-type="block-math"] {
+  display: block;
+  margin: 0.75rem 0;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.5rem;
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+.prose
+  .tiptap-mathematics-render[data-type="block-math"].ProseMirror-selectednode {
+  outline: 2px solid var(--color-bg-emphasis);
+  outline-offset: 2px;
+  border-radius: 0.25rem;
+}
+
+.prose .tiptap-mathematics-render--editable {
+  cursor: pointer;
+}
+
+.prose .katex-display {
+  margin: 0;
+}
+
+.prose .block-math-error {
+  color: #dc2626;
+  font-family: var(--font-mono);
+}
+
+/* Frontmatter block (YAML metadata) — must follow generic pre rules */
+.prose
+  :where(pre.frontmatter):not(
+    :where([class~="not-prose"], [class~="not-prose"] *)
+  ) {
+  background-color: var(--color-bg-muted);
+  color: var(--color-text-muted);
+  border: 1px dashed var(--color-border);
+  border-radius: 0.5rem;
+  padding: 0.75rem 1rem;
+  white-space: pre-wrap;
+  overflow-x: auto;
+}
+
+/* Links - solid bottom border, muted at rest */
+.prose :where(a):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+  color: var(--color-text);
+  text-decoration: none;
+  font-weight: 500;
+  border-bottom: 1px solid currentcolor;
+  transition: color 0.15s;
+}
+.prose
+  :where(a):not(:where([class~="not-prose"], [class~="not-prose"] *)):hover {
+  color: var(--color-text-muted);
+}
+
+/* Wikilinks - dashed bottom border to distinguish from external links */
+.prose span[data-wikilink] {
+  color: var(--color-text);
+  text-decoration: none;
+  font-weight: 500;
+  border-bottom: 1px dashed currentcolor;
+  cursor: pointer;
+  transition: color 0.15s;
+}
+.prose span[data-wikilink]:hover {
+  color: var(--color-text-muted);
+}
+
+/* Blockquotes */
+.prose
+  :where(blockquote):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+  color: var(--color-text-muted);
+  border-left-color: var(--color-border);
+  border-inline-start-color: var(--color-border);
+}
+
+/* Search match highlighting - uses the selection color */
+.search-match {
+  background-color: color-mix(in srgb, var(--color-selection), transparent 50%);
+}
+.search-match-active {
+  background-color: var(--color-selection);
+}
+
+/* Horizontal rules */
+.prose :where(hr):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+  border-color: color-mix(in srgb, var(--color-text) 15%, transparent);
+  margin-top: 1.75em;
+  margin-bottom: 1.75em;
+}
+
+/* Prose spacing - fixed paragraph spacing */
+.prose p {
+  margin-top: 0;
+  margin-bottom: var(--editor-paragraph-spacing);
+}
+
+.prose ul,
+.prose ol {
+  margin-top: 0;
+  margin-bottom: var(--editor-paragraph-spacing);
+  padding-left: 1.25em;
+  padding-inline-start: 1.25em;
+}
+
+/* Remove extra margins from nested lists */
+.prose li > ul,
+.prose li > ol {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+
+.prose li {
+  margin-top: 0;
+  margin-bottom: 0;
+  padding-left: 0.25em;
+  padding-inline-start: 0.25em;
+}
+
+/* List markers - use muted stone color */
+.prose :where(ul > li)::marker {
+  color: var(--color-text-muted);
+}
+
+.prose :where(ol > li)::marker {
+  color: var(--color-text-muted);
+}
+
+.prose li > p {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+
+.prose > :first-child {
+  margin-top: 0;
+}
+
+.prose > :last-child {
+  margin-bottom: 0;
+}
+
+/* Task list checkbox styles */
+ul[data-type="taskList"] {
+  list-style: none;
+  padding-left: 0 !important;
+  padding-inline-start: 0 !important;
+  margin-top: 0.5em;
+  margin-bottom: 0.5em;
+}
+
+ul[data-type="taskList"] li {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0;
+}
+
+ul[data-type="taskList"] li > label {
+  flex-shrink: 0;
+  user-select: none;
+  display: flex;
+  align-items: center;
+  height: 1.6em; /* Match text line height */
+}
+
+ul[data-type="taskList"] li > label input[type="checkbox"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 1rem;
+  height: 1rem;
+  margin: 0;
+  border: 1.5px solid color-mix(in srgb, var(--color-text) 25%, transparent);
+  border-radius: 3px;
+  background-color: transparent;
+  cursor: pointer;
+  position: relative;
+  flex-shrink: 0;
+  transition: background-color var(--motion-fast) var(--ease-out), border-color var(--motion-fast) var(--ease-out);
+}
+
+ul[data-type="taskList"] li > label input[type="checkbox"]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-text-inverse);
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 12 12' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M2.5 6L5 8.5L9.5 3.5' stroke='black' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  -webkit-mask-size: 10px;
+  -webkit-mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  -webkit-clip-path: inset(0 100% 0 0);
+  mask-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 12 12' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M2.5 6L5 8.5L9.5 3.5' stroke='black' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  mask-size: 10px;
+  mask-repeat: no-repeat;
+  mask-position: center;
+  clip-path: inset(0 100% 0 0);
+  transform: scale(0.92);
+  transform-origin: center;
+  transition: opacity 100ms var(--ease-out), transform var(--motion-fast) var(--ease-out), clip-path var(--motion-base) var(--ease-out), -webkit-clip-path var(--motion-base) var(--ease-out);
+}
+
+ul[data-type="taskList"] li > label input[type="checkbox"]:checked {
+  background-color: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+ul[data-type="taskList"] li > label input[type="checkbox"]:checked::after {
+  opacity: 1;
+  transform: scale(1);
+  -webkit-clip-path: inset(0 0 0 0);
+  clip-path: inset(0 0 0 0);
+}
+
+ul[data-type="taskList"] li > div {
+  flex: 1;
+  min-width: 0;
+}
+
+ul[data-type="taskList"] li > div > p {
+  margin: 0;
+}
+
+ul[data-type="taskList"] li[data-checked="true"] > div {
+  text-decoration: line-through;
+  opacity: 0.6;
+}
+
+/* Task list spacing - breathing room between items */
+ul[data-type="taskList"] > li {
+  padding-top: 0.125em;
+  padding-bottom: 0.125em;
+}
+
+/* Space around nested task lists */
+ul[data-type="taskList"] ul[data-type="taskList"] {
+  margin-top: 0.2em; /* Space between parent text and first child */
+  margin-bottom: 0em; /* Small space after last child */
+}
+
+/* Table styles */
+.prose table,
+table.not-prose {
+  display: block;
+  width: max-content;
+  max-width: 100%;
+  overflow-x: auto;
+  border: 1px solid color-mix(in srgb, var(--color-text) 15%, transparent);
+  border-radius: 6px;
+  border-collapse: separate;
+  border-spacing: 0;
+  margin-top: 1em;
+  margin-bottom: 1em;
+  font-size: var(--editor-base-font-size);
+  color: var(--color-text);
+  /* Hide scrollbar but keep horizontal scrolling */
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE/Edge */
+}
+
+.prose table::-webkit-scrollbar,
+table.not-prose::-webkit-scrollbar {
+  display: none; /* Chrome/Safari */
+}
+
+.prose table th,
+.prose table td,
+table.not-prose th,
+table.not-prose td {
+  border: 0;
+  border-right: 1px solid color-mix(in srgb, var(--color-text) 15%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--color-text) 15%, transparent);
+  padding: 0.5em 0.75em;
+  text-align: left;
+  vertical-align: top;
+  min-width: 120px;
+}
+
+/* Avoid double lines with separate border model */
+.prose table th:last-child,
+.prose table td:last-child,
+table.not-prose th:last-child,
+table.not-prose td:last-child {
+  border-right: none;
+}
+
+.prose table tr:last-child th,
+.prose table tr:last-child td,
+table.not-prose tr:last-child th,
+table.not-prose tr:last-child td {
+  border-bottom: none;
+}
+
+.prose table th,
+table.not-prose th {
+  font-weight: var(--editor-bold-weight);
+  background-color: var(--color-bg-muted);
+}
+
+/* Remove all margins inside table cells - cell padding handles spacing */
+.prose table td > *,
+.prose table th > *,
+table.not-prose td > *,
+table.not-prose th > * {
+  margin: 0;
+}
+
+/* TipTap table selection styles */
+.selectedCell::after {
+  z-index: 2;
+  position: absolute;
+  content: "";
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  background: var(--color-selection);
+  pointer-events: none;
+}
+
+/* stylelint-disable selector-class-pattern */
+
+/* Table wrapper - scrollable container with border (class name generated by TipTap) */
+.tableWrapper {
+  margin: 1em 0;
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  border: none;
+  border-radius: 0;
+
+  /* Hide scrollbar but keep scrollability */
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE/Edge */
+}
+
+.tableWrapper::-webkit-scrollbar {
+  display: none; /* Chrome/Safari */
+}
+
+.tableWrapper table {
+  margin: 0;
+  width: max-content !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+}
+
+/* stylelint-enable selector-class-pattern */
+
+.prose table td,
+.prose table th,
+table.not-prose td,
+table.not-prose th {
+  position: relative;
+}
+
+/* Radix UI tooltip animations */
+/* Suppress all transitions during interface zoom changes */
+.zoom-no-transition *,
+.zoom-no-transition *::before,
+.zoom-no-transition *::after {
+  transition: none !important;
+}
+
+/* Suppress sidebar transition during drag resize */
+.sidebar-no-transition [data-sidebar] {
+  transition: none !important;
+}
+
+/* Print styles for clean PDF export */
+@page {
+  margin: 0.75in;
+}
+
+@media print {
+  /* Disable all transitions to prevent color flashing after print */
+  *,
+  *::before,
+  *::after {
+    transition: none !important;
+    animation: none !important;
+  }
+
+  /* Force white background and black text for printing - only for visible content */
+  body,
+  #root,
+  .prose,
+  .prose *,
+  .ProseMirror,
+  .ProseMirror * {
+    background: white !important;
+    color: black !important;
+    box-shadow: none !important;
+  }
+
+  /* Remove all height/overflow constraints to allow multi-page printing */
+  html,
+  body,
+  #root,
+  #root > div,
+  #root > div > div,
+  .flex-1,
+  .flex-1 > div {
+    height: auto !important;
+    overflow: visible !important;
+    max-height: none !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    border: none !important;
+    border-top: none !important;
+    border-bottom: none !important;
+    border-left: none !important;
+    border-right: none !important;
+    outline: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  /* Hide sidebar when printing */
+  [data-sidebar] {
+    display: none !important;
+  }
+
+  /* Hide all UI elements - only show editor content */
+  [data-tauri-drag-region],
+  button,
+  .dropdown,
+  .tooltip,
+  .toast,
+  .modal,
+  .dialog,
+  [role="dialog"],
+  [data-radix-portal],
+  nav,
+  header,
+  footer {
+    display: none !important;
+  }
+
+  /* Hide toolbar and format bar when printing */
+  [data-tauri-drag-region],
+  [data-format-bar] {
+    display: none !important;
+  }
+
+  /* Make editor container expand for printing */
+  .flex-1 {
+    overflow: visible !important;
+    height: auto !important;
+  }
+
+  /* The editor content area and scroll container use absolute positioning
+     which collapses to zero height in print. Switch to static flow. */
+  [data-editor-content-area] {
+    position: static !important;
+    overflow: visible !important;
+    height: auto !important;
+  }
+
+  [data-editor-scroll] {
+    position: static !important;
+    overflow: visible !important;
+    height: auto !important;
+  }
+
+  /* Make editor full width for printing and remove editor padding */
+  .ProseMirror {
+    max-width: 100% !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    overflow: visible !important;
+    height: auto !important;
+    overflow-wrap: break-word !important;
+  }
+
+  .prose {
+    max-width: 100% !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    overflow-wrap: break-word !important;
+  }
+
+  /* Ensure page breaks work well */
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    page-break-after: avoid;
+    break-after: avoid;
+  }
+
+  p,
+  blockquote,
+  pre,
+  table {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  /* Preserve code block background for printing */
+  .code-block-wrapper pre {
+    background: #f5f5f5 !important;
+    color: black !important;
+  }
+
+  /* Hide language selector in print */
+  .code-block-language-selector,
+  .code-block-mermaid-btn {
+    display: none !important;
+  }
+
+  /* Mermaid diagrams: avoid page breaks */
+  .mermaid-diagram svg {
+    max-width: 100% !important;
+    break-inside: avoid;
+  }
+
+  /* Ensure links are underlined and show URL */
+  a {
+    text-decoration: underline !important;
+    color: black !important;
+  }
+
+  /* Hide link tooltips when printing */
+  a::after {
+    display: none !important;
+  }
+
+  /* Render wikilinks as regular text when printing */
+  .prose span[data-wikilink],
+  .prose span[data-wikilink]:hover {
+    border-bottom: none !important;
+    cursor: default !important;
+    color: black !important;
+    text-decoration: none !important;
+  }
+
+  /* Make code blocks readable */
+  code,
+  pre {
+    background: #f5f5f5 !important;
+    border: none !important;
+    color: black !important;
+  }
+
+  /* Table borders for printing - subtle styling with outer border */
+  table {
+    border: 1px solid #d0d0d0 !important;
+    border-collapse: collapse !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    table-layout: fixed !important;
+    overflow-wrap: break-word !important;
+  }
+
+  th,
+  td {
+    border: none !important;
+    border-bottom: 1px solid #e5e5e5 !important;
+  }
+
+  th {
+    background: #fafafa !important;
+    border-bottom: 1px solid #d0d0d0 !important;
+  }
+
+  /* Remove border from last row */
+  tr:last-child td {
+    border-bottom: none !important;
+  }
+
+  /* Remove task list checkboxes for printing (show as bullet list) */
+  ul[data-type="taskList"] input[type="checkbox"] {
+    display: none !important;
+  }
+
+  /* Ensure images fit on page */
+  img {
+    max-width: 100% !important;
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+}
+
+/*
+ * Fix: Radix context menu auto-selects first item at zoom < 100%.
+ * At non-100% zoom, the pointerup from the right-click lands on the first
+ * menu item due to coordinate mismatch. Briefly disabling pointer-events
+ * ensures the stale pointerup is ignored.
+ */
+[data-spell-context-menu][data-state="open"] {
+  pointer-events: none;
+  animation: radixMenuEnablePointer 100ms linear forwards;
+}
+
+@keyframes radixMenuEnablePointer {
+  0%,
+  99% {
+    pointer-events: none;
+  }
+  100% {
+    pointer-events: auto;
+  }
+}
