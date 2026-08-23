@@ -11,11 +11,7 @@ import {
 } from "../icons/velocity";
 import { cn } from "../../lib/utils";
 
-interface FooterProps {
-  onOpenSettings?: () => void;
-}
-
-export const Footer = memo(function Footer({}: FooterProps) {
+export const Footer = memo(function Footer() {
   const {
     status,
     isLoading,

@@ -1,121 +1,179 @@
 import { useState, useEffect, useRef } from "react";
 import {
-  ArrowLeftIcon,
-  FolderIcon,
-  SwatchIcon,
+  AccountIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
   IntegrationsIcon,
+  SettingsIcon,
+  SwatchIcon,
 } from "../icons/velocity";
-import { Button, IconButton } from "../ui";
+import { IconButton } from "../ui";
+import { cn } from "../../lib/utils";
+import { AccountSettingsSection } from "./AccountSettingsSection";
 import { GeneralSettingsSection } from "./GeneralSettingsSection";
-import { AppearanceSettingsSection } from "./EditorSettingsSection";
+import { AppearanceSettingsSection } from "./AppearanceSettingsSection";
 import { ToolsSettingsSection } from "./ToolsSettingsSection";
-import { isWindows } from "../../lib/platform";
+import { isMac } from "../../lib/platform";
+import { WindowControls } from "../layout/WindowControls";
 
 interface SettingsPageProps {
   onBack: () => void;
+  compact?: boolean;
 }
 
-type SettingsTab = "general" | "tools" | "editor";
+type SettingsTab = "account" | "general" | "appearance" | "plugins";
 
 const tabs: {
   id: SettingsTab;
   label: string;
-  icon: typeof FolderIcon;
+  icon: typeof AccountIcon;
 }[] = [
-  { id: "general", label: "General", icon: FolderIcon },
-  { id: "tools", label: "Integrations", icon: IntegrationsIcon },
-  { id: "editor", label: "Appearance", icon: SwatchIcon },
+  { id: "account", label: "Account", icon: AccountIcon },
+  { id: "general", label: "General", icon: SettingsIcon },
+  { id: "appearance", label: "Appearance", icon: SwatchIcon },
+  { id: "plugins", label: "Plugins", icon: IntegrationsIcon },
 ];
 
-export function SettingsPage({ onBack }: SettingsPageProps) {
-  const [activeTab, setActiveTab] = useState<SettingsTab>("general");
+export function SettingsPage({ onBack, compact = false }: SettingsPageProps) {
+  const [activeTab, setActiveTab] = useState<SettingsTab>("account");
+  const [section, setSection] = useState<SettingsTab | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
-  // Reset scroll position when tab changes
   useEffect(() => {
     if (scrollContainerRef.current) {
       scrollContainerRef.current.scrollTop = 0;
     }
-  }, [activeTab]);
+  }, [activeTab, section]);
 
-  // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.metaKey || e.ctrlKey) {
-        if (e.key === "1") {
-          e.preventDefault();
-          setActiveTab("general");
-        } else if (e.key === "2") {
-          e.preventDefault();
-          setActiveTab("tools");
-        } else if (e.key === "3") {
-          e.preventDefault();
-          setActiveTab("editor");
-        }
-      }
+      if (!(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey) return;
+      const index = Number(e.key) - 1;
+      const tab = tabs[index];
+      if (!tab) return;
+      e.preventDefault();
+      setActiveTab(tab.id);
+      setSection(tab.id);
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
-  return (
-    <div className="h-full flex flex-col md:flex-row bg-bg w-full">
-      {/* Sidebar - matches main Notes sidebar */}
-      <div className="w-full md:w-64 h-auto md:h-full bg-bg-secondary border-b md:border-b-0 md:border-r border-border flex flex-col select-none shrink-0">
-        {/* Drag region */}
-        {!isWindows && <div className="hidden md:block h-11 shrink-0" data-tauri-drag-region></div>}
+  const body = (tab: SettingsTab) => (
+    <>
+      {tab === "account" && <AccountSettingsSection />}
+      {tab === "general" && <GeneralSettingsSection />}
+      {tab === "appearance" && <AppearanceSettingsSection />}
+      {tab === "plugins" && <ToolsSettingsSection />}
+    </>
+  );
 
-        {/* Header with back button and Settings title */}
-        <div className={`flex items-center justify-between px-3 py-2 md:pb-2 border-b border-border shrink-0${isWindows ? " md:pt-2" : ""}`}>
-          <div className="flex items-center gap-1">
-            <IconButton
-              onClick={onBack}
-              title="Back"
+  if (compact) {
+    const open = section ? tabs.find((tab) => tab.id === section) : null;
+    return (
+      <div className="mobile-settings">
+        <header className="mobile-nav">
+          <div className="mobile-nav-side">
+            <button
+              type="button"
+              className="mobile-nav-back"
+              onClick={open ? () => setSection(null) : onBack}
             >
-              <ArrowLeftIcon className="w-4.5 h-4.5 stroke-[1.5]" />
+              <ChevronLeftIcon className="mobile-nav-back-icon" />
+              <span>{open ? "Settings" : "Folders"}</span>
+            </button>
+          </div>
+          <div className="mobile-nav-title">{open ? open.label : "Settings"}</div>
+          <div className="mobile-nav-side mobile-nav-side-end" />
+        </header>
+        <div ref={scrollContainerRef} className="mobile-scroll">
+          {open ? (
+            <div className="mobile-settings-section">{body(open.id)}</div>
+          ) : (
+            <section className="mobile-group">
+              <div className="mobile-group-card">
+                {tabs.map((tab) => {
+                  const Icon = tab.icon;
+                  return (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      className="mobile-folder-row"
+                      onClick={() => setSection(tab.id)}
+                    >
+                      <span className="mobile-folder-icon">
+                        <Icon />
+                      </span>
+                      <span className="mobile-folder-label">{tab.label}</span>
+                      <ChevronRightIcon className="mobile-folder-chevron" />
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex h-full w-full bg-bg">
+      <aside className="flex w-full shrink-0 select-none flex-col border-b border-border bg-bg-secondary md:h-full md:w-64 md:border-b-0 md:border-r">
+        <div
+          className={cn(
+            "app-titlebar flex h-11 shrink-0 items-center gap-1 px-1.5",
+            isMac && "pl-20",
+          )}
+          data-tauri-drag-region
+        >
+          <div className="titlebar-no-drag flex items-center gap-1">
+            <IconButton size="sm" title="Back" onClick={onBack}>
+              <ChevronLeftIcon />
             </IconButton>
-            <div className="font-medium text-base">Settings</div>
+            <span className="text-[13px] font-semibold text-text">Settings</span>
           </div>
         </div>
 
-        {/* Navigation tabs */}
-        <nav className="p-2 flex flex-row md:flex-col gap-1 overflow-x-auto md:overflow-y-auto">
+        <nav className="flex flex-row gap-1 overflow-x-auto p-2 md:flex-col md:overflow-y-auto">
           {tabs.map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
             return (
-              <Button
+              <button
                 key={tab.id}
+                type="button"
                 onClick={() => setActiveTab(tab.id)}
-                variant={isActive ? "secondary" : "ghost"}
-                size="sm"
-                className="shrink-0 justify-between gap-2.5 h-10 pr-3.5"
+                className={cn(
+                  "flex h-9 shrink-0 items-center gap-2.5 rounded-md px-2.5 text-[13px] font-medium",
+                  isActive
+                    ? "bg-bg-selected text-text"
+                    : "text-text-muted hover:bg-bg-hover hover:text-text",
+                )}
               >
-                <div className="flex items-center gap-2.5">
-                  <Icon className="w-4.5 h-4.5 stroke-[1.5]" />
-                  {tab.label}
-                </div>
-              </Button>
+                <Icon className="h-4 w-4 stroke-[1.5]" />
+                {tab.label}
+              </button>
             );
           })}
         </nav>
-      </div>
+      </aside>
 
-      {/* Main content area */}
-      <div className="flex-1 min-h-0 flex flex-col bg-bg overflow-hidden">
-        {/* Drag region */}
-        {!isWindows && <div className="hidden md:block h-11 shrink-0" data-tauri-drag-region></div>}
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-bg">
+        <div
+          className="hidden h-11 shrink-0 items-center justify-end px-1.5 md:flex"
+          data-tauri-drag-region
+        >
+          <WindowControls />
+        </div>
 
-        {/* Content - centered with max width */}
         <div
           ref={scrollContainerRef}
           className="flex-1 overflow-auto scrollbar-gutter-stable"
         >
-          <div className={`w-full max-w-3xl mx-auto px-4 md:px-6 pb-8${isWindows ? " md:pt-2" : " pt-2"}`}>
-            {activeTab === "general" && <GeneralSettingsSection />}
-            {activeTab === "tools" && <ToolsSettingsSection />}
-            {activeTab === "editor" && <AppearanceSettingsSection />}
+          <div className="mx-auto w-full max-w-3xl px-4 pb-8 pt-4 md:px-6">
+            {body(activeTab)}
           </div>
         </div>
       </div>

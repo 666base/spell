@@ -62,7 +62,7 @@ export const LinkEditor = ({
 
   return (
     <div
-      className={`flex gap-0.5 bg-bg/95 backdrop-blur-xl border border-border rounded-xl shadow-[var(--shadow-surface)] p-1.5 ${
+      className={`flex gap-0.5 bg-bg border border-border rounded-xl p-1.5 ${
         needsText ? "flex-col items-stretch" : "items-center"
       }`}
     >

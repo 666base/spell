@@ -10,17 +10,21 @@ import {
 } from "react";
 import { useNotesData } from "./NotesContext";
 import * as notesService from "../services/notes";
+import { createEmptyBoard, createBoardFromTemplate, iconForTemplate, isProjectIcon, isProjectView, normalizeBoard } from "../lib/kanban";
+import type { ProjectTemplateId } from "../lib/kanban";
 import type {
   KanbanBoard,
-  KanbanCard,
-  KanbanColumn,
   KanbanProject,
   KanbanWorkspace,
+  ProjectIconId,
 } from "../types/note";
 
 interface CreateProjectInput {
   name: string;
   client?: string;
+  template?: ProjectTemplateId;
+  icon?: ProjectIconId;
+  board?: KanbanBoard;
 }
 
 interface KanbanWorkspaceContextValue {
@@ -29,6 +33,7 @@ interface KanbanWorkspaceContextValue {
   isLoading: boolean;
   createProject: (input: CreateProjectInput) => KanbanProject;
   selectProject: (projectId: string) => void;
+  reorderProjects: (activeProjectId: string, overProjectId: string) => void;
   updateProject: (project: KanbanProject) => void;
   deleteProject: (projectId: string) => void;
 }
@@ -39,65 +44,34 @@ function makeId() {
   return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
-export function createEmptyBoard(): KanbanBoard {
-  return {
-    version: 1,
-    columns: [
-      { id: "inbox", title: "Inbox", cardIds: [] },
-      { id: "ready", title: "This week", cardIds: [] },
-      { id: "doing", title: "In progress", cardIds: [] },
-      { id: "waiting", title: "Waiting on client", cardIds: [] },
-      { id: "done", title: "Done", cardIds: [] },
-    ],
-    cards: [],
-  };
-}
-
-export function normalizeBoard(value: KanbanBoard | undefined): KanbanBoard {
-  const fallback = createEmptyBoard();
-  if (!value || value.version !== 1 || !Array.isArray(value.cards) || !Array.isArray(value.columns)) {
-    return fallback;
-  }
-
-  const cards = value.cards.filter((card): card is KanbanCard =>
-    typeof card?.id === "string" &&
-    typeof card.title === "string" &&
-    (card.priority === "high" || card.priority === "medium" || card.priority === "low"),
-  ).map((card) => ({
-    ...card,
-    todos: Array.isArray(card.todos)
-      ? card.todos.filter((todo) => typeof todo?.id === "string" && typeof todo.title === "string" && typeof todo.completed === "boolean")
-      : [],
-  }));
-  const validIds = new Set(cards.map((card) => card.id));
-  const placed = new Set<string>();
-  const columns = value.columns
-    .filter((column): column is KanbanColumn => typeof column?.id === "string" && typeof column.title === "string" && Array.isArray(column.cardIds))
-    .map((column) => ({
-      id: column.id,
-      title: column.title.trim() || "Untitled stage",
-      cardIds: column.cardIds.filter((id): id is string => typeof id === "string" && validIds.has(id) && !placed.has(id) && (placed.add(id), true)),
-    }));
-
-  if (columns.length === 0) return fallback;
-  columns[0].cardIds.push(...cards.filter((card) => !placed.has(card.id)).map((card) => card.id));
-  return { version: 1, columns, cards };
-}
-
 function makeProject(input: CreateProjectInput): KanbanProject {
   const now = Date.now();
+  const board = input.board
+    ? normalizeBoard(input.board)
+    : input.template
+      ? createBoardFromTemplate(input.template)
+      : createEmptyBoard();
   return {
     id: makeId(),
     name: input.name.trim() || "Untitled project",
     client: input.client?.trim() || "",
+    icon: input.icon ?? iconForTemplate(input.template ?? "blank"),
+    view: "list",
     createdAt: now,
     updatedAt: now,
-    board: createEmptyBoard(),
+    board,
   };
 }
 
+function emptyWorkspace(): KanbanWorkspace {
+  return { version: 2, activeProjectId: "", projects: [] };
+}
+
 function createInitialWorkspace(board?: KanbanBoard): KanbanWorkspace {
-  const project = makeProject({ name: "Client projects" });
+  if (!board || (board.columns.length === 0 && board.cards.length === 0)) {
+    return emptyWorkspace();
+  }
+  const project = makeProject({ name: "Client projects", template: "client" });
   project.board = normalizeBoard(board);
   return { version: 2, activeProjectId: project.id, projects: [project] };
 }
@@ -113,6 +87,8 @@ function normalizeWorkspace(value: KanbanWorkspace | undefined, legacyBoard?: Ka
       ...project,
       name: project.name.trim() || "Untitled project",
       client: project.client?.trim() || "",
+      icon: isProjectIcon(project.icon) ? project.icon : "briefcase",
+      view: isProjectView(project.view) ? project.view : "list",
       createdAt: Number.isFinite(project.createdAt) ? project.createdAt : Date.now(),
       updatedAt: Number.isFinite(project.updatedAt) ? project.updatedAt : Date.now(),
       board: normalizeBoard(project.board),
@@ -147,18 +123,18 @@ export function KanbanWorkspaceProvider({ children }: { children: ReactNode }) {
   const [workspace, setWorkspace] = useState<KanbanWorkspace>(createInitialWorkspace);
   const [isLoading, setIsLoading] = useState(true);
   const workspaceRef = useRef(workspace);
-  const persistQueue = useRef(Promise.resolve());
+  const persistQueue = useRef<Promise<void> | null>(null);
   const storageKey = useMemo(() => `spell:kanban-workspace:${notesFolder ?? "default"}`, [notesFolder]);
 
   useEffect(() => {
     let cancelled = false;
     setIsLoading(true);
-    notesService.getSettings()
-      .then((settings) => {
+    notesService.getKanbanData()
+      .then((data) => {
         if (!cancelled) {
           const nextWorkspace = normalizeWorkspace(
-            settings.kanbanWorkspace,
-            settings.kanbanBoard ?? undefined,
+            data,
+            data?.legacyBoard ?? undefined,
           );
           workspaceRef.current = nextWorkspace;
           setWorkspace(nextWorkspace);
@@ -183,16 +159,11 @@ export function KanbanWorkspaceProvider({ children }: { children: ReactNode }) {
   const persist = useCallback((nextWorkspace: KanbanWorkspace) => {
     workspaceRef.current = nextWorkspace;
     setWorkspace(nextWorkspace);
-    persistQueue.current = persistQueue.current
+    persistQueue.current = (persistQueue.current ?? Promise.resolve())
       .catch(() => undefined)
       .then(async () => {
         try {
-          const settings = await notesService.getSettings();
-          await notesService.updateSettings({
-            ...settings,
-            kanbanBoard: undefined,
-            kanbanWorkspace: nextWorkspace,
-          });
+          await notesService.updateKanbanData(nextWorkspace);
           window.localStorage.removeItem(storageKey);
         } catch (error) {
           console.warn("Using local project workspace storage:", error);
@@ -205,7 +176,7 @@ export function KanbanWorkspaceProvider({ children }: { children: ReactNode }) {
   const createProject = useCallback((input: CreateProjectInput) => {
     const currentWorkspace = workspaceRef.current;
     const project = makeProject(input);
-    persist({ version: 2, activeProjectId: project.id, projects: [...currentWorkspace.projects, project] });
+    persist({ version: 2, activeProjectId: project.id, projects: [project, ...currentWorkspace.projects] });
     return project;
   }, [persist]);
 
@@ -213,6 +184,20 @@ export function KanbanWorkspaceProvider({ children }: { children: ReactNode }) {
     const currentWorkspace = workspaceRef.current;
     if (!currentWorkspace.projects.some((project) => project.id === projectId) || currentWorkspace.activeProjectId === projectId) return;
     persist({ ...currentWorkspace, activeProjectId: projectId });
+  }, [persist]);
+
+  const reorderProjects = useCallback((activeProjectId: string, overProjectId: string) => {
+    if (activeProjectId === overProjectId) return;
+
+    const currentWorkspace = workspaceRef.current;
+    const fromIndex = currentWorkspace.projects.findIndex((project) => project.id === activeProjectId);
+    const toIndex = currentWorkspace.projects.findIndex((project) => project.id === overProjectId);
+    if (fromIndex < 0 || toIndex < 0) return;
+
+    const projects = [...currentWorkspace.projects];
+    const [project] = projects.splice(fromIndex, 1);
+    projects.splice(toIndex, 0, project);
+    persist({ ...currentWorkspace, projects });
   }, [persist]);
 
   const updateProject = useCallback((project: KanbanProject) => {
@@ -227,7 +212,7 @@ export function KanbanWorkspaceProvider({ children }: { children: ReactNode }) {
     const currentWorkspace = workspaceRef.current;
     const projects = currentWorkspace.projects.filter((project) => project.id !== projectId);
     if (projects.length === 0) {
-      persist(createInitialWorkspace());
+      persist(emptyWorkspace());
       return;
     }
     persist({
@@ -238,7 +223,7 @@ export function KanbanWorkspaceProvider({ children }: { children: ReactNode }) {
   }, [persist]);
 
   const activeProject = workspace.projects.find((project) => project.id === workspace.activeProjectId) ?? null;
-  const value = useMemo(() => ({ workspace, activeProject, isLoading, createProject, selectProject, updateProject, deleteProject }), [workspace, activeProject, isLoading, createProject, selectProject, updateProject, deleteProject]);
+  const value = useMemo(() => ({ workspace, activeProject, isLoading, createProject, selectProject, reorderProjects, updateProject, deleteProject }), [workspace, activeProject, isLoading, createProject, selectProject, reorderProjects, updateProject, deleteProject]);
 
   return <KanbanWorkspaceContext.Provider value={value}>{children}</KanbanWorkspaceContext.Provider>;
 }

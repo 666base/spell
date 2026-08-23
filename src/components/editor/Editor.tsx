@@ -4,6 +4,7 @@ import {
   useRef,
   useCallback,
   useState,
+  type ReactNode,
 } from "react";
 import {
   useEditor,
@@ -20,8 +21,11 @@ import TaskList from "@tiptap/extension-task-list";
 import TaskItem from "@tiptap/extension-task-item";
 import { TableKit } from "@tiptap/extension-table";
 import { Markdown } from "@tiptap/markdown";
-import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
-import { lowlight } from "./lowlight";
+import { TextStyle } from "@tiptap/extension-text-style";
+import { Color } from "@tiptap/extension-color";
+import Highlight from "@tiptap/extension-highlight";
+import Underline from "@tiptap/extension-underline";
+import CodeBlock from "@tiptap/extension-code-block";
 import { CodeBlockView } from "./CodeBlockView";
 import { Extension, InputRule } from "@tiptap/core";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
@@ -37,7 +41,8 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { join } from "@tauri-apps/api/path";
 import { toast } from "sonner";
-import { mod, isMac, isWindows } from "../../lib/platform";
+import { isMac, isMobileApp } from "../../lib/platform";
+import { playCheckAnimation } from "../../lib/checkAnimation";
 
 // Prepend https:// if no protocol is present
 function normalizeUrl(url: string): string {
@@ -69,14 +74,14 @@ import { Wikilink, type WikilinkStorage } from "./Wikilink";
 import { WikilinkSuggestion } from "./WikilinkSuggestion";
 import { EditorWidthHandles } from "./EditorWidthHandle";
 import { ScratchBlockMath, normalizeBlockMath } from "./MathExtensions";
-import { cn } from "../../lib/utils";
 import { plainTextFromMarkdown } from "../../lib/plainText";
-import { Button, Tooltip } from "../ui";
 import { downloadPdf, downloadMarkdown } from "../../services/pdf";
 import {
   SpinnerIcon,
   RefreshCwIcon,
 } from "../icons/velocity";
+import { NoteTitlebar } from "../layout/NoteTitlebar";
+import { NoNotesEmpty } from "../notes/NoNotesEmpty";
 
 function focusAndSelectTitle(editor: TiptapEditor): boolean {
   let titleFrom = -1;
@@ -175,13 +180,16 @@ export interface PreviewModeData {
 
 interface EditorProps {
   sidebarVisible?: boolean;
-  rightSidebarVisible?: boolean;
   focusMode?: boolean;
   hideTitleBar?: boolean;
   previewMode?: PreviewModeData;
   onEditorReady?: (editor: TiptapEditor | null) => void;
   onSaveToFolder?: () => void;
   saveToFolderDisabled?: boolean;
+  onToggleSidebar?: () => void;
+  onNewNote?: () => void;
+  showWindowControls?: boolean;
+  header?: ReactNode;
 }
 
 /**
@@ -239,13 +247,16 @@ function blockIndexToPos(
 
 export function Editor({
   sidebarVisible,
-  rightSidebarVisible,
   focusMode,
   hideTitleBar,
   onEditorReady,
   previewMode,
   onSaveToFolder: _onSaveToFolder,
   saveToFolderDisabled: _saveToFolderDisabled,
+  onToggleSidebar,
+  onNewNote,
+  showWindowControls = false,
+  header,
 }: EditorProps) {
   // Always call the hook (rules of hooks), but it returns null outside NotesProvider
   const notesCtx = useOptionalNotes();
@@ -268,7 +279,6 @@ export function Editor({
       }
     : notesCtx!.saveNote;
 
-  const createNote = notesCtx?.createNote;
   const consumePendingNewNote = notesCtx?.consumePendingNewNote;
   const hasExternalChanges = previewMode
     ? previewMode.hasExternalChanges
@@ -282,7 +292,6 @@ export function Editor({
   const notes = notesCtx?.notes;
   const { textDirection } = useTheme();
   const [isSaving, setIsSaving] = useState(false);
-  const [localTitle, setLocalTitle] = useState("");
   // Delay transition classes until after initial mount to avoid format bar height animation on note load
   const [hasTransitioned, setHasTransitioned] = useState(false);
   useEffect(() => {
@@ -292,9 +301,6 @@ export function Editor({
     }
   }, [hasTransitioned, currentNote]);
 
-  // Delay format bar / header transitions only when the sidebar needs to animate closed
-  const needsSidebarDelay = focusMode && sidebarVisible;
-  const isSidebarActive = sidebarVisible && !focusMode;
   // Source mode state
   const [sourceMode, setSourceMode] = useState(false);
   const [sourceContent, setSourceContent] = useState("");
@@ -374,19 +380,9 @@ export function Editor({
         // Fallback to plain text
         markdown = editorInstance.getText();
       }
-      
-      // If we have a localTitle, prepend it as an H1
-      const trimmedTitle = localTitle.trim();
-      if (trimmedTitle) {
-        // Don't double-prepend if it somehow already starts with an H1
-        // though our strip logic should prevent this
-        if (!markdown.startsWith(`# ${trimmedTitle}\n`)) {
-          markdown = `# ${trimmedTitle}\n\n${markdown}`;
-        }
-      }
       return markdown;
     },
-    [localTitle],
+    [],
   );
 
 
@@ -535,7 +531,7 @@ export function Editor({
         const markdown = getMarkdown(editorRef.current);
         await saveImmediately(savingNoteId, markdown);
       }
-    }, 500);
+    }, 300);
   }, [saveImmediately, getMarkdown, currentNote?.id]);
 
   const closeBlockMathPopup = useCallback(() => {
@@ -811,12 +807,11 @@ export function Editor({
         },
         codeBlock: false,
       }),
-      CodeBlockLowlight.extend({
+      CodeBlock.extend({
         addNodeView() {
           return ReactNodeViewRenderer(CodeBlockView);
         },
       }).configure({
-        lowlight,
         defaultLanguage: null,
       }),
       Placeholder.configure({
@@ -828,6 +823,10 @@ export function Editor({
           class: "underline cursor-pointer",
         },
       }),
+      TextStyle,
+      Color.configure({ types: ["textStyle"] }),
+      Highlight.configure({ multicolor: true }),
+      Underline,
       // Convert markdown link syntax [text](url) into real links when typed
       Extension.create({
         name: "markdownLinkInputRule",
@@ -890,7 +889,7 @@ export function Editor({
     editorProps: {
       attributes: {
         class:
-          "prose prose-lg dark:prose-invert max-w-3xl mx-auto focus:outline-none min-h-full px-6 pt-8 pb-24",
+          "prose prose-lg dark:prose-invert max-w-3xl mx-auto focus:outline-none min-h-full px-6 pt-3 pb-24",
         spellcheck: "true",
         autocorrect: "on",
         autocapitalize: "sentences",
@@ -1187,8 +1186,21 @@ export function Editor({
     const editorElement = editor.view.dom;
     editorElement.addEventListener("click", handleEditorClick);
 
+    const handleCheckboxChange = (event: Event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLInputElement) || target.type !== "checkbox") return;
+      if (!target.checked) return;
+      if (!target.closest('ul[data-type="taskList"]')) return;
+      const host = target.closest("label") ?? target.parentElement;
+      if (host) {
+        playCheckAnimation(host).catch(() => {});
+      }
+    };
+    editorElement.addEventListener("change", handleCheckboxChange);
+
     return () => {
       editorElement.removeEventListener("click", handleEditorClick);
+      editorElement.removeEventListener("change", handleCheckboxChange);
     };
   }, [editor]);
 
@@ -1242,15 +1254,7 @@ export function Editor({
         lastReloadVersionRef.current = reloadVersion;
         loadedModifiedRef.current = currentNote.modified;
         isLoadingRef.current = true;
-        // Parse title and content
-        let contentToLoad = currentNote.content;
-        const lines = contentToLoad.split('\n');
-        if (lines.length > 0 && lines[0].startsWith('# ')) {
-          setLocalTitle(lines[0].substring(2).trim());
-          contentToLoad = lines.slice(1).join('\n').replace(/^\n+/, '');
-        } else {
-          setLocalTitle(currentNote.title || "");
-        }
+        const contentToLoad = currentNote.content;
 
         const manager = editor.storage.markdown?.manager;
         if (manager) {
@@ -1281,15 +1285,7 @@ export function Editor({
     // Blur editor before setting content to prevent ghost cursor
     editor.commands.blur();
 
-    // Parse title and content
-    let contentToLoad = currentNote.content;
-    const lines = contentToLoad.split('\n');
-    if (lines.length > 0 && lines[0].startsWith('# ')) {
-      setLocalTitle(lines[0].substring(2).trim());
-      contentToLoad = lines.slice(1).join('\n').replace(/^\n+/, '');
-    } else {
-      setLocalTitle(currentNote.title || "");
-    }
+    const contentToLoad = currentNote.content;
 
     // Parse markdown and set content
     const manager = editor.storage.markdown?.manager;
@@ -1540,12 +1536,25 @@ export function Editor({
     }
   }, [editor]);
 
-  // Listen for slash command image insertion
+  // Insert from slash menu and the note toolbar
   useEffect(() => {
-    const handler = () => handleAddImage();
-    window.addEventListener("slash-command-image", handler);
-    return () => window.removeEventListener("slash-command-image", handler);
-  }, [handleAddImage]);
+    const onImage = () => handleAddImage();
+    const onChecklist = () => editor?.chain().focus().toggleTaskList().run();
+    const onTable = () =>
+      editor
+        ?.chain()
+        .focus()
+        .insertTable({ rows: 3, cols: 3, withHeaderRow: true })
+        .run();
+    window.addEventListener("slash-command-image", onImage);
+    window.addEventListener("toolbar-checklist", onChecklist);
+    window.addEventListener("toolbar-table", onTable);
+    return () => {
+      window.removeEventListener("slash-command-image", onImage);
+      window.removeEventListener("toolbar-checklist", onChecklist);
+      window.removeEventListener("toolbar-table", onTable);
+    };
+  }, [editor, handleAddImage]);
 
   // Listen for slash command block math insertion
   useEffect(() => {
@@ -1926,17 +1935,40 @@ export function Editor({
     [currentNote, saveNote],
   );
 
+  const titlebar = !hideTitleBar ? (
+    <NoteTitlebar
+      sidebarVisible={sidebarVisible}
+      focusMode={focusMode}
+      onToggleSidebar={onToggleSidebar}
+      onNewNote={onNewNote}
+      showCompose={(!sidebarVisible && !focusMode) || !currentNote}
+      showWindowControls={showWindowControls}
+      editor={editor}
+      trailing={
+        currentNote && hasExternalChanges ? (
+          <button
+            type="button"
+            onClick={reloadCurrentNote}
+            aria-label="Reload note"
+            className="motion-interactive h-7 px-2 flex items-center gap-1 text-xs text-text-muted hover:bg-bg-hover rounded-md font-medium"
+          >
+            <RefreshCwIcon className="w-4 h-4 stroke-[1.6]" />
+            <span>Refresh</span>
+          </button>
+        ) : currentNote && isSaving ? (
+          <div className="h-7 w-7 flex items-center justify-center">
+            <SpinnerIcon className="w-4.5 h-4.5 text-text-muted/40 stroke-[1.5] animate-spin" />
+          </div>
+        ) : undefined
+      }
+    />
+  ) : null;
+
   if (!currentNote) {
-    // Preview mode: show loading state (content not yet loaded)
     if (previewMode) {
       return (
         <div className="flex-1 flex flex-col bg-bg">
-          {!isWindows && (
-            <div
-              className="h-10 shrink-0 flex items-end px-4 pb-1"
-              data-tauri-drag-region
-            ></div>
-          )}
+          {titlebar}
           <div className="flex-1 flex items-center justify-center">
             <SpinnerIcon className="w-6 h-6 text-text-muted animate-spin" />
           </div>
@@ -1944,17 +1976,10 @@ export function Editor({
       );
     }
 
-    // A note is selected but not yet loaded — show loading spinner to avoid empty state flash
     if (notesCtx?.selectedNoteId) {
       return (
         <div className="flex-1 flex flex-col bg-bg">
-          {!isWindows && (
-            <div
-              className="h-10 shrink-0 flex items-center px-3 pr-36"
-              data-tauri-drag-region
-            >
-            </div>
-          )}
+          {titlebar}
           <div className="flex-1 flex items-center justify-center">
             <SpinnerIcon className="w-6 h-6 text-text-muted animate-spin" />
           </div>
@@ -1962,107 +1987,22 @@ export function Editor({
       );
     }
 
-    // Folder mode: show empty state with "New Note" button
     return (
-      <div className="flex-1 flex flex-col bg-bg">
-        {/* Drag region */}
-        {!isWindows && (
-          <div
-            className="h-10 shrink-0 flex items-center px-3 pr-36"
-            data-tauri-drag-region
-          >
-          </div>
-        )}
-        <div className="flex-1 flex items-center justify-center pb-8">
-          <div className="text-center text-text-muted select-none">
-            <h1 className="text-2xl text-text font-serif mb-1 tracking-[-0.01em] ">
-              What's on your mind?
-            </h1>
-            <p className="text-sm">
-              Pick up where you left off, or start something new
-            </p>
-            {createNote && (
-              <Button
-                onClick={createNote}
-                variant="secondary"
-                size="md"
-                className="mt-4"
-              >
-                New Note{" "}
-                <span className="text-text-muted ml-1">
-                  {mod}
-                  {isMac ? "" : "+"}N
-                </span>
-              </Button>
-            )}
-          </div>
-        </div>
+      <div className="flex-1 flex flex-col bg-bg overflow-hidden">
+        {titlebar}
+        <NoNotesEmpty />
       </div>
     );
   }
 
-  const handleTitleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setLocalTitle(e.target.value);
-    scheduleSave();
-  };
-
   return (
     <div className="flex-1 flex flex-col bg-bg overflow-hidden">
-      {/* Drag region with sidebar toggle, date and save status */}
-      {!hideTitleBar && (
-        <div
-          className={cn(
-            "h-11 shrink-0 flex items-center justify-between px-3 border-b border-border",
-            !isSidebarActive && isMac && "pl-22",
-            !isWindows && !rightSidebarVisible && "pr-36",
-          )}
-          data-tauri-drag-region
-        >
-        <div
-          className={`flex-1 flex justify-start titlebar-no-drag min-w-0 motion-interactive ${needsSidebarDelay ? "delay-100" : ""} ${focusMode ? "opacity-0 pointer-events-none" : "opacity-100"}`}
-        >
-        </div>
-        <div className={`flex items-center justify-center titlebar-no-drag motion-interactive ${needsSidebarDelay ? "delay-100" : ""} ${focusMode ? "opacity-0 pointer-events-none" : "opacity-100"}`}>
-          <input
-            type="text"
-            value={localTitle}
-            onChange={handleTitleChange}
-            aria-label="Note title"
-            placeholder="Untitled"
-            className="text-sm font-semibold text-text bg-transparent border-none outline-none text-center rounded px-2 py-0.5 min-w-[200px]"
-            spellCheck={false}
-          />
-        </div>
-
-        <div
-          className={`flex-1 flex justify-end items-center gap-px shrink-0 titlebar-no-drag motion-interactive ${needsSidebarDelay ? "delay-100" : ""} ${focusMode ? "opacity-0 pointer-events-none" : "opacity-100"}`}
-        >
-          {hasExternalChanges ? (
-            <Tooltip
-              content={`External changes detected (${mod}${isMac ? "" : "+"}R to refresh)`}
-            >
-              <button
-                onClick={reloadCurrentNote}
-                className="motion-interactive h-7 px-2 flex items-center gap-1 text-xs text-text-muted hover:bg-bg-emphasis rounded-lg font-medium"
-              >
-                <RefreshCwIcon className="w-4 h-4 stroke-[1.6]" />
-                <span>Refresh</span>
-              </button>
-            </Tooltip>
-          ) : isSaving ? (
-            <Tooltip content="Saving...">
-              <div className="h-7 w-7 flex items-center justify-center">
-                <SpinnerIcon className="w-4.5 h-4.5 text-text-muted/40 stroke-[1.5] animate-spin" />
-              </div>
-            </Tooltip>
-          ) : null}
-        </div>
-      </div>
-      )}
+      {titlebar}
+      {header}
 
       {/* Editor content area with resize handles overlay */}
-      <div data-editor-content-area className="flex-1 relative overflow-hidden">
-        {!focusMode && !sourceMode && (
+      <div data-editor-content-area className="relative min-h-0 flex-1 overflow-hidden">
+        {!focusMode && !sourceMode && !isMobileApp && (
           <EditorWidthHandles containerRef={scrollContainerRef} />
         )}
         <div
@@ -2077,7 +2017,9 @@ export function Editor({
                 !target.closest(".ProseMirror") &&
                 !target.closest("button") &&
                 !target.closest("input") &&
-                !target.closest("a")
+                !target.closest("a") &&
+                !target.closest(".journal-calendar") &&
+                !target.closest(".journal-note-calendar")
               ) {
                 editor.commands.focus("end");
               }
@@ -2086,14 +2028,14 @@ export function Editor({
         >
           {sourceMode ? (
             /* Markdown source textarea */
-            <div className="h-full">
+            <div className="flex h-full flex-col">
               <textarea
                 value={sourceContent}
                 onChange={(e) => handleSourceChange(e.target.value)}
                 aria-label="Markdown source for current note"
                 wrap="off"
                 dir={textDirection}
-                className="w-full h-full bg-transparent text-text focus:outline-none resize-none px-6 pt-8 pb-24 mx-auto block"
+                className="min-h-0 w-full flex-1 bg-transparent text-text focus:outline-none resize-none px-6 pt-8 pb-24 mx-auto block"
                 style={{
                   maxWidth: "var(--editor-max-width, 48rem)",
                   fontFamily:
@@ -2221,7 +2163,7 @@ export function Editor({
                 )}
               </div>
               
-              <MobileFormattingToolbar editor={editor} />
+              {isMobileApp && <MobileFormattingToolbar editor={editor} />}
             </>
           )}
         </div>

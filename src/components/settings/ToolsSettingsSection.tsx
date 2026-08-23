@@ -156,7 +156,7 @@ export function ToolsSettingsSection() {
         <h2 className="text-xl font-medium mb-0.5">AI Providers</h2>
         <p className="text-sm text-text-muted mb-4">
           Edit notes with AI from the command palette ({mod}P while editing a
-          note)
+          note). Installed CLIs show up here automatically.
         </p>
 
         {aiProvidersLoading ? (

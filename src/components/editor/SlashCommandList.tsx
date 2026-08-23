@@ -22,20 +22,17 @@ export const SlashCommandList = forwardRef<
     command={command}
     itemKey={(item) => item.title}
     renderItem={(item, isSelected) => (
-      <div className="flex items-center gap-3">
-        <div className={isSelected
-          ? "flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-bg text-text [&_svg]:stroke-[1.55]"
-          : "flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-bg-secondary text-text-muted [&_svg]:stroke-[1.55]"}>
+      <div className="flex items-center gap-2.5">
+        <span
+          className={
+            isSelected ? "text-text" : "text-text-muted"
+          }
+        >
           {item.icon}
-        </div>
-        <div className="flex flex-col min-w-0">
-          <span className="text-xs leading-4 font-medium truncate">
-            {item.title}
-          </span>
-          <span className="mt-0.5 text-2xs leading-4 text-text-muted truncate">
-            {item.description}
-          </span>
-        </div>
+        </span>
+        <span className="min-w-0 truncate text-[13px] font-medium leading-5">
+          {item.title}
+        </span>
       </div>
     )}
   />

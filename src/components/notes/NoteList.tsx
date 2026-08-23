@@ -1,4 +1,4 @@
-import { useCallback, useMemo, memo, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useMemo, memo, useEffect, useRef, useState } from "react";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import { useNotes } from "../../context/NotesContext";
 import {
@@ -14,30 +14,22 @@ import {
 } from "../ui";
 import { cleanTitle } from "../../lib/utils";
 import * as notesService from "../../services/notes";
-import { FolderTreeView } from "./FolderTreeView";
+import { notesInScope } from "../../lib/notesScope";
+import { VirtualizedNoteList } from "./VirtualizedNoteList";
+import { NoNotesEmpty } from "./NoNotesEmpty";
+import type { NoteMetadata, Settings } from "../../types/note";
+import { useOpenJournal } from "../journal/useOpenJournal";
 import {
-  BookmarkIcon,
-  PinIcon,
-  CopyIcon,
-  TrashIcon,
-  MarkdownIcon,
-} from "../icons/velocity";
-import type { Settings } from "../../types/note";
+  journalIdForDate,
+  journalTitleForDate,
+  parseJournalDate,
+  sortJournalNotes,
+  startOfLocalDay,
+} from "../../lib/journal";
 
 const menuItemClass = "spell-menu-item cursor-pointer";
 
 const menuSeparatorClass = "spell-menu-separator";
-
-function NotesEmptyState({ children }: { children: ReactNode }) {
-  return (
-    <div className="flex flex-col items-center gap-2 px-4 py-10 text-center text-sm text-text-muted select-none">
-      <div className="grid place-items-center w-9 h-9 rounded-xl bg-bg-muted text-text-muted/70">
-        <MarkdownIcon className="w-4.5 h-4.5 stroke-[1.5]" />
-      </div>
-      <span>{children}</span>
-    </div>
-  );
-}
 
 function formatDate(timestamp: number): string {
   const date = new Date(timestamp * 1000);
@@ -60,7 +52,7 @@ function formatDate(timestamp: number): string {
   const daysAgo =
     Math.floor((startOfToday.getTime() - date.getTime()) / 86400000) + 1;
   if (daysAgo <= 6) {
-    return `${daysAgo} days ago`;
+    return date.toLocaleDateString([], { weekday: "long" });
   }
 
   if (date.getFullYear() === now.getFullYear()) {
@@ -81,10 +73,12 @@ interface NoteItemProps {
   preview?: string;
   modified: number;
   isSelected: boolean;
+  isMultiSelected?: boolean;
   isPinned: boolean;
-  onSelect: (id: string) => void;
+  onSelect: (id: string, event: React.MouseEvent<HTMLButtonElement>) => void;
   depth?: number;
   showFolderPrefix?: boolean;
+  metaLabel?: string;
 }
 
 export const NoteItem = memo(function NoteItem({
@@ -93,17 +87,22 @@ export const NoteItem = memo(function NoteItem({
   preview,
   modified,
   isSelected,
+  isMultiSelected = false,
   isPinned,
   onSelect,
   depth,
   showFolderPrefix = true,
+  metaLabel,
 }: NoteItemProps) {
   const ref = useRef<HTMLDivElement>(null);
-  const handleClick = useCallback(() => onSelect(id), [onSelect, id]);
+  const handleClick = useCallback(
+    (event: React.MouseEvent<HTMLButtonElement>) => onSelect(id, event),
+    [onSelect, id],
+  );
 
   useEffect(() => {
     if (isSelected) {
-      ref.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      ref.current?.scrollIntoView({ block: "nearest" });
     }
   }, [isSelected]);
 
@@ -125,8 +124,9 @@ export const NoteItem = memo(function NoteItem({
       <ListItem
         title={cleanTitle(title)}
         subtitle={displayPreview}
-        meta={formatDate(modified)}
+        meta={metaLabel ?? formatDate(modified)}
         isSelected={isSelected}
+        isMultiSelected={isMultiSelected}
         isPinned={isPinned}
         onClick={handleClick}
       />
@@ -141,16 +141,16 @@ export interface NoteItemWithMenuProps {
   preview?: string;
   modified: number;
   isSelected: boolean;
+  isMultiSelected?: boolean;
   isPinned: boolean;
-  isBookmarked: boolean;
-  onSelect: (id: string) => void;
+  onSelect: (id: string, event: React.MouseEvent<HTMLButtonElement>) => void;
   onPin: (id: string) => Promise<void>;
   onUnpin: (id: string) => Promise<void>;
-  onBookmark: (id: string) => Promise<void>;
-  onRemoveBookmark: (id: string) => Promise<void>;
   onDuplicate: (id: string) => void;
   onDelete: (id: string) => void;
   onRefreshSettings: () => Promise<void> | void;
+  showFolderPrefix?: boolean;
+  metaLabel?: string;
 }
 
 export const NoteItemWithMenu = memo(function NoteItemWithMenu({
@@ -159,16 +159,16 @@ export const NoteItemWithMenu = memo(function NoteItemWithMenu({
   preview,
   modified,
   isSelected,
+  isMultiSelected = false,
   isPinned,
-  isBookmarked,
   onSelect,
   onPin,
   onUnpin,
-  onBookmark,
-  onRemoveBookmark,
   onDuplicate,
   onDelete,
   onRefreshSettings,
+  showFolderPrefix = true,
+  metaLabel,
 }: NoteItemWithMenuProps) {
   const handlePin = useCallback(async () => {
     try {
@@ -178,21 +178,6 @@ export const NoteItemWithMenu = memo(function NoteItemWithMenu({
       console.error("Failed to pin/unpin note:", error);
     }
   }, [id, isPinned, onPin, onUnpin, onRefreshSettings]);
-
-  const handleBookmark = useCallback(async () => {
-    try {
-      await (isBookmarked ? onRemoveBookmark(id) : onBookmark(id));
-      await onRefreshSettings();
-    } catch (error) {
-      console.error("Failed to add/remove bookmark:", error);
-    }
-  }, [
-    id,
-    isBookmarked,
-    onBookmark,
-    onRemoveBookmark,
-    onRefreshSettings,
-  ]);
 
   return (
     <ContextMenu.Root>
@@ -204,26 +189,23 @@ export const NoteItemWithMenu = memo(function NoteItemWithMenu({
             preview={preview}
             modified={modified}
             isSelected={isSelected}
+            isMultiSelected={isMultiSelected}
             isPinned={isPinned}
             onSelect={onSelect}
+            showFolderPrefix={showFolderPrefix}
+            metaLabel={metaLabel}
           />
         </div>
       </ContextMenu.Trigger>
       <ContextMenu.Portal>
         <ContextMenu.Content data-spell-context-menu className="spell-menu z-50">
           <ContextMenu.Item className={menuItemClass} onSelect={handlePin}>
-            <PinIcon className="w-4 h-4 stroke-[1.6]" />
             {isPinned ? "Unpin" : "Pin"}
-          </ContextMenu.Item>
-          <ContextMenu.Item className={menuItemClass} onSelect={handleBookmark}>
-            <BookmarkIcon className="w-4 h-4 stroke-[1.6]" />
-            {isBookmarked ? "Remove Bookmark" : "Add Bookmark"}
           </ContextMenu.Item>
           <ContextMenu.Item
             className={menuItemClass}
             onSelect={() => onDuplicate(id)}
           >
-            <CopyIcon className="w-4 h-4 stroke-[1.6]" />
             Duplicate
           </ContextMenu.Item>
           <ContextMenu.Separator className={menuSeparatorClass} />
@@ -233,7 +215,6 @@ export const NoteItemWithMenu = memo(function NoteItemWithMenu({
             }
             onSelect={() => onDelete(id)}
           >
-            <TrashIcon className="w-4 h-4 stroke-[1.6]" />
             Delete
           </ContextMenu.Item>
         </ContextMenu.Content>
@@ -242,8 +223,38 @@ export const NoteItemWithMenu = memo(function NoteItemWithMenu({
   );
 });
 
+type JournalListItem = NoteMetadata & { isPlaceholder?: boolean };
+
+function journalListItems(notes: NoteMetadata[]): JournalListItem[] {
+  const today = startOfLocalDay();
+  const todayId = journalIdForDate(today);
+  const sorted = sortJournalNotes(notes);
+  const todayNote = sorted.find((note) => note.id === todayId);
+  const rest = sorted.filter((note) => note.id !== todayId);
+
+  if (todayNote) {
+    return [todayNote, ...rest];
+  }
+
+  return [
+    {
+      id: todayId,
+      title: journalTitleForDate(today),
+      preview: "",
+      modified: Math.floor(today.getTime() / 1000),
+      isPlaceholder: true,
+    },
+    ...rest,
+  ];
+}
+
 interface NoteListProps {
-  filter?: "all" | "bookmarked" | "journal";
+  filter?: "all" | "journal";
+  folderPath?: string | null;
+  query?: string;
+  emptyLabel?: string;
+  showEmptyCanvas?: boolean;
+  onOpenNote?: () => void;
   multiSelectedNoteIds: Set<string>;
   setMultiSelectedNoteIds: React.Dispatch<React.SetStateAction<Set<string>>>;
   lastClickedNoteId: string | null;
@@ -252,6 +263,11 @@ interface NoteListProps {
 
 export function NoteList({
   filter = "all",
+  folderPath = null,
+  query = "",
+  emptyLabel,
+  showEmptyCanvas = false,
+  onOpenNote,
   multiSelectedNoteIds,
   setMultiSelectedNoteIds,
   lastClickedNoteId,
@@ -265,13 +281,10 @@ export function NoteList({
     duplicateNote,
     pinNote,
     unpinNote,
-    bookmarkNote,
-    removeBookmark,
     isLoading,
-    searchQuery,
-    searchResults,
   } = useNotes();
 
+  const openJournal = useOpenJournal();
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [noteToDelete, setNoteToDelete] = useState<string | null>(null);
   const [settings, setSettings] = useState<Settings | null>(null);
@@ -291,10 +304,6 @@ export function NoteList({
   const pinnedIds = useMemo(
     () => new Set(settings?.pinnedNoteIds || []),
     [settings]
-  );
-  const bookmarkedIds = useMemo(
-    () => new Set(settings?.bookmarkedNoteIds || []),
-    [settings],
   );
 
   const handleDeleteConfirm = useCallback(async () => {
@@ -320,30 +329,88 @@ export function NoteList({
 
   // Memoize display items to prevent recalculation on every render
   const displayItems = useMemo(() => {
-    let items = searchQuery.trim()
-      ? searchResults.map((r) => ({
-        id: r.id,
-        title: r.title,
-        preview: r.preview,
-        modified: r.modified,
-      }))
-      : notes;
-
-    if (filter === "journal") {
-      return items.filter(n => n.id.startsWith("journals/"));
-    }
-
-    // Hide journals from all other views
-    items = items.filter(n => !n.id.startsWith("journals/"));
-
-    if (filter !== "bookmarked") return items;
-
-    const itemsById = new Map(items.map((item) => [item.id, item]));
-    return (settings?.bookmarkedNoteIds || []).flatMap((id) => {
-      const item = itemsById.get(id);
-      return item ? [item] : [];
+    const scope =
+      filter === "journal"
+        ? { type: "journal" as const }
+        : folderPath != null
+          ? { type: "folder" as const, path: folderPath }
+          : { type: "all" as const };
+    const scoped = notesInScope(notes, scope);
+    const items = filter === "journal" ? journalListItems(scoped) : scoped;
+    const needle = query.trim().toLowerCase();
+    if (!needle) return items;
+    return items.filter((item) => {
+      const title = item.title.toLowerCase();
+      const preview = (item.preview ?? "").toLowerCase();
+      return title.includes(needle) || preview.includes(needle);
     });
-  }, [filter, settings?.bookmarkedNoteIds, searchQuery, searchResults, notes]);
+  }, [filter, folderPath, notes, query]);
+
+  const placeholderIds = useMemo(
+    () =>
+      new Set(
+        displayItems
+          .filter((item): item is JournalListItem => "isPlaceholder" in item && item.isPlaceholder === true)
+          .map((item) => item.id),
+      ),
+    [displayItems],
+  );
+
+  const handleNoteSelect = useCallback(
+    (noteId: string, event: React.MouseEvent<HTMLButtonElement>) => {
+      const isPlaceholder = placeholderIds.has(noteId);
+      const isToggle = event.metaKey || event.ctrlKey;
+
+      if (isPlaceholder) {
+        setMultiSelectedNoteIds(new Set([noteId]));
+        setLastClickedNoteId(noteId);
+        const date = parseJournalDate(noteId);
+        if (date) void openJournal(date);
+        onOpenNote?.();
+        return;
+      }
+
+      if (event.shiftKey) {
+        const anchor = lastClickedNoteId ?? selectedNoteId;
+        const anchorIndex = anchor ? displayItems.findIndex((item) => item.id === anchor) : -1;
+        const targetIndex = displayItems.findIndex((item) => item.id === noteId);
+        if (anchorIndex !== -1 && targetIndex !== -1) {
+          const start = Math.min(anchorIndex, targetIndex);
+          const end = Math.max(anchorIndex, targetIndex);
+          setMultiSelectedNoteIds(new Set(displayItems.slice(start, end + 1).map((item) => item.id)));
+        }
+        return;
+      }
+
+      if (isToggle) {
+        setMultiSelectedNoteIds((previous) => {
+          const next = new Set(previous);
+          if (selectedNoteId) next.add(selectedNoteId);
+          if (next.has(noteId)) next.delete(noteId);
+          else next.add(noteId);
+          return next;
+        });
+        setLastClickedNoteId(noteId);
+        return;
+      }
+
+      setMultiSelectedNoteIds(new Set([noteId]));
+      setLastClickedNoteId(noteId);
+      void selectNote(noteId);
+      onOpenNote?.();
+    },
+    [
+      displayItems,
+      lastClickedNoteId,
+      onOpenNote,
+      openJournal,
+      placeholderIds,
+      selectedNoteId,
+      selectNote,
+      setLastClickedNoteId,
+      setMultiSelectedNoteIds,
+    ],
+  );
 
   // Listen for focus request from editor (when Escape is pressed)
   useEffect(() => {
@@ -368,9 +435,6 @@ export function NoteList({
       window.removeEventListener("request-delete-note", handleRequestDelete);
   }, [openDeleteDialogForNote]);
 
-  const foldersEnabled = settings?.foldersEnabled === true;
-  const isSearching = searchQuery.trim().length > 0;
-
   if (isLoading && notes.length === 0) {
     return (
       <div className="p-4 text-center text-text-muted select-none">
@@ -379,84 +443,86 @@ export function NoteList({
     );
   }
 
-  if (isSearching && displayItems.length === 0) {
-    return <NotesEmptyState>No results found</NotesEmptyState>;
-  }
-
   if (displayItems.length === 0) {
-    return <NotesEmptyState>{filter === "bookmarked" ? "No bookmarks yet" : "No notes yet"}</NotesEmptyState>;
-  }
-
-  // Show folder tree view when folders enabled and not searching
-  if (filter === "all" && foldersEnabled && !isSearching) {
-    return (
-      <>
-        <FolderTreeView
-          pinnedIds={pinnedIds}
-          settings={settings}
-          multiSelectedNoteIds={multiSelectedNoteIds}
-          setMultiSelectedNoteIds={setMultiSelectedNoteIds}
-          lastClickedNoteId={lastClickedNoteId}
-          setLastClickedNoteId={setLastClickedNoteId}
-          onRefreshSettings={refreshSettings}
-        />
-
-        {/* Delete confirmation dialog */}
-        <AlertDialog
-          open={deleteDialogOpen}
-          onOpenChange={setDeleteDialogOpen}
+    if (showEmptyCanvas) {
+      return (
+        <div className="h-full">
+          <NoNotesEmpty />
+        </div>
+      );
+    }
+    if (query.trim() || emptyLabel) {
+      return (
+        <div
+          ref={containerRef}
+          className="flex h-full items-center justify-center px-8 text-center text-[17px] text-text-muted"
+          tabIndex={-1}
         >
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Delete note?</AlertDialogTitle>
-              <AlertDialogDescription>
-                This will permanently delete the note and all its content. This
-                action cannot be undone.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>Cancel</AlertDialogCancel>
-              <AlertDialogAction onClick={handleDeleteConfirm}>
-                Delete
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
-      </>
-    );
+          {query.trim() ? "No Results" : emptyLabel}
+        </div>
+      );
+    }
+    return <div ref={containerRef} className="h-full" tabIndex={-1} />;
   }
 
   return (
     <>
-      <div
-        ref={containerRef}
-        tabIndex={0}
-        data-note-list
-        className="group/notelist flex flex-col gap-1 p-1.5 outline-none"
-      >
-        {displayItems.map((item) => (
-          <NoteItemWithMenu
-            key={item.id}
-            id={item.id}
-            title={item.title}
-            preview={item.preview}
-            modified={item.modified}
-            isSelected={selectedNoteId === item.id}
-            isPinned={pinnedIds.has(item.id)}
-            isBookmarked={bookmarkedIds.has(item.id)}
-            onSelect={selectNote}
-            onPin={pinNote}
-            onUnpin={unpinNote}
-            onBookmark={bookmarkNote}
-            onRemoveBookmark={removeBookmark}
-            onDuplicate={duplicateNote}
-            onDelete={openDeleteDialogForNote}
-            onRefreshSettings={refreshSettings}
-          />
-        ))}
-      </div>
+      <VirtualizedNoteList
+        count={displayItems.length}
+        scrollRef={containerRef}
+        renderRow={(index) => {
+          const item = displayItems[index] as JournalListItem;
+          const isJournal = filter === "journal";
+          const isPlaceholder = item.isPlaceholder === true;
+          const journalDate = parseJournalDate(item.id);
+          const isTodayJournal =
+            isJournal &&
+            journalDate != null &&
+            journalDate.getTime() === startOfLocalDay().getTime();
+          const isSelected =
+            selectedNoteId === item.id ||
+            (isPlaceholder &&
+              (!selectedNoteId || !selectedNoteId.startsWith("journals/")));
 
-      {/* Delete confirmation dialog */}
+          if (isPlaceholder) {
+            return (
+              <NoteItem
+                id={item.id}
+                title={item.title}
+                preview=""
+                modified={item.modified}
+                isSelected={isSelected}
+                isPinned={false}
+                onSelect={handleNoteSelect}
+                showFolderPrefix={false}
+                metaLabel="Today"
+              />
+            );
+          }
+
+          return (
+            <NoteItemWithMenu
+              key={item.id}
+              id={item.id}
+              title={item.title}
+              preview={item.preview}
+              modified={item.modified}
+              isSelected={isSelected}
+              isMultiSelected={multiSelectedNoteIds.has(item.id)}
+              isPinned={pinnedIds.has(item.id)}
+              onSelect={handleNoteSelect}
+              onPin={pinNote}
+              onUnpin={unpinNote}
+              onDuplicate={duplicateNote}
+              onDelete={openDeleteDialogForNote}
+              onRefreshSettings={refreshSettings}
+              showFolderPrefix={!isJournal}
+              metaLabel={isTodayJournal ? "Today" : undefined}
+            />
+          );
+        }}
+      />
+
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>

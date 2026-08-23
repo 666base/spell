@@ -14,6 +14,10 @@ export const isWindows =
 export const isAndroid =
   typeof navigator !== "undefined" && /Android/.test(navigator.userAgent);
 
+export const isMobileApp =
+  typeof window !== "undefined" &&
+  (isAndroid || new URLSearchParams(window.location.search).has("mobile"));
+
 /** Modifier key symbol/label */
 export const mod = isMac ? "⌘" : "Ctrl";
 export const shift = isMac ? "⇧" : "Shift";

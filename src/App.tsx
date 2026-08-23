@@ -1,50 +1,39 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef, type CSSProperties } from "react";
 import { toast } from "sonner";
 import { NotesProvider, useNotes } from "./context/NotesContext";
 import { ThemeProvider, useTheme } from "./context/ThemeContext";
 import { listen } from "@tauri-apps/api/event";
 import { GitProvider } from "./context/GitContext";
-import { KanbanWorkspaceProvider } from "./context/KanbanWorkspaceContext";
-import { FinanceProvider } from "./context/FinanceContext";
-import { IconButton, PanelToggleIcon, TooltipProvider, Toaster } from "./components/ui";
+import { TooltipProvider, Toaster } from "./components/ui";
 import {
   Sidebar,
-  SidebarPanelTabs,
   type SidebarPanel,
 } from "./components/layout/Sidebar";
 import { SidebarResizeHandle } from "./components/layout/SidebarResizeHandle";
-import { SIDEBAR_DEFAULT_PX } from "./lib/sidebar";
+import { FolderSourceList } from "./components/layout/FolderSourceList";
+import { FOLDER_SIDEBAR_PX, SIDEBAR_DEFAULT_PX } from "./lib/sidebar";
+import { useOpenTransition } from "./lib/presence";
+import { cn } from "./lib/utils";
+import { isMoneyTab, isProjectsTab, notesInScope, type NotesScope } from "./lib/notesScope";
+import { startOfLocalDay } from "./lib/journal";
 import { Editor } from "./components/editor/Editor";
 import { JournalPage } from "./components/journal/JournalPage";
+import { useOpenJournal } from "./components/journal/useOpenJournal";
 import { KanbanPage } from "./components/kanban/KanbanPage";
-import { FinancePage, type FinanceView } from "./components/finance/FinancePage";
+import { ProjectsHub } from "./components/kanban/ProjectsHub";
+import { FinancePage } from "./components/finance/FinancePage";
 import type { Editor as TiptapEditor } from "@tiptap/react";
 import { FolderPicker } from "./components/layout/FolderPicker";
-import { CommandPalette } from "./components/command-palette/CommandPalette";
 import { SettingsPage } from "./components/settings";
-import {
-  SpinnerIcon,
-  ClaudeIcon,
-  CodexIcon,
-  OpenCodeIcon,
-  OllamaIcon,
-} from "./components/icons/velocity";
-import { AiEditModal } from "./components/ai/AiEditModal";
-import { AiResponseToast } from "./components/ai/AiResponseToast";
+import { SpinnerIcon } from "./components/icons/velocity";
 import { PreviewApp } from "./components/preview/PreviewApp";
-import { isTauri } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import * as aiService from "./services/ai";
-import type { AiProvider } from "./services/ai";
-import { isAndroid, isMac, isWindows } from "./lib/platform";
-import { cn } from "./lib/utils";
+import { isMac, isWindows } from "./lib/platform";
 import { CloudSync } from "./components/cloud/CloudSync";
-import { WindowControls } from "./components/layout/WindowControls";
 import { AppContextMenu } from "./components/layout/AppContextMenu";
-import { RightSidebar } from "./components/layout/RightSidebar";
-import { getSavedRightSidebarWidth } from "./components/layout/RightSidebarResizeHandle";
+import { KanbanWorkspaceProvider, useKanbanWorkspace } from "./context/KanbanWorkspaceContext";
+import { FinanceProvider } from "./context/FinanceContext";
 
-// Detect preview mode from URL search params
 function getWindowMode(): {
   isPreview: boolean;
   previewFile: string | null;
@@ -60,83 +49,37 @@ function getWindowMode(): {
 
 type ViewState = "notes" | "settings";
 
-const PANEL_TRANSITION_MS = 240;
-
-/**
- * Keeps a panel mounted just long enough for its compositor transition to
- * finish. Re-opening cancels the pending unmount, so a quick toggle reverses
- * from the panel's current position instead of replaying a separate animation.
- */
-function usePanelPresence(open: boolean) {
-  const [mounted, setMounted] = useState(open);
-  const [visible, setVisible] = useState(open);
-
-  useEffect(() => {
-    if (open) {
-      setMounted(true);
-      const frame = window.requestAnimationFrame(() => setVisible(true));
-      return () => window.cancelAnimationFrame(frame);
-    }
-
-    setVisible(false);
-    if (!mounted) return;
-
-    const prefersReducedMotion = window.matchMedia(
-      "(prefers-reduced-motion: reduce)",
-    ).matches;
-    const timeout = window.setTimeout(
-      () => setMounted(false),
-      prefersReducedMotion ? 0 : PANEL_TRANSITION_MS,
-    );
-
-    return () => window.clearTimeout(timeout);
-  }, [mounted, open]);
-
-  return { mounted, visible };
-}
-
 function AppContent() {
   const {
     notesFolder,
     isLoading,
     createNote,
+    createNoteInFolder,
     duplicateNote,
     notes,
     selectedNoteId,
     selectNote,
-    searchQuery,
-    searchResults,
+    clearSelection,
     reloadCurrentNote,
     currentNote,
     syncNotesFolder,
   } = useNotes();
+  const openJournal = useOpenJournal();
+  const { selectProject } = useKanbanWorkspace();
   const { interfaceZoom, setInterfaceZoom, reloadSettings } = useTheme();
   const interfaceZoomRef = useRef(interfaceZoom);
   const currentNoteRef = useRef(currentNote);
-  const [paletteOpen, setPaletteOpen] = useState(false);
   const [view, setView] = useState<ViewState>("notes");
   const [sidebarVisible, setSidebarVisible] = useState(true);
-  const [rightSidebarVisible, setRightSidebarVisible] = useState(
-    () => localStorage.getItem("spell:right-sidebar-visible") !== "false",
-  );
-  const [rightSidebarWidth, setRightSidebarWidth] = useState(
-    getSavedRightSidebarWidth,
-  );
   const [sidebarPanel, setSidebarPanel] = useState<SidebarPanel>("notes");
-  const [financeView, setFinanceView] = useState<FinanceView>("overview");
-  const [aiModalOpen, setAiModalOpen] = useState(false);
-  const [aiEditing, setAiEditing] = useState(false);
+  const [notesScope, setNotesScope] = useState<NotesScope>({ type: "all" });
+  const [openProjectCardId, setOpenProjectCardId] = useState<string | null>(null);
   const [focusMode, setFocusMode] = useState(false);
-  const [aiProvider, setAiProvider] = useState<AiProvider>("claude");
   const editorRef = useRef<TiptapEditor | null>(null);
-  const usesCustomLinuxTitlebar = isTauri() && !isAndroid && !isMac && !isWindows;
-  const leftPanelOpen = sidebarVisible && !focusMode;
-  const rightPanelOpen =
-    sidebarPanel !== "kanban" && rightSidebarVisible && !focusMode;
-  const { mounted: leftPanelMounted, visible: leftPanelVisible } =
-    usePanelPresence(leftPanelOpen);
-  const { mounted: rightPanelMounted, visible: rightPanelVisible } =
-    usePanelPresence(rightPanelOpen);
+  const foldersOpen = sidebarVisible && !focusMode;
+  const notesListOpen = !focusMode;
+  const folderRail = useOpenTransition(foldersOpen);
+  const notesRail = useOpenTransition(notesListOpen);
 
   useEffect(() => {
     interfaceZoomRef.current = interfaceZoom;
@@ -146,8 +89,6 @@ function AppContent() {
     currentNoteRef.current = currentNote;
   }, [currentNote]);
 
-  // Listen for set-notes-folder event from CLI (scratch .)
-  // Placed here in AppContent where both NotesContext and ThemeContext are available
   useEffect(() => {
     let cancelled = false;
     let unlisten: (() => void) | undefined;
@@ -168,26 +109,96 @@ function AppContent() {
     setSidebarVisible((prev) => !prev);
   }, []);
 
-  const toggleRightSidebar = useCallback(() => {
-    setRightSidebarVisible((visible) => !visible);
+  useEffect(() => {
+    const handleOpenNote = (e: Event) => {
+      const customEvent = e as CustomEvent<string>;
+      selectNote(customEvent.detail);
+    };
+    window.addEventListener("spell-open-note", handleOpenNote);
+    return () => window.removeEventListener("spell-open-note", handleOpenNote);
+  }, [selectNote]);
+
+  const selectScope = useCallback((scope: NotesScope, cardId?: string) => {
+    setNotesScope(scope);
+    setOpenProjectCardId(scope.type === "project" ? cardId ?? null : null);
+    if (scope.type === "project") selectProject(scope.id);
+    setSidebarPanel(scope.type === "journal" ? "journal" : "notes");
+    setSidebarVisible(true);
+  }, [selectProject]);
+
+  const notesScopeRef = useRef(notesScope);
+  const pendingNewProjectRef = useRef(false);
+  notesScopeRef.current = notesScope;
+
+  useEffect(() => {
+    const onCreate = () => {
+      if (isProjectsTab(notesScopeRef.current)) return;
+      pendingNewProjectRef.current = true;
+      setNotesScope({ type: "projects" });
+      setSidebarPanel("notes");
+      setSidebarVisible(true);
+    };
+    window.addEventListener("create-new-project", onCreate);
+    return () => window.removeEventListener("create-new-project", onCreate);
   }, []);
 
   useEffect(() => {
-    localStorage.setItem("spell:right-sidebar-visible", String(rightSidebarVisible));
-  }, [rightSidebarVisible]);
+    if (!pendingNewProjectRef.current || !isProjectsTab(notesScope)) return;
+    pendingNewProjectRef.current = false;
+    window.dispatchEvent(new CustomEvent("create-new-project"));
+  }, [notesScope]);
 
   const selectSidebarPanel = useCallback((panel: SidebarPanel) => {
     setSidebarPanel(panel);
+    setNotesScope(panel === "journal" ? { type: "journal" } : { type: "all" });
     setSidebarVisible(true);
   }, []);
 
-  const openSidebarSearch = useCallback(() => {
-    setSidebarPanel("notes");
+  useEffect(() => {
+    if (isLoading) return;
+    if (notesScope.type !== "all" && notesScope.type !== "folder") return;
+
+    const scoped = notesInScope(notes, notesScope);
+    if (selectedNoteId && scoped.some((note) => note.id === selectedNoteId)) {
+      return;
+    }
+    if (scoped.length > 0) {
+      void selectNote(scoped[0].id);
+      return;
+    }
+    if (selectedNoteId) clearSelection();
+  }, [clearSelection, isLoading, notes, notesScope, selectNote, selectedNoteId]);
+
+  const createNoteInContext = useCallback(() => {
+    if (notesScope.type === "projects") {
+      window.dispatchEvent(new CustomEvent("create-new-project"));
+      return;
+    }
+    if (notesScope.type === "project") {
+      window.dispatchEvent(new CustomEvent("create-project-task"));
+      return;
+    }
+    if (notesScope.type === "subscriptions") {
+      window.dispatchEvent(new CustomEvent("create-money-subscription"));
+      return;
+    }
+    if (notesScope.type === "money" || notesScope.type === "moneyMonth") {
+      window.dispatchEvent(new CustomEvent("create-money-record"));
+      return;
+    }
     setSidebarVisible(true);
-    requestAnimationFrame(() => {
-      window.dispatchEvent(new CustomEvent("open-sidebar-search"));
-    });
-  }, []);
+    if (notesScope.type === "folder") {
+      void createNoteInFolder(notesScope.path);
+      return;
+    }
+    if (notesScope.type === "journal") {
+      setSidebarPanel("journal");
+      void openJournal(startOfLocalDay());
+      return;
+    }
+    setSidebarPanel("notes");
+    void createNote();
+  }, [createNote, createNoteInFolder, notesScope, openJournal]);
 
   const openSettings = useCallback(() => setView("settings"), []);
 
@@ -206,82 +217,8 @@ function AppContent() {
     setView("notes");
   }, []);
 
-  // Go back to command palette from AI modal
-  const handleBackToPalette = useCallback(() => {
-    setAiModalOpen(false);
-    setPaletteOpen(true);
-  }, []);
+  const displayItems = notes;
 
-  // AI Edit handler
-  const handleAiEdit = useCallback(
-    async (prompt: string, ollamaModel?: string) => {
-      if (!currentNote) {
-        toast.error("No note selected");
-        return;
-      }
-
-      setAiEditing(true);
-
-      try {
-        let result: aiService.AiExecutionResult;
-        if (aiProvider === "codex") {
-          result = await aiService.executeCodexEdit(currentNote.path, prompt);
-        } else if (aiProvider === "opencode") {
-          result = await aiService.executeOpenCodeEdit(currentNote.path, prompt);
-        } else if (aiProvider === "ollama") {
-          result = await aiService.executeOllamaEdit(
-            currentNote.path,
-            prompt,
-            ollamaModel || "qwen3:8b",
-          );
-        } else {
-          result = await aiService.executeClaudeEdit(currentNote.path, prompt);
-        }
-
-        // Reload the current note from disk
-        await reloadCurrentNote();
-
-        // Show results
-        if (result.success) {
-          // Close modal after success
-          setAiModalOpen(false);
-
-          // Show success toast with provider response
-          toast(
-            <AiResponseToast output={result.output} provider={aiProvider} />,
-            {
-              duration: Infinity,
-              closeButton: true,
-              className: "!min-w-[450px] !max-w-[600px]",
-            },
-          );
-        } else {
-          toast.error(
-            <div className="space-y-1">
-              <div className="font-medium">AI Edit Failed</div>
-              <div className="text-xs">{result.error || "Unknown error"}</div>
-            </div>,
-            { duration: Infinity, closeButton: true },
-          );
-        }
-      } catch (error) {
-        console.error("[AI] Error:", error);
-        toast.error(
-          `Error: ${error instanceof Error ? error.message : "Unknown error"}`,
-        );
-      } finally {
-        setAiEditing(false);
-      }
-    },
-    [aiProvider, currentNote, reloadCurrentNote],
-  );
-
-  // Memoize display items to prevent unnecessary recalculations
-  const displayItems = useMemo(() => {
-    return searchQuery.trim() ? searchResults : notes;
-  }, [searchQuery, searchResults, notes]);
-
-  // Global keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (
@@ -301,14 +238,12 @@ function AppContent() {
       const isEditorEmpty =
         isInEditor && currentNoteRef.current?.content.trim() === "";
 
-      // Cmd+, - Toggle settings (always works, even in settings)
       if ((e.metaKey || e.ctrlKey) && e.key === ",") {
         e.preventDefault();
         toggleSettings();
         return;
       }
 
-      // Cmd+= or Cmd++ - Zoom in (works everywhere, including settings)
       if ((e.metaKey || e.ctrlKey) && (e.key === "=" || e.key === "+")) {
         e.preventDefault();
         setInterfaceZoom((prev) => prev + 0.05);
@@ -317,7 +252,6 @@ function AppContent() {
         return;
       }
 
-      // Cmd+- - Zoom out (works everywhere, including settings)
       if ((e.metaKey || e.ctrlKey) && (e.key === "-" || e.key === "_")) {
         e.preventDefault();
         setInterfaceZoom((prev) => prev - 0.05);
@@ -326,7 +260,6 @@ function AppContent() {
         return;
       }
 
-      // Cmd+0 - Reset zoom (works everywhere, including settings)
       if ((e.metaKey || e.ctrlKey) && e.key === "0") {
         e.preventDefault();
         setInterfaceZoom(1.0);
@@ -334,100 +267,49 @@ function AppContent() {
         return;
       }
 
-      // Block all other shortcuts when in settings view
       if (view === "settings") {
         return;
       }
 
-      // Cmd+Shift+Enter - Toggle focus mode
       if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === "Enter") {
         e.preventDefault();
         toggleFocusMode();
         return;
       }
 
-      // Cmd+Shift+M - Toggle markdown source mode
-      if (
-        (e.metaKey || e.ctrlKey) &&
-        e.shiftKey &&
-        e.key.toLowerCase() === "m"
-      ) {
-        e.preventDefault();
-        window.dispatchEvent(new CustomEvent("toggle-source-mode"));
-        return;
-      }
-
-      // Escape exits focus mode when not in editor
       if (e.key === "Escape" && focusMode && !isInEditor) {
         e.preventDefault();
         toggleFocusMode();
         return;
       }
 
-      // Let dialogs handle their own keyboard events (Tab, Enter, etc.)
       if (target.closest("[role='dialog'], [role='alertdialog']")) {
         return;
       }
 
-      // Trap Tab/Shift+Tab in notes view only - prevent focus navigation
-      // TipTap handles indentation internally before event bubbles up
       if (e.key === "Tab") {
         e.preventDefault();
         return;
       }
 
-      // Cmd+P - Open command palette
-      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key === "p") {
-        e.preventDefault();
-        setPaletteOpen(true);
-        return;
-      }
-
-      // Cmd+Shift+P - Print
       if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "p") {
         e.preventDefault();
         window.dispatchEvent(new CustomEvent("print-note"));
         return;
       }
 
-      // Cmd/Ctrl+Shift+F - Open sidebar search
-      if (
-        (e.metaKey || e.ctrlKey) &&
-        e.shiftKey &&
-        e.key.toLowerCase() === "f"
-      ) {
-        e.preventDefault();
-        setSidebarVisible(true);
-        window.dispatchEvent(new CustomEvent("open-sidebar-search"));
-        return;
-      }
-
-      // Cmd+\ - Toggle sidebar
       if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.code === "Backslash") {
         e.preventDefault();
         toggleSidebar();
         return;
       }
 
-      // Cmd/Ctrl+Shift+\\ - Toggle right sidebar
-      if (
-        (e.metaKey || e.ctrlKey) &&
-        e.shiftKey &&
-        e.code === "Backslash"
-      ) {
-        e.preventDefault();
-        toggleRightSidebar();
-        return;
-      }
-
-      // Cmd+N - New note
       if ((e.metaKey || e.ctrlKey) && e.key === "n") {
         e.preventDefault();
-        createNote();
+        createNoteInContext();
         return;
       }
 
-      // Delete current note (note list focused, or editor on empty note)
       if (
         selectedNoteId &&
         !isInInput &&
@@ -442,7 +324,6 @@ function AppContent() {
         return;
       }
 
-      // Cmd+D - Duplicate current note
       if (
         (e.metaKey || e.ctrlKey) &&
         e.key.toLowerCase() === "d" &&
@@ -455,17 +336,16 @@ function AppContent() {
         return;
       }
 
-      // Cmd+R - Reload current note (pull external changes)
       if ((e.metaKey || e.ctrlKey) && e.key === "r") {
         e.preventDefault();
         reloadCurrentNote();
         return;
       }
 
-      // Arrow keys for note navigation
-      // Skip if folder tree view is handling its own navigation
       const isInFolderTree = !!(e.target as HTMLElement).closest("[data-folder-tree]");
       if (
+        !isProjectsTab(notesScope) &&
+        !isMoneyTab(notesScope) &&
         displayItems.length > 0 &&
         (e.key === "ArrowDown" || e.key === "ArrowUp") &&
         ((!isInEditor && !isInInput) || isEditorEmpty) &&
@@ -490,7 +370,6 @@ function AppContent() {
         return;
       }
 
-      // Enter to focus editor
       if (e.key === "Enter" && selectedNoteId && !isInEditor && !isInInput) {
         e.preventDefault();
         const editor = document.querySelector(".ProseMirror") as HTMLElement;
@@ -500,13 +379,10 @@ function AppContent() {
         return;
       }
 
-      // Escape to blur editor and go back to note list
       if (e.key === "Escape" && isInEditor) {
         e.preventDefault();
         (target as HTMLElement).blur();
-        // Focus the note list for keyboard navigation
         window.dispatchEvent(new CustomEvent("focus-note-list"));
-        return;
       }
     };
 
@@ -515,7 +391,7 @@ function AppContent() {
       window.removeEventListener("keydown", handleKeyDown);
     };
   }, [
-    createNote,
+    createNoteInContext,
     duplicateNote,
     displayItems,
     reloadCurrentNote,
@@ -523,17 +399,12 @@ function AppContent() {
     selectNote,
     toggleSettings,
     toggleSidebar,
-    toggleRightSidebar,
     toggleFocusMode,
     focusMode,
     view,
     setInterfaceZoom,
+    notesScope,
   ]);
-
-  const handleClosePalette = useCallback(() => {
-    setPaletteOpen(false);
-    editorRef.current?.commands.focus();
-  }, []);
 
   if (isLoading) {
     return (
@@ -554,151 +425,103 @@ function AppContent() {
     return <FolderPicker />;
   }
 
+  const editorChrome = {
+    onToggleSidebar: toggleSidebar,
+    onNewNote: createNoteInContext,
+    showWindowControls: true,
+  };
+
   return (
     <>
       <CloudSync />
-      {usesCustomLinuxTitlebar && (
-        <div
-          className="titlebar-drag-region fixed inset-x-0 top-0 z-20 flex h-10 items-center justify-center border-b border-border bg-bg-secondary/95"
-          data-tauri-drag-region
-        >
-          {!focusMode && leftPanelMounted && (
-            <div
-              data-state={leftPanelVisible ? "open" : "closed"}
-              style={{ pointerEvents: leftPanelVisible ? "auto" : "none" }}
-              className="app-titlebar-sidebar-panel titlebar-no-drag fixed left-11 top-1.5 z-40"
-            >
-              <SidebarPanelTabs panel={sidebarPanel} onSelectPanel={selectSidebarPanel} />
-            </div>
-          )}
-          <span className="titlebar-brand pointer-events-none absolute top-0 hidden h-10 select-none items-center text-[11px] font-semibold tracking-[0.08em] text-text-muted/75 min-[420px]:flex">
-            SPELL
-          </span>
-        </div>
-      )}
-      {usesCustomLinuxTitlebar && !focusMode && (
-        <div className="titlebar-no-drag titlebar-panel-control fixed left-2 top-1.5 z-[60]">
-          <IconButton
-            variant="ghost"
-            className="hover:bg-transparent"
-            onClick={toggleSidebar}
-            aria-label={sidebarVisible ? "Hide sidebar" : "Show sidebar"}
-          >
-            <PanelToggleIcon side="left" open={sidebarVisible} />
-          </IconButton>
-        </div>
-      )}
-      {usesCustomLinuxTitlebar && !focusMode && sidebarPanel !== "kanban" && (
-        <div className="titlebar-no-drag titlebar-panel-control fixed right-28 top-1.5 z-[60]">
-          <IconButton
-            variant="ghost"
-            className="hover:bg-transparent"
-            onClick={toggleRightSidebar}
-            aria-label={rightSidebarVisible ? "Hide right sidebar" : "Show right sidebar"}
-          >
-            <PanelToggleIcon side="right" open={rightSidebarVisible} />
-          </IconButton>
-        </div>
-      )}
-      <div className={cn("h-full min-h-0 flex bg-bg text-text overflow-hidden", usesCustomLinuxTitlebar && "pt-10")}>
+      <div className="h-full min-h-0 flex bg-bg text-text overflow-hidden">
         {view === "settings" ? (
           <SettingsPage onBack={closeSettings} />
         ) : (
           <>
-            {leftPanelMounted && (
-              <div
-                data-sidebar
-                data-state={leftPanelVisible ? "open" : "closed"}
-                style={{ width: `var(--sidebar-width, ${SIDEBAR_DEFAULT_PX}px)` }}
-                className={cn(
-                  "app-sidebar-panel relative shrink-0 overflow-hidden",
-                  !leftPanelVisible && "pointer-events-none",
-                )}
-              >
-                <Sidebar
-                  panel={sidebarPanel}
-                  onSelectPanel={selectSidebarPanel}
-                  onOpenSettings={toggleSettings}
-                  hidePanelTabs={usesCustomLinuxTitlebar}
-                  financeView={financeView}
-                  onSelectFinanceView={setFinanceView}
-                />
-                {leftPanelVisible && <SidebarResizeHandle />}
-              </div>
-            )}
-            {sidebarPanel === "kanban" ? (
-              <KanbanPage
-                rightSidebarVisible={rightSidebarVisible}
-              />
-            ) : sidebarPanel === "finance" ? (
-              <FinancePage
-                view={financeView}
-                onViewChange={setFinanceView}
-                showSectionTabs={!sidebarVisible}
-              />
-            ) : sidebarPanel === "journal" ? (
-              <JournalPage
-                sidebarVisible={sidebarVisible}
-                rightSidebarVisible={rightSidebarVisible}
-                focusMode={focusMode}
-                onEditorReady={(editor) => {
-                  editorRef.current = editor;
-                }}
-              />
-            ) : (
-              <Editor
-                sidebarVisible={sidebarVisible}
-                rightSidebarVisible={rightSidebarVisible}
-                focusMode={focusMode}
-                onEditorReady={(editor) => {
-                  editorRef.current = editor;
-                }}
-              />
-            )}
-            {rightPanelMounted && (
-              <div
-                data-state={rightPanelVisible ? "open" : "closed"}
-                style={{ width: rightSidebarWidth }}
-                className={cn(
-                  "app-right-sidebar-panel relative shrink-0",
-                  !rightPanelVisible && "pointer-events-none",
-                )}
-              >
-                <RightSidebar
-                  width={rightSidebarWidth}
-                  currentNote={currentNote}
-                  notes={notes}
-                  onWidthChange={setRightSidebarWidth}
-                  onClose={toggleRightSidebar}
-                  showCloseButton={false}
-                  onSelectNote={selectNote}
-                  onOpenHeading={(text, occurrence) => {
-                    const editor = editorRef.current;
-                    if (!editor) return;
-                    let seen = 0;
-                    let position: number | null = null;
-                    editor.state.doc.descendants((node, pos) => {
-                      if (
-                        position === null &&
-                        node.type.name === "heading" &&
-                        node.textContent === text
-                      ) {
-                        if (seen === occurrence) position = pos + 1;
-                        seen += 1;
-                      }
-                    });
-                    if (position !== null) {
-                      editor
-                        .chain()
-                        .focus()
-                        .setTextSelection(position)
-                        .scrollIntoView()
-                        .run();
-                    }
-                  }}
+            <div
+              data-sidebar
+              data-state={folderRail.state}
+              className={cn(
+                "app-workspace-panel relative h-full shrink-0 overflow-hidden border-r border-border",
+                folderRail.animating && "is-animating",
+              )}
+              style={{ "--panel-width": `${FOLDER_SIDEBAR_PX}px` } as CSSProperties}
+              inert={folderRail.state === "closed" ? true : undefined}
+              aria-hidden={folderRail.state === "closed"}
+            >
+              <div className="app-workspace-panel-inner">
+                <FolderSourceList
+                  scope={notesScope}
+                  onSelectScope={selectScope}
+                  onToggle={toggleSidebar}
+                  onNewFolder={() => undefined}
                   onOpenSettings={openSettings}
                 />
               </div>
+            </div>
+            <div
+              data-sidebar
+              data-state={notesRail.state}
+              className={cn(
+                "app-workspace-panel app-sidebar-panel relative h-full shrink-0 overflow-hidden",
+                notesRail.animating && "is-animating",
+              )}
+              style={{ "--panel-width": `var(--sidebar-width, ${SIDEBAR_DEFAULT_PX}px)` } as CSSProperties}
+              inert={notesRail.state === "closed" ? true : undefined}
+              aria-hidden={notesRail.state === "closed"}
+            >
+              <div className="app-workspace-panel-inner">
+                <Sidebar
+                  panel={sidebarPanel}
+                  onSelectPanel={selectSidebarPanel}
+                  onToggle={toggleSidebar}
+                  foldersVisible={foldersOpen || folderRail.animating}
+                  scope={notesScope}
+                  onSelectScope={selectScope}
+                />
+                {notesRail.state === "open" && <SidebarResizeHandle />}
+              </div>
+            </div>
+            {notesScope.type === "projects" ? (
+              <ProjectsHub
+                sidebarVisible={notesListOpen || foldersOpen}
+                focusMode={focusMode}
+                onOpenProject={(id, cardId) => selectScope({ type: "project", id }, cardId)}
+                {...editorChrome}
+              />
+            ) : notesScope.type === "project" ? (
+              <KanbanPage
+                sidebarVisible={notesListOpen || foldersOpen}
+                focusMode={focusMode}
+                openCardId={openProjectCardId}
+                {...editorChrome}
+              />
+            ) : isMoneyTab(notesScope) ? (
+              <FinancePage
+                scope={notesScope}
+                sidebarVisible={notesListOpen || foldersOpen}
+                focusMode={focusMode}
+                {...editorChrome}
+              />
+            ) : notesScope.type === "journal" ? (
+              <JournalPage
+                sidebarVisible={notesListOpen}
+                focusMode={focusMode}
+                onEditorReady={(editor) => {
+                  editorRef.current = editor;
+                }}
+                {...editorChrome}
+              />
+            ) : (
+              <Editor
+                sidebarVisible={notesListOpen}
+                focusMode={focusMode}
+                onEditorReady={(editor) => {
+                  editorRef.current = editor;
+                }}
+                {...editorChrome}
+              />
             )}
           </>
         )}
@@ -706,75 +529,9 @@ function AppContent() {
 
       <AppContextMenu
         getEditor={() => editorRef.current}
-        onCreateNote={createNote}
-        onSearch={openSidebarSearch}
+        onCreateNote={createNoteInContext}
         onOpenSettings={openSettings}
       />
-
-      {/* Shared backdrop for command palette and AI modal */}
-      {(paletteOpen || aiModalOpen) && (
-        <button
-          type="button"
-          tabIndex={-1}
-          aria-label={paletteOpen ? "Close command palette" : "Close AI editor"}
-          className="fixed inset-0 z-40 bg-text/50 backdrop-blur-sm"
-          onClick={() => {
-            if (paletteOpen) handleClosePalette();
-            if (aiModalOpen) setAiModalOpen(false);
-          }}
-        />
-      )}
-
-      {paletteOpen && (
-        <CommandPalette
-          open
-          onClose={handleClosePalette}
-          onOpenSettings={toggleSettings}
-          onOpenAiModal={(provider) => {
-            setAiProvider(provider);
-            setAiModalOpen(true);
-          }}
-          focusMode={focusMode}
-          onToggleFocusMode={toggleFocusMode}
-          editorRef={editorRef}
-        />
-      )}
-      {aiModalOpen && (
-        <AiEditModal
-          open
-          provider={aiProvider}
-          onBack={handleBackToPalette}
-          onExecute={handleAiEdit}
-          isExecuting={aiEditing}
-        />
-      )}
-
-      {/* AI Editing Overlay */}
-      {aiEditing && (
-        <div className="fixed inset-0 bg-bg/50 backdrop-blur-sm z-50 flex items-center justify-center">
-          <div className="flex items-center gap-2">
-            {aiProvider === "codex" ? (
-              <CodexIcon className="w-4.5 h-4.5 fill-text-muted" />
-            ) : aiProvider === "opencode" ? (
-              <OpenCodeIcon className="w-4.5 h-4.5 fill-text-muted" />
-            ) : aiProvider === "ollama" ? (
-              <OllamaIcon className="w-4.5 h-4.5 fill-text-muted" />
-            ) : (
-              <ClaudeIcon className="w-4.5 h-4.5 fill-text-muted" />
-            )}
-            <SpinnerIcon className="w-4 h-4 stroke-[1.7] text-text-muted animate-spin" />
-            <div className="text-sm font-medium text-text">
-              {aiProvider === "codex"
-                ? "Codex is editing your note..."
-                : aiProvider === "opencode"
-                  ? "OpenCode is editing your note..."
-                : aiProvider === "ollama"
-                  ? "Ollama is editing your note..."
-                  : "Claude is editing your note..."}
-            </div>
-          </div>
-        </div>
-      )}
     </>
   );
 }
@@ -782,7 +539,6 @@ function AppContent() {
 function App() {
   const { isPreview, previewFile } = useMemo(getWindowMode, []);
 
-  // Cmd/Ctrl+W — close window (works in both preview and folder mode)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "w") {
@@ -794,13 +550,11 @@ function App() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
-  // Add platform class for OS-specific styling (e.g., keyboard shortcuts)
   useEffect(() => {
     const os = isMac ? "mac" : isWindows ? "windows" : "linux";
     document.documentElement.classList.add(`platform-${os}`);
   }, []);
 
-  // Preview mode: lightweight editor without sidebar, search, git
   if (isPreview && previewFile) {
     return (
       <ThemeProvider>
@@ -812,13 +566,11 @@ function App() {
     );
   }
 
-  // Folder mode: full app with sidebar, search, git, etc.
   return (
     <ThemeProvider>
       <Toaster />
       <TooltipProvider>
         <div className="relative h-full">
-          <WindowControls />
           <NotesProvider>
             <KanbanWorkspaceProvider>
               <FinanceProvider>

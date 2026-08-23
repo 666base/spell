@@ -1,4 +1,4 @@
-name: Release Linux package
+name: Release Linux and Android packages
 
 on:
   push:
@@ -46,7 +46,97 @@ jobs:
         with:
           tagName: v__VERSION__
           releaseName: "Spell v__VERSION__"
-          releaseBody: "Linux package for Zorin OS and other Ubuntu-based distributions."
+          releaseBody: "Linux .deb and Android APK. Publish this release, then use Check for updates in Spell settings."
           releaseDraft: true
           prerelease: false
           args: "--bundles deb"
+
+  build-apk:
+    runs-on: ubuntu-22.04
+    needs: build-deb
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check Android signing secrets
+        id: signing
+        run: |
+          if [ -n "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "Skipping Android APK build. Add ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, and ANDROID_KEY_PASSWORD secrets, or attach a signed universal APK to the GitHub release."
+          fi
+
+      - name: Setup Java
+        if: steps.signing.outputs.available == 'true'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Android SDK
+        if: steps.signing.outputs.available == 'true'
+        uses: android-actions/setup-android@v3
+
+      - name: Setup Android NDK
+        if: steps.signing.outputs.available == 'true'
+        uses: nttld/setup-ndk@v1
+        id: setup-ndk
+        with:
+          ndk-version: r27c
+          link-to-sdk: true
+
+      - name: Setup Node
+        if: steps.signing.outputs.available == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+
+      - name: Install Rust stable
+        if: steps.signing.outputs.available == 'true'
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+
+      - name: Rust cache
+        if: steps.signing.outputs.available == 'true'
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: ./src-tauri -> target
+          prefix-key: android-release
+
+      - name: Write Android keystore
+        if: steps.signing.outputs.available == 'true'
+        run: |
+          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > src-tauri/gen/android/release.keystore
+          {
+            echo "storeFile=../release.keystore"
+            echo "storePassword=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}"
+            echo "keyAlias=${{ secrets.ANDROID_KEY_ALIAS }}"
+            echo "keyPassword=${{ secrets.ANDROID_KEY_PASSWORD }}"
+          } > src-tauri/gen/android/keystore.properties
+
+      - name: Install frontend dependencies
+        if: steps.signing.outputs.available == 'true'
+        run: npm ci
+
+      - name: Build Android APK
+        if: steps.signing.outputs.available == 'true'
+        env:
+          NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+        run: |
+          export ANDROID_HOME="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          npx tauri android build --apk
+
+      - name: Upload APK to GitHub release
+        if: steps.signing.outputs.available == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="$(node -p "require('./package.json').version")"
+          TAG="v${VERSION}"
+          APK="src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release.apk"
+          cp "$APK" "Spell_${VERSION}_universal.apk"
+          gh release upload "$TAG" "Spell_${VERSION}_universal.apk" --clobber

@@ -40,7 +40,7 @@ export const BlockMathEditor = ({
   };
 
   return (
-    <div className="flex flex-col gap-1.5 bg-bg/95 backdrop-blur-xl border border-border rounded-xl shadow-[var(--shadow-surface)] p-1.5 w-84">
+    <div className="flex flex-col gap-1.5 bg-bg border border-border rounded-xl p-1.5 w-84">
       <textarea
         ref={textareaRef}
         value={latex}

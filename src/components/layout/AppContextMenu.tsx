@@ -1,19 +1,6 @@
-import { useCallback, useEffect, useState, type ReactElement } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { Editor } from "@tiptap/react";
 import { toast } from "sonner";
-import { isMac, mod } from "../../lib/platform";
-import {
-  CopyIcon,
-  CutIcon,
-  FolderPlusIcon,
-  NoteIcon,
-  PasteIcon,
-  RedoIcon,
-  SearchIcon,
-  SelectAllIcon,
-  SettingsIcon,
-  UndoIcon,
-} from "../icons/velocity";
 
 interface MenuState {
   x: number;
@@ -26,17 +13,13 @@ interface AppContextMenuProps {
   getEditor: () => Editor | null;
   onCreateNote: () => void;
   onCreateFolder?: () => void;
-  onSearch: () => void;
   onOpenSettings: () => void;
 }
-
-const itemClass = "spell-menu-item";
 
 export function AppContextMenu({
   getEditor,
   onCreateNote,
   onCreateFolder,
-  onSearch,
   onOpenSettings,
 }: AppContextMenuProps) {
   const [menu, setMenu] = useState<MenuState | null>(null);
@@ -148,36 +131,41 @@ export function AppContextMenu({
 
   if (!menu) return null;
 
-  const x = Math.min(menu.x, window.innerWidth - 196);
-  const y = Math.min(menu.y, window.innerHeight - (menu.editable ? 242 : 178));
+  const x = Math.min(menu.x, window.innerWidth - 176);
+  const y = Math.min(menu.y, window.innerHeight - (menu.editable ? 196 : 150));
 
   return (
     <div
       role="menu"
       aria-label="Spell actions"
       data-spell-context-menu
-      className="spell-menu fixed z-[2000] min-w-48"
+      className="spell-menu fixed z-[2000] min-w-40"
       style={{ left: Math.max(6, x), top: Math.max(6, y) }}
       onPointerDown={(event) => event.stopPropagation()}
     >
       {menu.editable ? (
         <>
-          <MenuItem icon={<UndoIcon />} label="Undo" shortcut={`${mod}${isMac ? "" : "+"}Z`} onSelect={() => finish(() => runEdit("undo"))} />
-          <MenuItem icon={<RedoIcon />} label="Redo" shortcut={`${mod}${isMac ? "" : "+"}Shift${isMac ? "" : "+"}Z`} onSelect={() => finish(() => runEdit("redo"))} />
+          <MenuItem label="Undo" onSelect={() => finish(() => runEdit("undo"))} />
+          <MenuItem label="Redo" onSelect={() => finish(() => runEdit("redo"))} />
           <Separator />
-          <MenuItem icon={<CutIcon />} label="Cut" shortcut={`${mod}${isMac ? "" : "+"}X`} onSelect={() => finish(() => runEdit("cut"))} />
-          <MenuItem icon={<CopyIcon />} label="Copy" shortcut={`${mod}${isMac ? "" : "+"}C`} onSelect={() => finish(() => runEdit("copy"))} />
-          <MenuItem icon={<PasteIcon />} label="Paste" shortcut={`${mod}${isMac ? "" : "+"}V`} onSelect={() => finish(() => runEdit("paste"))} />
+          <MenuItem label="Cut" onSelect={() => finish(() => runEdit("cut"))} />
+          <MenuItem label="Copy" onSelect={() => finish(() => runEdit("copy"))} />
+          <MenuItem label="Paste" onSelect={() => finish(() => runEdit("paste"))} />
           <Separator />
-          <MenuItem icon={<SelectAllIcon />} label="Select All" shortcut={`${mod}${isMac ? "" : "+"}A`} onSelect={() => finish(() => runEdit("selectAll"))} />
+          <MenuItem label="Select All" onSelect={() => finish(() => runEdit("selectAll"))} />
         </>
       ) : (
         <>
-          <MenuItem icon={<NoteIcon />} label="New Note" shortcut={`${mod}${isMac ? "" : "+"}N`} onSelect={() => finish(onCreateNote)} />
-          <MenuItem icon={<FolderPlusIcon />} label="New Folder" onSelect={() => finish(handleCreateFolder)} />
-          <MenuItem icon={<SearchIcon />} label="Search" shortcut={`${mod}${isMac ? "" : "+"}Shift${isMac ? "" : "+"}F`} onSelect={() => finish(onSearch)} />
+          <MenuItem label="New Note" onSelect={() => finish(onCreateNote)} />
+          <MenuItem label="New Folder" onSelect={() => finish(handleCreateFolder)} />
+          <MenuItem
+            label="New Project"
+            onSelect={() => finish(() => {
+              window.dispatchEvent(new CustomEvent("create-new-project"));
+            })}
+          />
           <Separator />
-          <MenuItem icon={<SettingsIcon />} label="Settings" shortcut={`${mod}${isMac ? "" : "+"},`} onSelect={() => finish(onOpenSettings)} />
+          <MenuItem label="Settings" onSelect={() => finish(onOpenSettings)} />
         </>
       )}
     </div>
@@ -185,28 +173,21 @@ export function AppContextMenu({
 }
 
 function MenuItem({
-  icon,
   label,
-  shortcut: _shortcut,
   onSelect,
 }: {
-  icon: ReactElement<{ className?: string }>;
   label: string;
-  shortcut?: string;
   onSelect: () => void;
 }) {
   return (
     <button
       type="button"
       role="menuitem"
-      className={itemClass}
+      className="spell-menu-item"
       onPointerDown={(event) => event.preventDefault()}
       onClick={onSelect}
     >
-      <span className="flex h-4 w-4 items-center justify-center [&>svg]:h-4 [&>svg]:w-4 [&>svg]:stroke-[1.6]">
-        {icon}
-      </span>
-      <span className="flex-1">{label}</span>
+      {label}
     </button>
   );
 }

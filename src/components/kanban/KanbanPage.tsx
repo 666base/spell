@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  closestCenter,
   DndContext,
   DragOverlay,
   PointerSensor,
@@ -11,14 +12,20 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/core";
 import {
+  arrayMove,
+  horizontalListSortingStrategy,
   SortableContext,
   useSortable,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import type { KanbanBoard, KanbanCard, KanbanColumn, KanbanPriority, KanbanTodo } from "../../types/note";
-import { createEmptyBoard, useKanbanWorkspace } from "../../context/KanbanWorkspaceContext";
+import type { KanbanBoard, KanbanCard, KanbanColumn, KanbanPriority, KanbanTodo, ProjectViewId } from "../../types/note";
+import { useKanbanWorkspace } from "../../context/KanbanWorkspaceContext";
+import { createBoardFromTemplate, createEmptyBoard, captureColumn, formatDueDate, PROJECT_ICON_IDS, PROJECT_TEMPLATES } from "../../lib/kanban";
 import { cn } from "../../lib/utils";
+import { playCheckAnimation } from "../../lib/checkAnimation";
+import { isMobileApp } from "../../lib/platform";
+import { NoteTitlebar } from "../layout/NoteTitlebar";
 import {
   Button,
   IconButton,
@@ -26,23 +33,24 @@ import {
   Select,
 } from "../ui";
 import {
-  CalendarIcon,
-  ClientIcon,
-  DoneIcon,
   GripIcon,
-  InboxIcon,
-  InProgressIcon,
-  KanbanIcon,
   PlusIcon,
-  TableIcon,
-  TodoIcon,
-  WaitingIcon,
+  SettingsIcon,
+  TrashIcon,
   XIcon,
 } from "../icons/velocity";
 import { CheckmarkIcon } from "../ui/StateIcon";
+import { ProjectGlyph } from "./ProjectGlyph";
+import { toast } from "sonner";
 
 interface KanbanPageProps {
-  rightSidebarVisible?: boolean;
+  sidebarVisible?: boolean;
+  focusMode?: boolean;
+  onToggleSidebar?: () => void;
+  onNewNote?: () => void;
+  showWindowControls?: boolean;
+  hideTitleBar?: boolean;
+  openCardId?: string | null;
 }
 
 interface EditingCard {
@@ -51,18 +59,11 @@ interface EditingCard {
   isNew: boolean;
 }
 
-const DAY_MS = 24 * 60 * 60 * 1000;
-const KANBAN_MOTION_EASING = "cubic-bezier(0.23, 1, 0.32, 1)";
-const KANBAN_SORT_TRANSITION = { duration: 180, easing: KANBAN_MOTION_EASING };
-const KANBAN_DROP_ANIMATION = { duration: 180, easing: KANBAN_MOTION_EASING };
-
-const COLUMN_ICONS = {
-  inbox: InboxIcon,
-  ready: TodoIcon,
-  doing: InProgressIcon,
-  waiting: WaitingIcon,
-  done: DoneIcon,
-} as const;
+const KANBAN_SORT_TRANSITION = { duration: 250, easing: "cubic-bezier(0.2, 0, 0, 1)" };
+const KANBAN_DROP_ANIMATION = {
+  duration: 250,
+  easing: "cubic-bezier(0.2, 0, 0, 1)",
+};
 
 function makeId() {
   return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -78,92 +79,9 @@ function newCard(): KanbanCard {
     priority: "medium",
     description: "",
     todos: [],
+    completed: false,
     createdAt: now,
     updatedAt: now,
-  };
-}
-
-function dateAfter(days: number) {
-  const date = new Date();
-  date.setHours(12, 0, 0, 0);
-  date.setDate(date.getDate() + days);
-  return date.toISOString().slice(0, 10);
-}
-
-function createClientDeliveryExample(): KanbanBoard {
-  const cards: KanbanCard[] = [
-    {
-      ...newCard(),
-      title: "Collect brand references from the client",
-      client: "Northstar Coffee",
-      dueDate: dateAfter(1),
-      priority: "medium",
-      description: "Ask for the current logo files, menu, photography, and the launch date.",
-    },
-    {
-      ...newCard(),
-      title: "Confirm the website launch scope",
-      client: "Northstar Coffee",
-      dueDate: dateAfter(2),
-      priority: "high",
-      description: "Turn the kickoff call into a clear list of pages, approvals, and success criteria.",
-    },
-    {
-      ...newCard(),
-      title: "Prepare the first homepage direction",
-      client: "Northstar Coffee",
-      dueDate: dateAfter(4),
-      priority: "high",
-      description: "Keep this as the one active deliverable until the client can react to it.",
-    },
-    {
-      ...newCard(),
-      title: "Approve the final product photography",
-      client: "Northstar Coffee",
-      dueDate: dateAfter(-1),
-      priority: "medium",
-      description: "Waiting for the client’s selection before placing imagery in the final layout.",
-    },
-    {
-      ...newCard(),
-      title: "Send signed proposal and deposit receipt",
-      client: "Northstar Coffee",
-      dueDate: dateAfter(-3),
-      priority: "low",
-      description: "A finished operational task stays visible here briefly for context.",
-    },
-  ];
-
-  const board = createEmptyBoard();
-  board.cards = cards;
-  board.columns = board.columns.map((column) => ({
-    ...column,
-    cardIds:
-      column.id === "inbox" ? [cards[0].id]
-      : column.id === "ready" ? [cards[1].id]
-      : column.id === "doing" ? [cards[2].id]
-      : column.id === "waiting" ? [cards[3].id]
-      : [cards[4].id],
-  }));
-  return board;
-}
-
-function formatDueDate(dueDate?: string) {
-  if (!dueDate) return null;
-  const date = new Date(`${dueDate}T12:00:00`);
-  if (Number.isNaN(date.valueOf())) return null;
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const due = new Date(date);
-  due.setHours(0, 0, 0, 0);
-  const days = Math.round((due.valueOf() - today.valueOf()) / DAY_MS);
-
-  if (days < 0) return { label: `${Math.abs(days)}d overdue`, tone: "overdue" };
-  if (days === 0) return { label: "Due today", tone: "today" };
-  if (days === 1) return { label: "Due tomorrow", tone: "soon" };
-  return {
-    label: date.toLocaleDateString(undefined, { month: "short", day: "numeric" }),
-    tone: "normal",
   };
 }
 
@@ -175,15 +93,26 @@ function removeCardId(columns: KanbanColumn[], cardId: string) {
 }
 
 export function KanbanPage({
-  rightSidebarVisible = true,
+  sidebarVisible = true,
+  focusMode = false,
+  onToggleSidebar,
+  onNewNote,
+  showWindowControls = false,
+  hideTitleBar = false,
+  openCardId = null,
 }: KanbanPageProps) {
   const { activeProject, isLoading, updateProject } = useKanbanWorkspace();
   const [editing, setEditing] = useState<EditingCard | null>(null);
   const [activeCardId, setActiveCardId] = useState<string | null>(null);
   const [recentlyCreatedCardId, setRecentlyCreatedCardId] = useState<string | null>(null);
-  const [view, setView] = useState<"board" | "table">("board");
+  const [isAddingColumn, setIsAddingColumn] = useState(false);
+  const [newColumnTitle, setNewColumnTitle] = useState("");
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [focusCaptureId, setFocusCaptureId] = useState<string | null>(null);
+  const [boardEditing, setBoardEditing] = useState(false);
+  const [selectedColumnId, setSelectedColumnId] = useState<string | null>(null);
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(PointerSensor, { activationConstraint: { distance: boardEditing ? 8 : 6 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 180, tolerance: 8 } }),
   );
   const board = activeProject?.board ?? createEmptyBoard();
@@ -198,11 +127,21 @@ export function KanbanPage({
     [board.cards],
   );
   const activeCard = activeCardId ? cardsById.get(activeCardId) ?? null : null;
-  const activeCount = board.columns
-    .filter((column) => column.id !== "done")
-    .reduce((count, column) => count + column.cardIds.length, 0);
-  const waitingCount = board.columns.find((column) => column.id === "waiting")?.cardIds.length ?? 0;
-  const isEmpty = board.cards.length === 0;
+  const hasColumns = board.columns.length > 0;
+  const [view, setView] = useState<ProjectViewId>("list");
+  const columnIds = useMemo(() => board.columns.map((column) => column.id), [board.columns]);
+
+  useEffect(() => {
+    setView("list");
+  }, [activeProject?.id]);
+
+  useEffect(() => {
+    if (!openCardId || !activeProject || isLoading) return;
+    const column = activeProject.board.columns.find((item) => item.cardIds.includes(openCardId));
+    const card = activeProject.board.cards.find((item) => item.id === openCardId);
+    if (!column || !card) return;
+    setEditing({ card, columnId: column.id, isNew: false });
+  }, [activeProject?.id, isLoading, openCardId]);
 
   useEffect(() => {
     if (!recentlyCreatedCardId) return;
@@ -210,9 +149,62 @@ export function KanbanPage({
     return () => window.clearTimeout(timeoutId);
   }, [recentlyCreatedCardId]);
 
-  const openNewCard = useCallback((columnId?: string) => {
-    setEditing({ card: newCard(), columnId: columnId ?? board.columns[0]?.id ?? "inbox", isNew: true });
-  }, [board.columns]);
+  useEffect(() => {
+    const onCreateTask = () => {
+      const column = captureColumn(board);
+      if (!column) return;
+      setFocusCaptureId(column.id);
+    };
+    window.addEventListener("create-project-task", onCreateTask);
+    return () => window.removeEventListener("create-project-task", onCreateTask);
+  }, [board]);
+
+  const addColumn = useCallback((title: string) => {
+    const trimmedTitle = title.trim();
+    if (!trimmedTitle) return;
+    persist({
+      ...board,
+      columns: [...board.columns, { id: `column:${makeId()}`, title: trimmedTitle, cardIds: [] }],
+    });
+    setNewColumnTitle("");
+    setIsAddingColumn(false);
+  }, [board, persist]);
+
+  const renameColumn = useCallback((columnId: string, title: string) => {
+    const trimmedTitle = title.trim();
+    if (!trimmedTitle) return;
+    persist({
+      ...board,
+      columns: board.columns.map((column) => (
+        column.id === columnId ? { ...column, title: trimmedTitle } : column
+      )),
+    });
+  }, [board, persist]);
+
+  const deleteColumn = useCallback((columnId: string) => {
+    const column = board.columns.find((item) => item.id === columnId);
+    if (!column) return;
+    const remainingColumns = board.columns.filter((item) => item.id !== columnId);
+    if (column.cardIds.length > 0 && remainingColumns.length === 0) {
+      toast.error("Create another column before removing this one");
+      return;
+    }
+    const columns = remainingColumns.map((item, index) => (
+      index === 0 && column.cardIds.length > 0
+        ? { ...item, cardIds: [...item.cardIds, ...column.cardIds] }
+        : item
+    ));
+    persist({ ...board, columns });
+    setSelectedColumnId((current) => current === columnId ? null : current);
+    if (column.cardIds.length > 0) toast.message(`Moved ${column.cardIds.length} task${column.cardIds.length === 1 ? "" : "s"} to ${columns[0].title}`);
+  }, [board, persist]);
+
+  const reorderColumns = useCallback((activeId: string, overId: string) => {
+    const oldIndex = board.columns.findIndex((column) => column.id === activeId);
+    const newIndex = board.columns.findIndex((column) => column.id === overId);
+    if (oldIndex < 0 || newIndex < 0 || oldIndex === newIndex) return;
+    persist({ ...board, columns: arrayMove(board.columns, oldIndex, newIndex) });
+  }, [board, persist]);
 
   const saveCard = useCallback((card: KanbanCard, columnId: string, isNew: boolean) => {
     const savedCard = { ...card, title: card.title.trim(), updatedAt: Date.now() };
@@ -265,20 +257,70 @@ export function KanbanPage({
     updateCardTodos(cardId, (todos) => todos.map((todo) => todo.id === todoId ? { ...todo, completed: !todo.completed } : todo));
   }, [updateCardTodos]);
 
-  const moveCardToColumn = useCallback((cardId: string, columnId: string) => {
-    if (!board.columns.some((column) => column.id === columnId)) return;
-    const columnsWithoutCard = removeCardId(board.columns, cardId);
+  const addQuickCard = useCallback((columnId: string, title: string) => {
+    const trimmed = title.trim();
+    if (!trimmed) return;
+    const card = { ...newCard(), title: trimmed, client: activeProject?.client?.trim() || "" };
     persist({
       ...board,
-      columns: columnsWithoutCard.map((column) => (
-        column.id === columnId
-          ? { ...column, cardIds: [...column.cardIds, cardId] }
-          : column
+      cards: [...board.cards, card],
+      columns: board.columns.map((column) => (
+        column.id === columnId ? { ...column, cardIds: [...column.cardIds, card.id] } : column
       )),
+    });
+  }, [activeProject?.client, board, persist]);
+
+  const renameCardTitle = useCallback((cardId: string, title: string) => {
+    const trimmed = title.trim();
+    if (!trimmed) {
+      deleteCard(cardId);
+      return;
+    }
+    persist({
+      ...board,
+      cards: board.cards.map((card) => (
+        card.id === cardId ? { ...card, title: trimmed, updatedAt: Date.now() } : card
+      )),
+    });
+  }, [board, deleteCard, persist]);
+
+  const toggleCardDone = useCallback((cardId: string) => {
+    persist({
+      ...board,
+      cards: board.cards.map((item) =>
+        item.id === cardId ? { ...item, completed: !item.completed, updatedAt: Date.now() } : item,
+      ),
     });
   }, [board, persist]);
 
+  const renameProject = useCallback((name: string) => {
+    if (!activeProject) return;
+    const trimmed = name.trim();
+    if (!trimmed || trimmed === activeProject.name) return;
+    updateProject({ ...activeProject, name: trimmed });
+  }, [activeProject, updateProject]);
+
+  const setProjectIcon = useCallback((icon: typeof PROJECT_ICON_IDS[number]) => {
+    if (!activeProject || activeProject.icon === icon) return;
+    updateProject({ ...activeProject, icon });
+  }, [activeProject, updateProject]);
+
+  const exitBoardEditing = useCallback(() => {
+    setBoardEditing(false);
+    setSelectedColumnId(null);
+    setIsAddingColumn(false);
+    setNewColumnTitle("");
+  }, []);
+
+  const setProjectView = useCallback((next: ProjectViewId) => {
+    if (next === view) return;
+    if (next !== "board") exitBoardEditing();
+    setView(next);
+    if (activeProject) updateProject({ ...activeProject, view: next });
+  }, [activeProject, exitBoardEditing, updateProject, view]);
+
   const handleDragStart = useCallback((event: DragStartEvent) => {
+    if (event.active.data.current?.type === "kanban-column") return;
     setActiveCardId(String(event.active.id));
   }, []);
 
@@ -286,6 +328,11 @@ export function KanbanPage({
     setActiveCardId(null);
     const { active, over } = event;
     if (!over || active.id === over.id) return;
+
+    if (active.data.current?.type === "kanban-column") {
+      reorderColumns(String(active.id), String(over.id));
+      return;
+    }
 
     const cardId = String(active.id);
     const sourceColumn = board.columns.find((column) => column.cardIds.includes(cardId));
@@ -309,300 +356,671 @@ export function KanbanPage({
       return { ...column, cardIds };
     });
     persist({ ...board, columns: nextColumns });
-  }, [board, persist]);
+  }, [board, persist, reorderColumns]);
+
+  useEffect(() => {
+    if (!boardEditing) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        exitBoardEditing();
+        return;
+      }
+      if ((event.key !== "Delete" && event.key !== "Backspace") || !selectedColumnId) return;
+      const target = event.target as HTMLElement | null;
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) return;
+      event.preventDefault();
+      deleteColumn(selectedColumnId);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [boardEditing, deleteColumn, exitBoardEditing, selectedColumnId]);
 
   if (isLoading) {
-    return <KanbanLoading />;
+    return (
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden bg-bg">
+        {!hideTitleBar && (
+          <NoteTitlebar
+            sidebarVisible={sidebarVisible}
+            focusMode={focusMode}
+            onToggleSidebar={onToggleSidebar}
+            onNewNote={onNewNote}
+            showWindowControls={showWindowControls}
+            showTools={false}
+          />
+        )}
+        <div className="flex-1 bg-bg" />
+      </div>
+    );
   }
 
-  return (
-    <section className="relative flex min-w-0 flex-1 flex-col overflow-hidden bg-bg">
-      <header className="shrink-0 border-b border-border bg-bg px-3 sm:px-5">
-        <div className="flex min-h-16 items-center gap-3 py-2">
-        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-bg-muted text-text-muted">
-          <KanbanIcon className="h-4 w-4 stroke-[1.65]" />
-        </span>
-        <div className="min-w-0 flex-1">
-          <h1 className="truncate text-[15px] font-semibold tracking-[-0.015em] text-text">{activeProject?.name ?? "Projects"}</h1>
-          <p className="truncate text-xs text-text-muted">
-            {isEmpty ? "No tasks yet" : activeCount === 0 ? "Nothing open" : `${activeCount} open${waitingCount ? ` · ${waitingCount} waiting` : ""}`}
-          </p>
-        </div>
-        <div className="flex shrink-0 items-center rounded-lg border border-border bg-bg-secondary p-0.5" role="group" aria-label="Project view">
-          <Button
-            variant="ghost"
-            size="xs"
-            onClick={() => setView("board")}
-            aria-pressed={view === "board"}
-            className={cn("gap-1.5 px-2", view === "board" ? "bg-bg text-text shadow-none hover:bg-bg" : "text-text-muted")}
-          >
-            <KanbanIcon className="h-3.5 w-3.5 stroke-[1.7]" />
-            Board
-          </Button>
-          <Button
-            variant="ghost"
-            size="xs"
-            onClick={() => setView("table")}
-            aria-pressed={view === "table"}
-            className={cn("gap-1.5 px-2", view === "table" ? "bg-bg text-text shadow-none hover:bg-bg" : "text-text-muted")}
-          >
-            <TableIcon className="h-3.5 w-3.5 stroke-[1.7]" />
-            Table
-          </Button>
-        </div>
-        <Button variant="primary" size="sm" onClick={() => openNewCard()} className="shrink-0 gap-1.5 shadow-none hover:shadow-none">
-          <PlusIcon className="h-3.5 w-3.5 stroke-[1.8]" />
-          <span className="hidden sm:inline">New task</span>
-          <span className="sm:hidden">New</span>
-        </Button>
-        </div>
-      </header>
+  const titlebar = (
+    <NoteTitlebar
+      sidebarVisible={sidebarVisible}
+      focusMode={focusMode}
+      onToggleSidebar={onToggleSidebar}
+      onNewNote={onNewNote}
+      showWindowControls={showWindowControls}
+      showTools={false}
+      center={
+        <ProjectTitle name={activeProject?.name ?? "Untitled"} onRename={renameProject} />
+      }
+      trailing={
+        <>
+          <div className="flex items-center gap-3 pr-1">
+            <button
+              type="button"
+              className={cn("text-[13px]", view === "list" ? "font-semibold text-text" : "text-text-muted")}
+              onClick={() => setProjectView("list")}
+            >
+              List
+            </button>
+            <button
+              type="button"
+              className={cn("text-[13px]", view === "board" ? "font-semibold text-text" : "text-text-muted")}
+              onClick={() => setProjectView("board")}
+            >
+              Board
+            </button>
+          </div>
+          {view === "board" && boardEditing && (
+            <IconButton
+              size="sm"
+              title="Delete column"
+              disabled={!selectedColumnId}
+              className={cn(!selectedColumnId && "opacity-30")}
+              onClick={() => selectedColumnId && deleteColumn(selectedColumnId)}
+            >
+              <TrashIcon />
+            </IconButton>
+          )}
+          {view === "board" && (
+            <Button
+              variant="ghost"
+              size="sm"
+              aria-pressed={boardEditing}
+              onClick={() => (boardEditing ? exitBoardEditing() : setBoardEditing(true))}
+            >
+              {boardEditing ? "Done" : "Edit"}
+            </Button>
+          )}
+          <div className="relative">
+            <IconButton
+              size="sm"
+              title="Project settings"
+              pressed={settingsOpen}
+              onClick={() => setSettingsOpen((open) => !open)}
+            >
+              <SettingsIcon />
+            </IconButton>
+            {settingsOpen && (
+              <div className="spell-menu absolute right-0 top-full z-50 mt-1 grid min-w-36 grid-cols-4 gap-0.5 p-1.5">
+                {PROJECT_ICON_IDS.map((icon) => (
+                  <button
+                    key={icon}
+                    type="button"
+                    className={cn(
+                      "flex size-7 items-center justify-center rounded-md text-text-muted",
+                      activeProject?.icon === icon && "bg-bg-selected text-text",
+                    )}
+                    onClick={() => {
+                      setProjectIcon(icon);
+                      setSettingsOpen(false);
+                    }}
+                    aria-label={icon}
+                  >
+                    <ProjectGlyph id={icon} className="size-4" />
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </>
+      }
+    />
+  );
 
-      <div className="relative flex min-h-0 flex-1">
-        <div className={cn("flex min-w-0 flex-1", editing && "sm:mr-[388px]")}>
-          {isEmpty ? (
-            <EmptyBoard onCreateTask={() => openNewCard()} onUseExample={() => persist(createClientDeliveryExample())} />
-          ) : view === "table" ? (
-            <ProjectTable
-              board={board}
+  const columns = (
+    <>
+      {!hasColumns && (
+        <EmptyBoard
+          onUseTemplate={(id) => persist(createBoardFromTemplate(id))}
+        />
+      )}
+      {board.columns.map((column) => (
+        <KanbanColumnView
+          key={column.id}
+          column={column}
+          boardEditing={boardEditing}
+          selected={selectedColumnId === column.id}
+          focusCapture={focusCaptureId === column.id}
+          cards={column.cardIds.map((id) => cardsById.get(id)).filter((card): card is KanbanCard => Boolean(card))}
+          onSelect={() => setSelectedColumnId(column.id)}
+          onAddCard={(title) => addQuickCard(column.id, title)}
+          onToggleDone={(card) => toggleCardDone(card.id)}
+          onRenameCard={(card, title) => renameCardTitle(card.id, title)}
+          onOpenCard={(card) => setEditing({ card, columnId: column.id, isNew: false })}
+          onRename={(title) => renameColumn(column.id, title)}
+          recentlyCreatedCardId={recentlyCreatedCardId}
+          onCaptureFocused={() => setFocusCaptureId(null)}
+        />
+      ))}
+      <ColumnCreator
+        isAdding={isAddingColumn}
+        value={newColumnTitle}
+        onChange={setNewColumnTitle}
+        onAdd={() => addColumn(newColumnTitle)}
+        onCancel={() => {
+          setNewColumnTitle("");
+          setIsAddingColumn(false);
+        }}
+        onOpen={() => setIsAddingColumn(true)}
+      />
+    </>
+  );
+
+  return (
+    <div className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-bg">
+      {!hideTitleBar && titlebar}
+      <div className="relative min-h-0 flex-1">
+        <div className={cn("h-full overflow-hidden", editing && "sm:mr-[388px]")}>
+          {view === "list" ? (
+            <ProjectNoteList
+              columns={board.columns}
               cardsById={cardsById}
+              recentlyCreatedCardId={recentlyCreatedCardId}
+              focusCaptureId={focusCaptureId}
+              isAddingColumn={isAddingColumn}
+              newColumnTitle={newColumnTitle}
+              onCaptureFocused={() => setFocusCaptureId(null)}
+              onAddCard={(columnId, title) => addQuickCard(columnId, title)}
+              onToggleDone={(card) => toggleCardDone(card.id)}
+              onRenameCard={(card, title) => renameCardTitle(card.id, title)}
               onOpenCard={(card, columnId) => setEditing({ card, columnId, isNew: false })}
-              onMoveCard={moveCardToColumn}
+              onRenameColumn={renameColumn}
+              onUseTemplate={(id) => persist(createBoardFromTemplate(id))}
+              onAddColumn={() => addColumn(newColumnTitle)}
+              onColumnTitleChange={setNewColumnTitle}
+              onOpenColumnCreator={() => setIsAddingColumn(true)}
+              onCancelColumnCreator={() => {
+                setNewColumnTitle("");
+                setIsAddingColumn(false);
+              }}
             />
           ) : (
             <DndContext
               sensors={sensors}
+              collisionDetection={boardEditing ? closestCenter : undefined}
               onDragStart={handleDragStart}
               onDragEnd={handleDragEnd}
               onDragCancel={() => setActiveCardId(null)}
             >
-              <div className={cn("kanban-scroll flex-1 overflow-x-auto overflow-y-hidden bg-bg-secondary", !rightSidebarVisible && "pr-0")}>
-                <div className="flex h-full min-w-max divide-x divide-border/90 px-3 sm:px-5">
-                  {board.columns.map((column) => (
-                    <KanbanColumnView
-                      key={column.id}
-                      column={column}
-                      cards={column.cardIds.map((id) => cardsById.get(id)).filter((card): card is KanbanCard => Boolean(card))}
-                      onAddCard={() => openNewCard(column.id)}
-                      onOpenCard={(card) => setEditing({ card, columnId: column.id, isNew: false })}
-                      onAddTodo={addTodoToCard}
-                      onToggleTodo={toggleCardTodo}
-                      recentlyCreatedCardId={recentlyCreatedCardId}
-                    />
-                  ))}
-                </div>
+              <div
+                className="kanban-board"
+                data-editing={boardEditing ? "true" : undefined}
+                onPointerDown={(event) => {
+                  if (!boardEditing) return;
+                  if (event.target === event.currentTarget) setSelectedColumnId(null);
+                }}
+              >
+                {boardEditing ? (
+                  <SortableContext items={columnIds} strategy={horizontalListSortingStrategy}>
+                    {columns}
+                  </SortableContext>
+                ) : columns}
               </div>
               <DragOverlay dropAnimation={KANBAN_DROP_ANIMATION}>
-                {activeCard ? <KanbanCardTile card={activeCard} overlay /> : null}
+                {!boardEditing && activeCard ? <KanbanCardTile card={activeCard} overlay /> : null}
               </DragOverlay>
             </DndContext>
           )}
         </div>
         {editing && (
-          <TaskDetailPanel
-            key={`${editing.columnId}:${editing.card.id}:${editing.isNew ? "new" : "existing"}`}
-            editing={editing}
-            columns={board.columns}
-            onClose={() => setEditing(null)}
-            onSave={saveCard}
-            onDelete={deleteCard}
-          />
+          <>
+            {isMobileApp && (
+              <button
+                type="button"
+                className="mobile-drawer-scrim"
+                aria-label="Close task"
+                onClick={() => setEditing(null)}
+              />
+            )}
+            <TaskDetailPanel
+              key={`${editing.columnId}:${editing.card.id}:${editing.isNew ? "new" : "existing"}`}
+              editing={editing}
+              columns={board.columns}
+              onClose={() => setEditing(null)}
+              onSave={saveCard}
+              onDelete={deleteCard}
+              onAddTodo={addTodoToCard}
+              onToggleTodo={toggleCardTodo}
+            />
+          </>
         )}
       </div>
-    </section>
-  );
-}
-
-function KanbanLoading() {
-  return (
-    <section className="flex min-w-0 flex-1 flex-col bg-bg">
-      <div className="flex min-h-16 items-center gap-3 border-b border-border px-3 py-2 sm:px-5">
-        <div className="h-8 w-8 rounded-lg bg-bg-muted" />
-        <div className="space-y-1.5">
-          <div className="h-3.5 w-24 rounded bg-bg-muted" />
-          <div className="h-2.5 w-16 rounded bg-bg-muted/70" />
-        </div>
-      </div>
-      <div className="flex flex-1 gap-4 overflow-hidden bg-bg-secondary/35 p-3 sm:p-5">
-        {[0, 1, 2].map((item) => (
-          <div key={item} className="w-[280px] shrink-0 border-r border-border pr-3">
-            <div className="h-4 w-24 rounded bg-bg-muted" />
-            <div className="mt-4 h-18 rounded-lg border border-border bg-bg-muted/50" />
-            <div className="mt-2 h-18 rounded-lg border border-border bg-bg-muted/35" />
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-}
-
-function EmptyBoard({ onCreateTask, onUseExample }: { onCreateTask: () => void; onUseExample: () => void }) {
-  return (
-    <div className="flex flex-1 items-center justify-center overflow-y-auto bg-bg-secondary/35 px-5 py-10">
-      <div className="w-full max-w-sm rounded-xl border border-border bg-bg p-5 sm:p-6">
-        <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-bg-muted text-text-muted">
-          <KanbanIcon className="h-4.5 w-4.5 stroke-[1.65]" />
-        </span>
-        <h2 className="mt-4 text-base font-semibold tracking-[-0.015em] text-text">Start with the next task.</h2>
-        <p className="mt-1.5 max-w-sm text-sm leading-5 text-text-muted">
-          Add one task, then move it forward when it is ready.
-        </p>
-        <div className="mt-5 flex flex-col gap-2 sm:flex-row">
-          <Button variant="primary" size="md" onClick={onCreateTask} className="gap-2 shadow-none hover:shadow-none">
-            <PlusIcon className="h-4 w-4 stroke-[1.8]" />
-            Add task
-          </Button>
-          <Button variant="ghost" size="md" onClick={onUseExample}>
-            Use example
-          </Button>
-        </div>
-      </div>
     </div>
   );
 }
 
-function ProjectTable({
-  board,
-  cardsById,
-  onOpenCard,
-  onMoveCard,
-}: {
-  board: KanbanBoard;
-  cardsById: Map<string, KanbanCard>;
-  onOpenCard: (card: KanbanCard, columnId: string) => void;
-  onMoveCard: (cardId: string, columnId: string) => void;
-}) {
-  const rows = board.columns.flatMap((column) => column.cardIds
-    .map((cardId) => {
-      const card = cardsById.get(cardId);
-      return card ? { card, column } : null;
-    })
-    .filter((row): row is { card: KanbanCard; column: KanbanColumn } => Boolean(row)));
+function ProjectTitle({ name, onRename }: { name: string; onRename: (name: string) => void }) {
+  const [value, setValue] = useState(name);
+
+  useEffect(() => {
+    setValue(name);
+  }, [name]);
 
   return (
-    <div className="flex-1 overflow-auto bg-bg-secondary/35 px-3 py-3 sm:px-5 sm:py-4">
-      <div className="min-w-[720px] overflow-hidden rounded-xl border border-border bg-bg">
-        <table className="w-full border-collapse text-left">
-          <thead className="bg-bg-secondary text-2xs font-medium uppercase tracking-[0.08em] text-text-muted">
-            <tr>
-              <th className="w-[38%] px-3 py-2.5 font-medium">Task</th>
-              <th className="w-[20%] px-3 py-2.5 font-medium">Stage</th>
-              <th className="w-[18%] px-3 py-2.5 font-medium">Client</th>
-              <th className="w-[14%] px-3 py-2.5 font-medium">Due</th>
-              <th className="w-[10%] px-3 py-2.5 text-right font-medium">To-dos</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-border">
-            {rows.map(({ card, column }) => {
-              const due = formatDueDate(card.dueDate);
-              const todoTotal = card.todos?.length ?? 0;
-              const todoComplete = card.todos?.filter((todo) => todo.completed).length ?? 0;
+    <input
+      value={value}
+      aria-label="Project title"
+      onChange={(event) => setValue(event.target.value)}
+      onBlur={() => {
+        const trimmed = value.trim();
+        if (trimmed) onRename(trimmed);
+        else setValue(name);
+      }}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") event.currentTarget.blur();
+        if (event.key === "Escape") {
+          setValue(name);
+          event.currentTarget.blur();
+        }
+      }}
+      className="titlebar-title"
+    />
+  );
+}
 
+function ProjectNoteList({
+  columns,
+  cardsById,
+  recentlyCreatedCardId,
+  focusCaptureId,
+  isAddingColumn,
+  newColumnTitle,
+  onCaptureFocused,
+  onAddCard,
+  onToggleDone,
+  onRenameCard,
+  onOpenCard,
+  onRenameColumn,
+  onUseTemplate,
+  onAddColumn,
+  onColumnTitleChange,
+  onOpenColumnCreator,
+  onCancelColumnCreator,
+}: {
+  columns: KanbanColumn[];
+  cardsById: Map<string, KanbanCard>;
+  recentlyCreatedCardId: string | null;
+  focusCaptureId: string | null;
+  isAddingColumn: boolean;
+  newColumnTitle: string;
+  onCaptureFocused: () => void;
+  onAddCard: (columnId: string, title: string) => void;
+  onToggleDone: (card: KanbanCard) => void;
+  onRenameCard: (card: KanbanCard, title: string) => void;
+  onOpenCard: (card: KanbanCard, columnId: string) => void;
+  onRenameColumn: (columnId: string, title: string) => void;
+  onUseTemplate: (id: "client" | "personal") => void;
+  onAddColumn: () => void;
+  onColumnTitleChange: (title: string) => void;
+  onOpenColumnCreator: () => void;
+  onCancelColumnCreator: () => void;
+}) {
+  return (
+    <div
+      className="h-full overflow-y-auto"
+    >
+      <div
+        className="prose mx-auto w-full px-6 pt-3 pb-24"
+        style={{ maxWidth: "var(--editor-max-width, 48rem)" }}
+      >
+        {columns.length === 0 && <EmptyBoard onUseTemplate={onUseTemplate} />}
+        {columns.map((column, index) => (
+          <section key={column.id}>
+            <ColumnHeading
+              title={column.title}
+              first={index === 0}
+              onRename={(title) => onRenameColumn(column.id, title)}
+            />
+            {column.cardIds.map((id) => {
+              const card = cardsById.get(id);
+              if (!card) return null;
               return (
-                <tr key={card.id} className="group transition-colors duration-150 hover:bg-bg-secondary/70">
-                  <td className="px-3 py-2.5">
-                    <button
-                      type="button"
-                      onClick={() => onOpenCard(card, column.id)}
-                      className="block max-w-full rounded-sm text-left outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
-                    >
-                      <span className="block truncate text-sm font-medium text-text">{card.title}</span>
-                      {card.priority === "high" && <span className="mt-0.5 block text-2xs font-medium text-rose-600 dark:text-rose-300">High priority</span>}
-                    </button>
-                  </td>
-                  <td className="px-3 py-2">
-                    <Select
-                      value={column.id}
-                      onValueChange={(columnId) => onMoveCard(card.id, columnId)}
-                      className="h-7 min-w-[128px] px-2 text-xs"
-                      contentClassName="min-w-[160px]"
-                    >
-                      {board.columns.map((stage) => <option key={stage.id} value={stage.id}>{stage.title}</option>)}
-                    </Select>
-                  </td>
-                  <td className="max-w-[170px] truncate px-3 py-2.5 text-sm text-text-muted">{card.client || "—"}</td>
-                  <td className={cn(
-                    "px-3 py-2.5 text-xs",
-                    due?.tone === "overdue" ? "font-medium text-rose-600 dark:text-rose-300"
-                    : due?.tone === "today" ? "font-medium text-amber-700 dark:text-amber-300"
-                    : "text-text-muted",
-                  )}>{due?.label ?? "—"}</td>
-                  <td className="px-3 py-2.5 text-right text-xs tabular-nums text-text-muted">
-                    {todoTotal ? `${todoComplete}/${todoTotal}` : "—"}
-                  </td>
-                </tr>
+                <KanbanCardTile
+                  key={card.id}
+                  card={card}
+                  onToggleDone={() => onToggleDone(card)}
+                  onRename={(title) => onRenameCard(card, title)}
+                  onOpen={() => onOpenCard(card, column.id)}
+                  recentlyCreated={card.id === recentlyCreatedCardId}
+                />
               );
             })}
-          </tbody>
-        </table>
+            <NoteAddLine
+              onAdd={(title) => onAddCard(column.id, title)}
+              autoFocus={focusCaptureId === column.id}
+              onFocused={onCaptureFocused}
+            />
+          </section>
+        ))}
+        {columns.length > 0 && (
+          isAddingColumn ? (
+            <input
+              autoFocus
+              value={newColumnTitle}
+              onChange={(event) => onColumnTitleChange(event.target.value)}
+              onBlur={() => {
+                if (newColumnTitle.trim()) onAddColumn();
+                else onCancelColumnCreator();
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  onAddColumn();
+                }
+                if (event.key === "Escape") {
+                  event.preventDefault();
+                  onCancelColumnCreator();
+                }
+              }}
+              placeholder="List"
+              aria-label="List name"
+              className="not-prose mt-6 w-full bg-transparent text-[length:var(--editor-h2-size)] font-semibold leading-[1.3] text-text outline-none placeholder:text-text-muted/45"
+            />
+          ) : (
+            <button
+              type="button"
+              className="not-prose mt-6 text-[length:var(--editor-base-font-size)] leading-[var(--editor-line-height)] text-text-muted hover:text-text"
+              onClick={onOpenColumnCreator}
+            >
+              Add a list
+            </button>
+          )
+        )}
       </div>
-      <p className="px-1 pt-2 text-2xs text-text-muted">Use board view to reorder tasks. Use this view to scan and update stages.</p>
     </div>
+  );
+}
+
+function ColumnHeading({
+  title,
+  first,
+  onRename,
+}: {
+  title: string;
+  first: boolean;
+  onRename: (title: string) => void;
+}) {
+  const [isRenaming, setIsRenaming] = useState(false);
+  const [value, setValue] = useState(title);
+
+  useEffect(() => {
+    if (!isRenaming) setValue(title);
+  }, [isRenaming, title]);
+
+  const commit = () => {
+    const trimmed = value.trim();
+    if (trimmed) onRename(trimmed);
+    else setValue(title);
+    setIsRenaming(false);
+  };
+
+  if (isRenaming) {
+    return (
+      <input
+        autoFocus
+        value={value}
+        onChange={(event) => setValue(event.target.value)}
+        onBlur={commit}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            commit();
+          }
+          if (event.key === "Escape") {
+            event.preventDefault();
+            setValue(title);
+            setIsRenaming(false);
+          }
+        }}
+        aria-label="List name"
+        className={cn(
+          "not-prose w-full bg-transparent text-[length:var(--editor-h2-size)] font-semibold leading-[1.3] text-text outline-none",
+          first ? "mt-0 mb-[0.35em]" : "mt-[1em] mb-[0.35em]",
+        )}
+      />
+    );
+  }
+
+  return (
+    <h2 className={cn("cursor-text", first && "!mt-0")}>
+      <button type="button" onClick={() => setIsRenaming(true)} className="text-left">
+        {title}
+      </button>
+    </h2>
+  );
+}
+
+function EmptyBoard({
+  onUseTemplate,
+}: {
+  onUseTemplate: (id: "client" | "personal") => void;
+}) {
+  return (
+    <div className="not-prose mb-4 flex flex-wrap items-baseline gap-x-4 gap-y-1 text-[length:var(--editor-base-font-size)] leading-[var(--editor-line-height)] text-text-muted">
+      {PROJECT_TEMPLATES.filter((template) => template.id !== "blank").map((template) => (
+        <button
+          key={template.id}
+          type="button"
+          className="hover:text-text"
+          onClick={() => onUseTemplate(template.id as "client" | "personal")}
+        >
+          {template.name}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function ColumnCreator({
+  isAdding,
+  value,
+  onChange,
+  onAdd,
+  onCancel,
+  onOpen,
+}: {
+  isAdding: boolean;
+  value: string;
+  onChange: (value: string) => void;
+  onAdd: () => void;
+  onCancel: () => void;
+  onOpen: () => void;
+}) {
+  if (!isAdding) {
+    return (
+      <button
+        type="button"
+        onClick={onOpen}
+        aria-label="Add column"
+        className="kanban-board-add not-prose"
+      >
+        Add
+      </button>
+    );
+  }
+  return (
+    <form
+      className="kanban-board-column not-prose"
+      onSubmit={(event) => {
+        event.preventDefault();
+        onAdd();
+      }}
+    >
+      <input
+        autoFocus
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        onBlur={() => {
+          if (value.trim()) onAdd();
+          else onCancel();
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            event.preventDefault();
+            onCancel();
+          }
+        }}
+        placeholder="Column"
+        aria-label="Column name"
+        className="w-full bg-transparent px-1 text-[13px] font-semibold leading-5 text-text outline-none placeholder:text-text-muted/50"
+      />
+    </form>
   );
 }
 
 function KanbanColumnView({
   column,
   cards,
+  boardEditing,
+  selected,
+  focusCapture = false,
+  onSelect,
   onAddCard,
+  onToggleDone,
+  onRenameCard,
   onOpenCard,
-  onAddTodo,
-  onToggleTodo,
+  onRename,
   recentlyCreatedCardId,
+  onCaptureFocused,
 }: {
   column: KanbanColumn;
   cards: KanbanCard[];
-  onAddCard: () => void;
+  boardEditing: boolean;
+  selected: boolean;
+  focusCapture?: boolean;
+  onSelect: () => void;
+  onAddCard: (title: string) => void;
+  onToggleDone: (card: KanbanCard) => void;
+  onRenameCard: (card: KanbanCard, title: string) => void;
   onOpenCard: (card: KanbanCard) => void;
-  onAddTodo: (cardId: string, title: string) => void;
-  onToggleTodo: (cardId: string, todoId: string) => void;
+  onRename: (title: string) => void;
   recentlyCreatedCardId: string | null;
+  onCaptureFocused?: () => void;
 }) {
-  const { setNodeRef, isOver } = useDroppable({
+  const droppable = useDroppable({
     id: `kanban-column:${column.id}`,
     data: { type: "kanban-column", columnId: column.id },
+    disabled: boardEditing,
   });
-  const StatusIcon = COLUMN_ICONS[column.id as keyof typeof COLUMN_ICONS] ?? InboxIcon;
+  const sortable = useSortable({
+    id: column.id,
+    data: { type: "kanban-column", columnId: column.id },
+    disabled: !boardEditing,
+    transition: KANBAN_SORT_TRANSITION,
+  });
+  const [isRenaming, setIsRenaming] = useState(false);
+  const [title, setTitle] = useState(column.title);
+
+  useEffect(() => {
+    if (!isRenaming) setTitle(column.title);
+  }, [column.title, isRenaming]);
+
+  const commitRename = () => {
+    const trimmedTitle = title.trim();
+    if (trimmedTitle) onRename(trimmedTitle);
+    else setTitle(column.title);
+    setIsRenaming(false);
+  };
+
+  const setNodeRef = (node: HTMLElement | null) => {
+    droppable.setNodeRef(node);
+    sortable.setNodeRef(node);
+  };
 
   return (
     <section
       ref={setNodeRef}
+      style={boardEditing ? { transform: CSS.Transform.toString(sortable.transform), transition: sortable.transition } : undefined}
       className={cn(
-        "kanban-column flex h-full w-[276px] shrink-0 flex-col p-3 sm:w-[292px] sm:p-4",
-        isOver && "kanban-column-over",
+        "not-prose kanban-column kanban-board-column",
+        sortable.isDragging && "opacity-40",
       )}
-      data-over={isOver ? "true" : undefined}
-      aria-label={`${column.title} column`}
+      data-over={!boardEditing && droppable.isOver ? "true" : undefined}
+      data-editing={boardEditing ? "true" : undefined}
+      data-selected={selected ? "true" : undefined}
+      aria-label={column.title}
+      onPointerDown={() => {
+        if (boardEditing) onSelect();
+      }}
     >
-      <div className="mb-3 flex items-center gap-2 border-b border-border/80 px-0.5 pb-2.5">
-        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-bg-muted text-text-muted">
-          <StatusIcon className="h-3.5 w-3.5 stroke-[1.65]" />
-        </span>
-        <h2 className="min-w-0 flex-1 truncate text-sm font-semibold tracking-[-0.01em] text-text">{column.title}</h2>
-        <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-bg-muted px-1 text-2xs tabular-nums text-text-muted">
-          {cards.length}
-        </span>
-        <IconButton variant="ghost" size="sm" onClick={onAddCard} title={`Add task to ${column.title}`} className="-mr-1 shrink-0">
-          <PlusIcon className="h-3.5 w-3.5 stroke-[1.8]" />
-        </IconButton>
+      <div className="flex items-center gap-1.5">
+        {boardEditing && (
+          <button
+            type="button"
+            aria-label={`Reorder ${column.title}`}
+            className="flex size-6 shrink-0 cursor-grab items-center justify-center text-text-muted active:cursor-grabbing"
+            {...sortable.attributes}
+            {...sortable.listeners}
+          >
+            <GripIcon className="size-3.5" />
+          </button>
+        )}
+        {isRenaming ? (
+          <input
+            autoFocus
+            value={title}
+            onChange={(event) => setTitle(event.target.value)}
+            onPointerDown={(event) => event.stopPropagation()}
+            onBlur={commitRename}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                commitRename();
+              }
+              if (event.key === "Escape") {
+                event.preventDefault();
+                setTitle(column.title);
+                setIsRenaming(false);
+              }
+            }}
+            aria-label="Column name"
+            className="min-w-0 flex-1 bg-transparent px-0.5 text-[13px] font-semibold leading-5 text-text outline-none"
+          />
+        ) : (
+          <button
+            type="button"
+            onClick={() => setIsRenaming(true)}
+            className="min-w-0 flex-1 truncate px-0.5 text-left text-[13px] font-semibold leading-5 text-text"
+          >
+            {column.title}
+          </button>
+        )}
       </div>
       <SortableContext items={cards.map((card) => card.id)} strategy={verticalListSortingStrategy}>
-        <div className="kanban-column-cards min-h-7 flex-1 space-y-2 overflow-y-auto px-0.5 pb-1">
+        <div className="kanban-board-cards">
           {cards.map((card) => (
             <SortableKanbanCard
               key={card.id}
               card={card}
               columnId={column.id}
+              disabled={boardEditing}
+              onToggleDone={() => onToggleDone(card)}
+              onRename={(nextTitle) => onRenameCard(card, nextTitle)}
               onOpen={() => onOpenCard(card)}
-              onAddTodo={onAddTodo}
-              onToggleTodo={onToggleTodo}
               recentlyCreated={card.id === recentlyCreatedCardId}
             />
           ))}
-          {cards.length === 0 && (
-            <div className="flex min-h-20 items-center px-1 text-xs text-text-muted">
-              {isOver ? "Release to move here" : "No tasks"}
-            </div>
+          {cards.length === 0 && droppable.isOver && !boardEditing && (
+            <div className="kanban-board-drop" />
+          )}
+          {!boardEditing && (
+            <NoteAddLine
+              onAdd={onAddCard}
+              autoFocus={focusCapture}
+              onFocused={onCaptureFocused}
+            />
           )}
         </div>
       </SortableContext>
@@ -610,199 +1028,233 @@ function KanbanColumnView({
   );
 }
 
+function NoteAddLine({
+  onAdd,
+  autoFocus = false,
+  onFocused,
+}: {
+  onAdd: (title: string) => void;
+  autoFocus?: boolean;
+  onFocused?: () => void;
+}) {
+  const [value, setValue] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!autoFocus) return;
+    inputRef.current?.focus();
+    onFocused?.();
+  }, [autoFocus, onFocused]);
+
+  return (
+    <input
+      ref={inputRef}
+      value={value}
+      onChange={(event) => setValue(event.target.value)}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          const title = value.trim();
+          if (!title) return;
+          onAdd(title);
+          setValue("");
+        }
+      }}
+      placeholder="Add"
+      aria-label="Add"
+      className="not-prose w-full bg-transparent py-1 text-[length:var(--editor-base-font-size)] leading-[var(--editor-line-height)] text-text outline-none placeholder:text-text-muted/45"
+    />
+  );
+}
+
 function SortableKanbanCard({
   card,
   columnId,
+  disabled = false,
+  onToggleDone,
+  onRename,
   onOpen,
-  onAddTodo,
-  onToggleTodo,
   recentlyCreated,
 }: {
   card: KanbanCard;
   columnId: string;
+  disabled?: boolean;
+  onToggleDone: () => void;
+  onRename: (title: string) => void;
   onOpen: () => void;
-  onAddTodo: (cardId: string, title: string) => void;
-  onToggleTodo: (cardId: string, todoId: string) => void;
   recentlyCreated: boolean;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: card.id,
     data: { type: "kanban-card", columnId },
+    disabled,
     transition: KANBAN_SORT_TRANSITION,
   });
   const style = { transform: CSS.Transform.toString(transform), transition };
 
   return (
-    <div ref={setNodeRef} style={style} className={cn("kanban-card-slot", isDragging && "opacity-30")} {...attributes}>
+    <div ref={setNodeRef} style={style} className={cn(isDragging && "opacity-30")} {...attributes}>
       <KanbanCardTile
         card={card}
-        dragListeners={listeners}
+        dragListeners={disabled ? undefined : listeners}
+        onToggleDone={onToggleDone}
+        onRename={onRename}
         onOpen={onOpen}
-        onAddTodo={onAddTodo}
-        onToggleTodo={onToggleTodo}
         recentlyCreated={recentlyCreated}
       />
     </div>
   );
 }
 
+function DoneToggle({
+  done,
+  label,
+  onToggle,
+  size = "md",
+}: {
+  done: boolean;
+  label: string;
+  onToggle?: () => void;
+  size?: "sm" | "md";
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      aria-pressed={done}
+      onPointerDown={(event) => event.stopPropagation()}
+      onClick={(event) => {
+        event.stopPropagation();
+        if (!done) {
+          playCheckAnimation(event.currentTarget).catch(() => {});
+        }
+        onToggle?.();
+      }}
+      className={cn(
+        "kanban-done-toggle",
+        size === "sm" ? "size-4" : "size-[1.125rem]",
+        done && "is-checked",
+      )}
+    >
+      <CheckmarkIcon checked={done} className={size === "sm" ? "size-2.5" : "size-3"} />
+    </button>
+  );
+}
+
 function KanbanCardTile({
   card,
   overlay = false,
+  onToggleDone,
+  onRename,
   onOpen,
   dragListeners,
-  onAddTodo,
-  onToggleTodo,
   recentlyCreated = false,
 }: {
   card: KanbanCard;
   overlay?: boolean;
+  onToggleDone?: () => void;
+  onRename?: (title: string) => void;
   onOpen?: () => void;
   dragListeners?: Record<string, unknown>;
-  onAddTodo?: (cardId: string, title: string) => void;
-  onToggleTodo?: (cardId: string, todoId: string) => void;
   recentlyCreated?: boolean;
 }) {
+  const [title, setTitle] = useState(card.title);
   const due = formatDueDate(card.dueDate);
-  const todoTotal = card.todos?.length ?? 0;
-  const todoComplete = card.todos?.filter((todo) => todo.completed).length ?? 0;
+  const done = card.completed === true;
+  const todos = card.todos ?? [];
+  const todoTotal = todos.length;
+  const todosDone = todos.filter((todo) => todo.completed).length;
+
+  useEffect(() => {
+    setTitle(card.title);
+  }, [card.title]);
+
   return (
     <article
       className={cn(
-        "kanban-card-tile group relative rounded-lg border border-border bg-bg px-3 py-3 text-left transition-[border-color,background-color,box-shadow] duration-150",
-        overlay ? "w-[276px] border-text-muted/45 bg-bg shadow-lg" : "hover:border-text-muted/40 hover:bg-bg",
+        "group not-prose kanban-card-tile kanban-board-card",
+        overlay && "w-64 rounded-lg bg-bg px-3 py-2 shadow-[var(--shadow-menu)]",
         recentlyCreated && "kanban-card-enter",
       )}
+      {...dragListeners}
     >
-      <div className="flex items-start gap-1.5">
-        <button
-          type="button"
-          aria-label={`Drag ${card.title}`}
-          className="kanban-drag-handle -ml-1.5 mt-0.5 flex h-6 w-5 shrink-0 touch-none cursor-grab items-center justify-center rounded text-text-muted/45 opacity-60 transition-opacity hover:opacity-100 focus-visible:opacity-100 active:cursor-grabbing sm:opacity-0 sm:group-hover:opacity-100"
-          {...dragListeners}
-        >
-          <GripIcon className="h-3.5 w-3.5 stroke-[1.65]" />
-        </button>
-        <button type="button" onClick={onOpen} className="min-w-0 flex-1 rounded-sm text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40">
-          <h3 className="text-sm font-medium leading-[1.35] tracking-[-0.005em] text-text">{card.title}</h3>
-        </button>
-      </div>
-      {(card.client || due || card.priority === "high" || todoTotal > 0) && (
-      <div className="mt-2.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11px] leading-4 text-text-muted">
-        {card.priority === "high" && <span className="font-medium text-rose-600 dark:text-rose-300">High priority</span>}
-        {card.client && (
-          <span className="inline-flex max-w-full items-center gap-1">
-            <ClientIcon className="h-3 w-3 shrink-0 stroke-[1.65]" />
-            <span className="truncate">{card.client}</span>
-          </span>
-        )}
-        {due && (
-          <span className={cn(
-            "inline-flex items-center gap-1",
-            due.tone === "overdue" ? "font-medium text-rose-600 dark:text-rose-300"
-            : due.tone === "today" ? "font-medium text-amber-700 dark:text-amber-300"
-            : "text-text-muted",
-          )}>
-            <CalendarIcon className="h-3 w-3 stroke-[1.65]" />
-            {due.label}
-          </span>
-        )}
-        {todoTotal > 0 && (
-          <span className="inline-flex items-center gap-1 tabular-nums">
-            <CheckmarkIcon checked={todoComplete === todoTotal} className="h-3 w-3" />
-            {todoComplete}/{todoTotal}
-          </span>
-        )}
-      </div>
-      )}
-      {!overlay && onAddTodo && onToggleTodo && (
-        <InlineTodoList
-          key={card.id}
-          card={card}
-          onAddTodo={onAddTodo}
-          onToggleTodo={onToggleTodo}
+      <div className="flex items-start gap-[0.4rem]">
+        <DoneToggle
+          done={done}
+          label={done ? `Mark ${card.title} not done` : `Mark ${card.title} done`}
+          onToggle={onToggleDone}
         />
-      )}
-    </article>
-  );
-}
-
-function InlineTodoList({
-  card,
-  onAddTodo,
-  onToggleTodo,
-}: {
-  card: KanbanCard;
-  onAddTodo: (cardId: string, title: string) => void;
-  onToggleTodo: (cardId: string, todoId: string) => void;
-}) {
-  const [newTodo, setNewTodo] = useState("");
-  const todos = card.todos ?? [];
-
-  return (
-    <section className="mt-3 border-t border-border/80 pt-2.5" aria-label="To-dos">
-      {todos.length > 0 && (
-        <div className="space-y-1">
-          {todos.map((todo) => (
-            <div key={todo.id} className="flex items-center gap-1.5">
-              <button
-                type="button"
-                onPointerDown={(event) => event.stopPropagation()}
-                onClick={() => onToggleTodo(card.id, todo.id)}
-                aria-pressed={todo.completed}
-                aria-label={`${todo.completed ? "Mark incomplete" : "Mark complete"}: ${todo.title}`}
-                data-state={todo.completed ? "checked" : "unchecked"}
-                className={cn(
-                  "kanban-todo-toggle flex h-4 w-4 shrink-0 items-center justify-center rounded border outline-none focus-visible:ring-2 focus-visible:ring-accent/40",
-                  todo.completed ? "border-accent bg-accent text-text-inverse" : "border-border text-transparent hover:border-text-muted/60",
-                )}
-              >
-                <CheckmarkIcon checked={todo.completed} className="h-2.5 w-2.5" />
-              </button>
-              <span className={cn("min-w-0 flex-1 truncate text-xs leading-4", todo.completed ? "text-text-muted line-through" : "text-text-muted")}>{todo.title}</span>
-            </div>
-          ))}
+        <div className={cn("min-w-0 flex-1", done && "opacity-45")}>
+          <input
+            value={title}
+            onPointerDown={(event) => event.stopPropagation()}
+            onChange={(event) => setTitle(event.target.value)}
+            onBlur={() => {
+              if (title.trim() !== card.title) onRename?.(title);
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") event.currentTarget.blur();
+              if (event.key === "Escape") {
+                setTitle(card.title);
+                event.currentTarget.blur();
+              }
+            }}
+            onDoubleClick={onOpen}
+            aria-label="Task"
+            className="min-w-0 w-full bg-transparent text-[length:var(--editor-base-font-size)] leading-[var(--editor-line-height)] text-text outline-none"
+          />
+          {(card.client || due || todoTotal > 0) && (
+            <p className="mt-1 text-[12px] leading-4 text-text-muted">
+              {card.client}
+              {card.client && due ? " · " : null}
+              {due && (
+                <span className={due.tone === "overdue" ? "text-[var(--color-menu-danger)]" : undefined}>
+                  {due.label}
+                </span>
+              )}
+              {todoTotal > 0 && (
+                <>
+                  {(card.client || due) ? " · " : null}
+                  {todosDone}/{todoTotal}
+                </>
+              )}
+            </p>
+          )}
         </div>
-      )}
-      <form
-        className={cn("flex items-center gap-1.5", todos.length > 0 && "mt-2")}
-        onPointerDown={(event) => event.stopPropagation()}
-        onSubmit={(event) => {
-          event.preventDefault();
-          if (!newTodo.trim()) return;
-          onAddTodo(card.id, newTodo);
-          setNewTodo("");
-        }}
-      >
-        <PlusIcon className="h-3.5 w-3.5 shrink-0 stroke-[1.8] text-text-muted" />
-        <input
-          value={newTodo}
-          onChange={(event) => setNewTodo(event.target.value)}
-          placeholder="Add to-do"
-          aria-label="Add to-do"
-          className="min-w-0 flex-1 bg-transparent text-xs leading-5 text-text outline-none placeholder:text-text-muted/75"
-        />
-      </form>
-    </section>
+      </div>
+    </article>
   );
 }
 
 function TaskDetailPanel({
   editing,
   columns,
+  hideClient = false,
   onClose,
   onSave,
   onDelete,
+  onAddTodo,
+  onToggleTodo,
 }: {
   editing: EditingCard;
   columns: KanbanColumn[];
+  hideClient?: boolean;
   onClose: () => void;
   onSave: (card: KanbanCard, columnId: string, isNew: boolean) => void;
   onDelete: (cardId: string) => void;
+  onAddTodo: (cardId: string, title: string) => void;
+  onToggleTodo: (cardId: string, todoId: string) => void;
 }) {
   const [draft, setDraft] = useState(editing.card);
   const [columnId, setColumnId] = useState(editing.columnId);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [newTodo, setNewTodo] = useState("");
+  const titleInputRef = useRef<HTMLTextAreaElement>(null);
+  const todos = editing.card.todos ?? [];
+
+  useEffect(() => {
+    titleInputRef.current?.focus();
+  }, []);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -813,35 +1265,83 @@ function TaskDetailPanel({
   }, [onClose]);
 
   return (
-    <aside className="kanban-task-panel absolute inset-y-0 right-0 z-30 flex w-full flex-col border-l border-border bg-bg-secondary shadow-[var(--shadow-surface)] sm:w-[388px]" aria-label={editing.isNew ? "New task" : "Task details"}>
-      <header className="flex items-center gap-2 border-b border-border/80 px-4 py-3">
-        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-bg-muted text-text-muted">
-          <KanbanIcon className="h-3.5 w-3.5 stroke-[1.7]" />
-        </span>
-        <span className="min-w-0 flex-1 text-xs font-medium text-text-muted">{editing.isNew ? "New task" : "Task"}</span>
-        <IconButton onClick={onClose} title="Close task panel" size="sm"><XIcon className="h-4 w-4 stroke-[1.7]" /></IconButton>
+    <aside
+      className={cn(
+        "kanban-task-panel z-30 flex w-full flex-col bg-bg",
+        isMobileApp
+          ? "mobile-drawer"
+          : "absolute inset-y-0 right-0 border-l border-border sm:w-[388px]",
+      )}
+      aria-label={editing.isNew ? "New task" : "Task details"}
+    >
+      {isMobileApp && <span className="mobile-drawer-handle" aria-hidden />}
+      <header className="flex h-11 items-center gap-2 px-3">
+        <span className="min-w-0 flex-1 text-[13px] text-text-muted">{editing.isNew ? "New" : "Note"}</span>
+        <IconButton onClick={onClose} title="Close" size="sm"><XIcon className="h-4 w-4 stroke-[1.7]" /></IconButton>
       </header>
 
       <div className="flex-1 overflow-y-auto px-4 py-5 sm:px-5">
         <textarea
-          autoFocus
+          ref={titleInputRef}
+          aria-label="Task title"
           value={draft.title}
           onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))}
           placeholder="What needs to happen next?"
           rows={2}
-          className="min-h-15 w-full resize-none bg-transparent text-[17px] font-semibold leading-6 tracking-[-0.018em] text-text outline-none placeholder:text-text-muted"
+          className="min-h-15 w-full resize-none bg-transparent text-[17px] font-semibold leading-6 text-text outline-none placeholder:text-text-muted"
         />
 
         <div className="mt-5 grid gap-3 sm:grid-cols-2">
           <Field label="Stage"><Select value={columnId} onValueChange={setColumnId}>{columns.map((column) => <option key={column.id} value={column.id}>{column.title}</option>)}</Select></Field>
-          <Field label="Priority"><Select value={draft.priority} onValueChange={(value) => setDraft((current) => ({ ...current, priority: value as KanbanPriority }))}><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option></Select></Field>
-          <Field label="Client" optional><Input value={draft.client ?? ""} onChange={(event) => setDraft((current) => ({ ...current, client: event.target.value }))} placeholder="Client or project" /></Field>
           <Field label="Due" optional><Input type="date" value={draft.dueDate ?? ""} onChange={(event) => setDraft((current) => ({ ...current, dueDate: event.target.value }))} /></Field>
+          {!hideClient && (
+            <Field label="Client" optional><Input value={draft.client ?? ""} onChange={(event) => setDraft((current) => ({ ...current, client: event.target.value }))} placeholder="Client" /></Field>
+          )}
+          <Field label="Priority"><Select value={draft.priority} onValueChange={(value) => setDraft((current) => ({ ...current, priority: value as KanbanPriority }))}><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option></Select></Field>
+        </div>
+
+        <div className="mt-6 border-t border-border/80 pt-5">
+          <span className="mb-1.5 flex items-center gap-1 text-xs font-medium text-text">
+            To-dos
+            <span className="font-normal text-text-muted">optional</span>
+          </span>
+          <div className="space-y-1.5">
+            {todos.map((todo) => (
+              <div key={todo.id} className="flex items-center gap-2.5">
+                <DoneToggle
+                  done={todo.completed}
+                  label={`${todo.completed ? "Mark incomplete" : "Mark complete"}: ${todo.title}`}
+                  onToggle={() => onToggleTodo(draft.id, todo.id)}
+                  size="sm"
+                />
+                <span className={cn("min-w-0 flex-1 text-[13px] leading-5", todo.completed ? "text-text-muted/70" : "text-text")}>{todo.title}</span>
+              </div>
+            ))}
+            <form
+              className="flex items-center gap-2.5"
+              onSubmit={(event) => {
+                event.preventDefault();
+                if (!newTodo.trim()) return;
+                onAddTodo(draft.id, newTodo);
+                setNewTodo("");
+              }}
+            >
+              <PlusIcon className="size-3.5 shrink-0 text-text-muted" />
+              <input
+                value={newTodo}
+                onChange={(event) => setNewTodo(event.target.value)}
+                placeholder="Add to-do"
+                aria-label="Add to-do"
+                className="min-w-0 flex-1 bg-transparent text-[13px] leading-5 text-text outline-none placeholder:text-text-muted/75"
+              />
+            </form>
+          </div>
         </div>
 
         <div className="mt-6 border-t border-border/80 pt-5">
           <Field label="Notes" optional>
             <textarea
+              aria-label="Task notes"
               value={draft.description ?? ""}
               onChange={(event) => setDraft((current) => ({ ...current, description: event.target.value }))}
               placeholder="Add context, links, decisions, or what is blocking this task…"
@@ -849,7 +1349,6 @@ function TaskDetailPanel({
               className="min-h-36 w-full resize-y rounded-lg border border-transparent bg-bg-secondary/75 px-3 py-2.5 text-sm leading-5 text-text outline-none placeholder:text-text-muted focus:border-accent/45 focus:bg-bg focus:ring-2 focus:ring-accent/10"
             />
           </Field>
-          <p className="mt-3 text-2xs leading-4 text-text-muted">To-dos stay on the card, so they are always one click away.</p>
         </div>
       </div>
 

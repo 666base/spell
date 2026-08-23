@@ -32,3 +32,22 @@ export function cleanTitle(title: string | undefined): string {
     .trim();
   return cleaned || "Untitled";
 }
+
+/** Apple Notes-style edited timestamp shown under the note toolbar. */
+export function formatEditedAt(timestamp: number): string {
+  const date = new Date(timestamp * 1000);
+  if (Number.isNaN(date.getTime())) return "";
+  const now = new Date();
+  const time = date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const startOfYesterday = new Date(startOfToday.getTime() - 86400000);
+
+  if (date >= startOfToday) return `Today at ${time}`;
+  if (date >= startOfYesterday) return `Yesterday at ${time}`;
+  const datePart = date.toLocaleDateString([], {
+    day: "numeric",
+    month: "long",
+    year: date.getFullYear() === now.getFullYear() ? undefined : "numeric",
+  });
+  return `${datePart} at ${time}`;
+}

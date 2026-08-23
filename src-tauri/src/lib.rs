@@ -1,5 +1,10 @@
+mod updater;
+
 #[cfg(desktop)]
 mod git;
+
+#[cfg(mobile)]
+mod mobile;
 
 #[cfg(desktop)]
 mod desktop {
@@ -117,8 +122,6 @@ mod desktop {
         pub git_enabled: Option<bool>,
         #[serde(rename = "pinnedNoteIds")]
         pub pinned_note_ids: Option<Vec<String>>,
-        #[serde(rename = "bookmarkedNoteIds")]
-        pub bookmarked_note_ids: Option<Vec<String>>,
         #[serde(rename = "textDirection")]
         pub text_direction: Option<TextDirection>,
         #[serde(rename = "editorWidth")]
@@ -142,12 +145,6 @@ mod desktop {
         pub custom_colors_light: Option<std::collections::HashMap<String, String>>,
         #[serde(rename = "customColorsDark")]
         pub custom_colors_dark: Option<std::collections::HashMap<String, String>>,
-        #[serde(rename = "kanbanBoard")]
-        pub kanban_board: Option<serde_json::Value>,
-        #[serde(rename = "kanbanWorkspace")]
-        pub kanban_workspace: Option<serde_json::Value>,
-        #[serde(rename = "financeWorkspace")]
-        pub finance_workspace: Option<serde_json::Value>,
     }
 
     // Search result
@@ -993,6 +990,14 @@ mod desktop {
     }
 
     #[tauri::command]
+    fn disconnect_cloud(app: AppHandle, state: State<AppState>) -> Result<(), String> {
+        let mut app_config = state.app_config.write().expect("app_config write lock");
+        app_config.cloud_user_id = None;
+        save_app_config(&app, &app_config).map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    #[tauri::command]
     async fn apply_cloud_note(
         id: String,
         content: String,
@@ -1206,7 +1211,7 @@ mod desktop {
                         existing_id.clone()
                     } else {
                         format!("{}/{}", prefix, sanitized_leaf)
-                    }
+                    },
                 )
             } else {
                 (None, sanitized_leaf.clone())
@@ -1587,15 +1592,12 @@ mod desktop {
             .await
             .map_err(|e| e.to_string())?;
 
-        // Remove stale pins and bookmarks for the deleted folder and its notes.
+        // Remove stale pins for the deleted folder and its notes.
         {
             let prefix = format!("{}/", path);
             let mut settings = state.settings.write().expect("settings write lock");
             if let Some(ref mut pinned) = settings.pinned_note_ids {
                 pinned.retain(|id| id != &path && !id.starts_with(&prefix));
-            }
-            if let Some(ref mut bookmarked) = settings.bookmarked_note_ids {
-                bookmarked.retain(|id| !id.starts_with(&prefix));
             }
             let _ = save_settings(&folder, &settings);
         }
@@ -1672,13 +1674,6 @@ mod desktop {
                         *id = format!("{}{}", new_prefix, &id[old_prefix.len()..]);
                     } else if *id == old_path {
                         *id = new_path.clone();
-                    }
-                }
-            }
-            if let Some(ref mut bookmarked) = settings.bookmarked_note_ids {
-                for id in bookmarked.iter_mut() {
-                    if id.starts_with(&old_prefix) {
-                        *id = format!("{}{}", new_prefix, &id[old_prefix.len()..]);
                     }
                 }
             }
@@ -1780,13 +1775,6 @@ mod desktop {
                 for pin_id in pinned.iter_mut() {
                     if *pin_id == id {
                         *pin_id = new_id.clone();
-                    }
-                }
-            }
-            if let Some(ref mut bookmarked) = settings.bookmarked_note_ids {
-                for bookmark_id in bookmarked.iter_mut() {
-                    if *bookmark_id == id {
-                        *bookmark_id = new_id.clone();
                     }
                 }
             }
@@ -1899,14 +1887,6 @@ mod desktop {
                     }
                 }
             }
-            if let Some(ref mut bookmarked) = settings.bookmarked_note_ids {
-                for bookmark_id in bookmarked.iter_mut() {
-                    if bookmark_id.starts_with(&old_prefix) {
-                        *bookmark_id =
-                            format!("{}{}", new_prefix, &bookmark_id[old_prefix.len()..]);
-                    }
-                }
-            }
             let _ = save_settings(&folder, &settings);
         }
 
@@ -1967,6 +1947,65 @@ mod desktop {
         let settings = state.settings.read().expect("settings read lock");
         save_settings(&folder, &settings).map_err(|e| e.to_string())?;
 
+        Ok(())
+    }
+
+
+    #[tauri::command]
+    fn get_kanban_data(state: State<AppState>) -> Result<serde_json::Value, String> {
+        let folder = {
+            let app_config = state.app_config.read().expect("app_config read lock");
+            app_config.notes_folder.clone().ok_or("Notes folder not set")?
+        };
+        let path = std::path::PathBuf::from(folder).join(".spell").join("kanban.json");
+        if path.exists() {
+            let data = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+            serde_json::from_str(&data).map_err(|e| e.to_string())
+        } else {
+            Ok(serde_json::Value::Null)
+        }
+    }
+
+    #[tauri::command]
+    fn update_kanban_data(data: serde_json::Value, state: State<AppState>) -> Result<(), String> {
+        let folder = {
+            let app_config = state.app_config.read().expect("app_config read lock");
+            app_config.notes_folder.clone().ok_or("Notes folder not set")?
+        };
+        let dir = std::path::PathBuf::from(&folder).join(".spell");
+        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+        let path = dir.join("kanban.json");
+        let content = serde_json::to_string_pretty(&data).map_err(|e| e.to_string())?;
+        std::fs::write(&path, content).map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    #[tauri::command]
+    fn get_finance_data(state: State<AppState>) -> Result<serde_json::Value, String> {
+        let folder = {
+            let app_config = state.app_config.read().expect("app_config read lock");
+            app_config.notes_folder.clone().ok_or("Notes folder not set")?
+        };
+        let path = std::path::PathBuf::from(folder).join(".spell").join("finance.json");
+        if path.exists() {
+            let data = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+            serde_json::from_str(&data).map_err(|e| e.to_string())
+        } else {
+            Ok(serde_json::Value::Null)
+        }
+    }
+
+    #[tauri::command]
+    fn update_finance_data(data: serde_json::Value, state: State<AppState>) -> Result<(), String> {
+        let folder = {
+            let app_config = state.app_config.read().expect("app_config read lock");
+            app_config.notes_folder.clone().ok_or("Notes folder not set")?
+        };
+        let dir = std::path::PathBuf::from(&folder).join(".spell");
+        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+        let path = dir.join("finance.json");
+        let content = serde_json::to_string_pretty(&data).map_err(|e| e.to_string())?;
+        std::fs::write(&path, content).map_err(|e| e.to_string())?;
         Ok(())
     }
 
@@ -4010,6 +4049,25 @@ mod desktop {
                 };
                 app.manage(state);
 
+                #[cfg(target_os = "macos")]
+                {
+                    use tauri::Manager;
+                    if let Some(window) = app.get_webview_window("main") {
+                        use window_vibrancy::{apply_vibrancy, NSVisualEffectMaterial};
+                        let _ = apply_vibrancy(&window, NSVisualEffectMaterial::UnderWindowBackground, None, None);
+                    }
+                }
+
+                #[cfg(target_os = "windows")]
+                {
+                    use tauri::Manager;
+                    if let Some(window) = app.get_webview_window("main") {
+                        use window_vibrancy::apply_mica;
+                        let _ = apply_mica(&window, None);
+                    }
+                }
+
+
                 // Add notes folder to asset protocol scope so images can be served
                 if let Some(ref folder) = app
                     .state::<AppState>()
@@ -4083,6 +4141,7 @@ mod desktop {
                 set_notes_folder,
                 get_cloud_user_id,
                 set_cloud_notes_folder,
+                disconnect_cloud,
                 apply_cloud_note,
                 list_notes,
                 read_note,
@@ -4136,6 +4195,13 @@ mod desktop {
                 uninstall_cli,
                 get_cli_status,
                 set_title_bar_theme,
+                get_kanban_data,
+                update_kanban_data,
+                get_finance_data,
+                update_finance_data,
+                crate::updater::check_for_app_update,
+                crate::updater::install_app_update,
+                crate::updater::restart_app_after_update,
             ])
             .build(tauri::generate_context!())
             .expect("error while building tauri application");
@@ -4242,9 +4308,4 @@ mod desktop {
 pub use desktop::run;
 
 #[cfg(mobile)]
-#[tauri::mobile_entry_point]
-pub fn run() {
-    tauri::Builder::default()
-        .run(tauri::generate_context!())
-        .expect("error while running Spell on Android");
-}
+pub use mobile::run;

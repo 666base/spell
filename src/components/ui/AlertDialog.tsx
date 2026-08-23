@@ -2,6 +2,7 @@ import * as React from "react";
 import * as AlertDialogPrimitive from "@radix-ui/react-alert-dialog";
 import { cn } from "../../lib/utils";
 import { Button } from "./Button";
+import { isMobileApp } from "../../lib/platform";
 
 const AlertDialog = AlertDialogPrimitive.Root;
 
@@ -27,17 +28,23 @@ AlertDialogOverlay.displayName = AlertDialogPrimitive.Overlay.displayName;
 const AlertDialogContent = React.forwardRef<
   React.ElementRef<typeof AlertDialogPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof AlertDialogPrimitive.Content>
->(({ className, ...props }, ref) => (
+>(({ className, children, ...props }, ref) => (
   <AlertDialogPortal>
     <AlertDialogOverlay />
     <AlertDialogPrimitive.Content
       ref={ref}
       className={cn(
-      "fixed left-[50%] top-[50%] z-50 grid w-full max-w-md translate-x-[-50%] translate-y-[-50%] gap-4 border border-border bg-bg/95 backdrop-blur-xl p-6 shadow-[var(--shadow-surface)] rounded-xl",
+        "app-sheet-surface fixed z-50 grid w-full gap-4 border border-border p-6",
+        isMobileApp
+          ? "mobile-drawer left-0 right-0 bottom-0 top-auto max-w-none translate-x-0 translate-y-0 rounded-t-[14px] rounded-b-none pb-[calc(1.25rem+var(--safe-area-bottom))]"
+          : "left-[50%] top-[50%] max-w-md translate-x-[-50%] translate-y-[-50%] rounded-xl",
         className
       )}
       {...props}
-    />
+    >
+      {isMobileApp && <span className="mobile-drawer-handle" aria-hidden />}
+      {children}
+    </AlertDialogPrimitive.Content>
   </AlertDialogPortal>
 ));
 AlertDialogContent.displayName = AlertDialogPrimitive.Content.displayName;
@@ -49,6 +56,7 @@ const AlertDialogHeader = ({
   <div
     className={cn(
       "flex flex-col space-y-1 text-center sm:text-left",
+      isMobileApp && "text-left",
       className
     )}
     {...props}

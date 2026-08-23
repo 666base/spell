@@ -5,9 +5,11 @@ import { toast } from "sonner";
 import { useNotes } from "../../context/NotesContext";
 import { useTheme } from "../../context/ThemeContext";
 import { Button } from "../ui";
-import { isWindows } from "../../lib/platform";
+import { isAndroid, isMac } from "../../lib/platform";
 import { isSupabaseConfigured } from "../../services/supabase";
 import { BookIcon } from "../icons/velocity";
+import { WindowControls } from "./WindowControls";
+import { cn } from "../../lib/utils";
 
 const CloudSetup = lazy(() => import("../cloud/CloudSetup"));
 
@@ -15,9 +17,22 @@ export function FolderPicker() {
   const { setNotesFolder } = useNotes();
   const { reloadSettings } = useTheme();
   const [showCloudSetup, setShowCloudSetup] = useState(false);
+  const [isSettingOffline, setIsSettingOffline] = useState(false);
 
   const handleSelectFolder = async () => {
+    setIsSettingOffline(true);
     try {
+      if (isAndroid) {
+        await setNotesFolder("");
+        await reloadSettings();
+        return;
+      }
+
+      if (!isTauri()) {
+        toast.error("Offline storage is available in the Spell desktop or Android app.");
+        return;
+      }
+
       const selected = await open({
         directory: true,
         multiple: false,
@@ -29,8 +44,15 @@ export function FolderPicker() {
         // Reload theme/font settings from the new folder's .scratch/settings.json
         await reloadSettings();
       }
-    } catch (err) {
-      console.error("Failed to select folder:", err);
+    } catch (error) {
+      console.error("Failed to set up offline storage:", error);
+      toast.error(
+        isAndroid
+          ? "Spell could not prepare offline storage. Please try again."
+          : "Spell could not use that folder. Please choose another one.",
+      );
+    } finally {
+      setIsSettingOffline(false);
     }
   };
 
@@ -49,7 +71,15 @@ export function FolderPicker() {
   return (
     <div className="h-full flex flex-col bg-bg-secondary">
       {/* Draggable title bar area */}
-      {!isWindows && <div className="h-10 shrink-0" data-tauri-drag-region />}
+      <div
+        className={cn(
+          "flex h-11 shrink-0 items-center justify-end px-1.5",
+          isMac && "pl-20",
+        )}
+        data-tauri-drag-region
+      >
+        <WindowControls />
+      </div>
 
       <div className="flex-1 flex items-center justify-center">
         {showCloudSetup ? (
@@ -59,21 +89,29 @@ export function FolderPicker() {
             </Suspense>
           </div>
         ) : (
-          <div className="w-[min(22rem,calc(100%-2rem))] p-7 select-none flex flex-col items-stretch gap-3 bg-bg/95 border border-border rounded-2xl shadow-[var(--shadow-surface)]">
+          <div className="app-sheet-surface w-[min(22rem,calc(100%-2rem))] p-7 select-none flex flex-col items-stretch gap-3 border border-border rounded-2xl">
             <div className="flex flex-col items-center text-center gap-3 mb-3">
               <div className="grid place-items-center w-12 h-12 rounded-2xl bg-bg-muted text-text">
                 <BookIcon className="w-6 h-6 stroke-[1.5]" />
               </div>
               <div>
                 <h1 className="text-xl font-semibold tracking-[-0.03em] text-text">Make space for your thoughts</h1>
-                <p className="mt-1.5 text-sm leading-5 text-text-muted">Choose where Spell should keep your notes.</p>
+                <p className="mt-1.5 text-sm leading-5 text-text-muted">
+                  {isAndroid
+                    ? "Keep offline notes privately on this device."
+                    : "Choose where Spell should keep your notes."}
+                </p>
               </div>
             </div>
             <Button onClick={handleUseCloud} variant="primary" size="xl">
               Use cloud
             </Button>
-            <Button onClick={handleSelectFolder} variant="link" size="md">
-              Use offline on this device
+            <Button onClick={handleSelectFolder} disabled={isSettingOffline} variant="link" size="md">
+              {isSettingOffline
+                ? "Setting up offline storage…"
+                : isAndroid
+                  ? "Use offline on this device"
+                  : "Choose an offline folder"}
             </Button>
           </div>
         )}

@@ -51,6 +51,18 @@ export interface KanbanTodo {
   completed: boolean;
 }
 
+export type ProjectIconId =
+  | "briefcase"
+  | "board"
+  | "flag"
+  | "book"
+  | "calendar"
+  | "inbox"
+  | "check"
+  | "workflow";
+
+export type ProjectViewId = "list" | "board" | "gallery";
+
 export interface KanbanCard {
   id: string;
   title: string;
@@ -58,6 +70,7 @@ export interface KanbanCard {
   dueDate?: string;
   priority: KanbanPriority;
   description?: string;
+  completed?: boolean;
   todos?: KanbanTodo[];
   createdAt: number;
   updatedAt: number;
@@ -79,6 +92,8 @@ export interface KanbanProject {
   id: string;
   name: string;
   client?: string;
+  icon?: ProjectIconId;
+  view?: ProjectViewId;
   createdAt: number;
   updatedAt: number;
   board: KanbanBoard;
@@ -101,6 +116,7 @@ export interface FinanceTransaction {
   date: string;
   category: string;
   projectId?: string;
+  subscriptionId?: string;
   notes?: string;
   archived: boolean;
   createdAt: number;
@@ -128,6 +144,7 @@ export interface FinanceWorkspace {
   currency: string;
   subscriptions: FinanceSubscription[];
   transactions: FinanceTransaction[];
+  months?: string[];
 }
 
 // Per-folder settings (stored in .scratch/settings.json)
@@ -137,7 +154,6 @@ export interface Settings {
   gitEnabled?: boolean;
   foldersEnabled?: boolean;
   pinnedNoteIds?: string[];
-  bookmarkedNoteIds?: string[];
   textDirection?: TextDirection;
   editorWidth?: EditorWidth;
   customEditorWidthPx?: number;

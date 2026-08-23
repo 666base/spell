@@ -50,6 +50,7 @@ import {
   OllamaIcon,
   FolderIcon,
   FolderPlusIcon,
+  KanbanIcon,
 } from "../icons/velocity";
 import { mod, shift } from "../../lib/platform";
 import type { AiProvider } from "../../services/ai";
@@ -162,6 +163,16 @@ export function CommandPalette({
         action: () => {
           onClose();
           window.dispatchEvent(new CustomEvent("create-new-folder"));
+        },
+      },
+      {
+        id: "new-project",
+        label: "New Project",
+        shortcut: undefined,
+        icon: <KanbanIcon className="w-4.5 h-4.5 stroke-[1.5]" />,
+        action: () => {
+          onClose();
+          window.dispatchEvent(new CustomEvent("create-new-project"));
         },
       },
     ];
@@ -661,7 +672,7 @@ export function CommandPalette({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center py-11 px-4 pointer-events-none">
       {/* Palette */}
-      <div role="dialog" aria-modal="true" aria-label="Command palette" className="relative w-full h-full max-h-108 max-w-2xl bg-bg/95 backdrop-blur-xl rounded-2xl shadow-[var(--shadow-surface)] overflow-hidden border border-border flex flex-col pointer-events-auto">
+      <div role="dialog" aria-modal="true" aria-label="Command palette" className="relative w-full h-full max-h-108 max-w-2xl bg-bg rounded-2xl overflow-hidden border border-border flex flex-col pointer-events-auto">
         {/* Search input */}
         <div className="border-b border-border flex-none">
           <input

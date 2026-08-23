@@ -63,3 +63,9 @@ export async function createCloudAccount(
   if (error) throw error;
   return data.session;
 }
+
+export async function signOutOfCloud(): Promise<void> {
+  const supabase = await getSupabase();
+  const { error } = await supabase.auth.signOut();
+  if (error) throw error;
+}

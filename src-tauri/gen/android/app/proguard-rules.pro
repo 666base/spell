@@ -5,12 +5,14 @@
 # For more details, see
 #   http://developer.android.com/guide/developing/tools/proguard.html
 
-# If your project uses WebView with JS, uncomment the following
-# and specify the fully qualified class name to the JavaScript interface
-# class:
-#-keepclassmembers class fqcn.of.javascript.interface.for.webview {
-#   public *;
-#}
+-keep class com.base666.spell.SpellImeBridge { *; }
+-keep class com.base666.spell.SpellUpdateBridge { *; }
+-keepclassmembers class com.base666.spell.SpellImeBridge {
+  @android.webkit.JavascriptInterface <methods>;
+}
+-keepclassmembers class com.base666.spell.SpellUpdateBridge {
+  @android.webkit.JavascriptInterface <methods>;
+}
 
 # Uncomment this to preserve the line number information for
 # debugging stack traces.

@@ -1,85 +1,163 @@
-import { useEffect, useMemo, useRef } from "react";
-import { format } from "date-fns";
-import { bg } from "date-fns/locale";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNotes } from "../../context/NotesContext";
 import { Editor } from "../editor/Editor";
-import { invoke } from "@tauri-apps/api/core";
+import { NoteTitlebar } from "../layout/NoteTitlebar";
+import { JournalCalendar } from "./JournalCalendar";
+import { useOpenJournal } from "./useOpenJournal";
+import {
+  isSameLocalDay,
+  journalDatesFromNotes,
+  journalIdForDate,
+  journalTitleForDate,
+  parseJournalDate,
+  startOfLocalDay,
+} from "../../lib/journal";
 
 interface JournalPageProps {
   sidebarVisible: boolean;
-  rightSidebarVisible?: boolean;
   focusMode: boolean;
   onEditorReady: (editor: any) => void;
+  hideEditorTitleBar?: boolean;
+  onDateChange?: (date: Date) => void;
+  onToggleSidebar?: () => void;
+  onNewNote?: () => void;
+  showWindowControls?: boolean;
 }
 
 export function JournalPage({
   sidebarVisible,
-  rightSidebarVisible = true,
   focusMode,
   onEditorReady,
+  hideEditorTitleBar = false,
+  onDateChange,
+  onToggleSidebar,
+  onNewNote,
+  showWindowControls = false,
 }: JournalPageProps) {
-  const { notes, selectNote, currentNote, refreshNotes } = useNotes();
-  const creatingNoteRef = useRef(false);
+  const { notes, currentNote, clearSelection } = useNotes();
+  const openJournal = useOpenJournal();
+  const openingJournalRef = useRef(false);
+  const hasOpenedInitialJournalRef = useRef(false);
+  const [isOpeningJournal, setIsOpeningJournal] = useState(false);
+  const [selectedDate, setSelectedDate] = useState(() => startOfLocalDay());
 
-  const today = useMemo(() => new Date(), []);
-  const dateId = format(today, "yyyy-MM-dd");
-  const journalTitle = format(today, "d MMMM yyyy", { locale: bg });
-  const journalId = `journals/${dateId}`;
-  const journalNote = notes.find((note) => note.id === journalId);
+  const today = useMemo(() => startOfLocalDay(), []);
+  const journalDates = useMemo(() => journalDatesFromNotes(notes), [notes]);
+  const openDate = currentNote ? parseJournalDate(currentNote.id) : null;
+  const selectedTitle = journalTitleForDate(selectedDate);
+  const todayId = journalIdForDate(today);
+  const todayNote = notes.find((note) => note.id === todayId);
+  const isJournalOpen =
+    openDate != null && isSameLocalDay(openDate, selectedDate);
+
+  const openDateJournal = useCallback(
+    async (date: Date) => {
+      if (openingJournalRef.current) return;
+      openingJournalRef.current = true;
+      setIsOpeningJournal(true);
+      try {
+        await openJournal(date);
+      } finally {
+        openingJournalRef.current = false;
+        setIsOpeningJournal(false);
+      }
+    },
+    [openJournal],
+  );
+
+  const selectDate = useCallback(
+    (date: Date) => {
+      const next = startOfLocalDay(date);
+      setSelectedDate(next);
+      if (notes.some((note) => note.id === journalIdForDate(next))) {
+        void openDateJournal(next);
+        return;
+      }
+      if (currentNote && parseJournalDate(currentNote.id)) {
+        clearSelection();
+      }
+    },
+    [clearSelection, currentNote, notes, openDateJournal],
+  );
 
   useEffect(() => {
-    if (creatingNoteRef.current) return;
+    const date = currentNote ? parseJournalDate(currentNote.id) : null;
+    if (date) setSelectedDate(date);
+  }, [currentNote?.id]);
 
-    const openTodayJournal = async () => {
-      creatingNoteRef.current = true;
-      try {
-        await invoke("create_folder", { path: "journals" }).catch(() => {});
+  useEffect(() => {
+    onDateChange?.(selectedDate);
+  }, [onDateChange, selectedDate]);
 
-        if (!journalNote) {
-          await invoke("save_note", {
-            id: journalId,
-            content: `# ${journalTitle}\n\n`,
-          });
-          await refreshNotes();
-        } else if (journalNote.title !== journalTitle) {
-          // Keep the journal title tied to the current date, including older entries.
-          const note = await invoke<{ content: string }>("read_note", {
-            id: journalId,
-          });
-          const lines = note.content.split("\n");
-          const content = lines[0].startsWith("# ")
-            ? [`# ${journalTitle}`, ...lines.slice(1)].join("\n")
-            : `# ${journalTitle}\n\n${note.content}`;
-          await invoke("save_note", { id: journalId, content });
-          await refreshNotes();
-        }
+  useEffect(() => {
+    if (!todayNote || hasOpenedInitialJournalRef.current) return;
+    hasOpenedInitialJournalRef.current = true;
+    if (currentNote?.id !== todayId) {
+      void openDateJournal(today);
+    }
+  }, [currentNote?.id, openDateJournal, today, todayId, todayNote]);
 
-        await selectNote(journalId);
-      } catch (error) {
-        console.error("Failed to open today's journal:", error);
-      } finally {
-        creatingNoteRef.current = false;
-      }
-    };
-
-    void openTodayJournal();
-  }, [journalId, journalNote, journalTitle, refreshNotes, selectNote]);
-
-  const isReady = journalNote && currentNote?.id === journalId;
+  const chrome = {
+    sidebarVisible,
+    focusMode,
+    onToggleSidebar,
+    onNewNote,
+    showWindowControls,
+  };
+  const emptyTitlebar = !hideEditorTitleBar ? (
+    <NoteTitlebar
+      {...chrome}
+      showTools={false}
+      onNewNote={() => openDateJournal(selectedDate)}
+    />
+  ) : null;
+  const calendar = !focusMode ? (
+    <div className="journal-note-calendar">
+      <JournalCalendar
+        selected={selectedDate}
+        journalDates={journalDates}
+        onSelectDate={selectDate}
+      />
+    </div>
+  ) : null;
 
   return (
-    <div className="flex-1 flex flex-col min-w-0 bg-bg relative">
-      {isReady ? (
+    <div
+      data-journal-editor={hideEditorTitleBar ? "" : undefined}
+      className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-bg"
+    >
+      {isJournalOpen ? (
         <Editor
-          sidebarVisible={sidebarVisible}
-          rightSidebarVisible={rightSidebarVisible}
-          focusMode={focusMode}
+          hideTitleBar={hideEditorTitleBar}
           onEditorReady={onEditorReady}
+          header={calendar}
+          {...chrome}
         />
       ) : (
-        <div className="flex-1 flex items-center justify-center text-sm text-text-muted">
-          Loading journal...
-        </div>
+        <>
+          {emptyTitlebar}
+          {calendar}
+          <div className="journal-empty">
+            {isOpeningJournal ? (
+              <div className="flex flex-1 items-center justify-center text-sm text-text-muted">
+                Opening {selectedTitle}…
+              </div>
+            ) : (
+              <div className="journal-empty-page">
+                {!hideEditorTitleBar && (
+                  <h1 className="journal-empty-title">{selectedTitle}</h1>
+                )}
+                <button
+                  type="button"
+                  className="journal-empty-create"
+                  onClick={() => openDateJournal(selectedDate)}
+                >
+                  Create daily note
+                </button>
+              </div>
+            )}
+          </div>
+        </>
       )}
     </div>
   );

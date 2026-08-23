@@ -89,7 +89,7 @@ export function SearchToolbar({
   };
 
   return (
-    <div className="flex flex-col gap-1.5 bg-bg/95 backdrop-blur-xl border border-border rounded-xl shadow-[var(--shadow-surface)] p-1.5 w-85 text-text search-toolbar-container">
+    <div className="flex flex-col gap-1.5 bg-bg border border-border rounded-xl p-1.5 w-85 text-text search-toolbar-container">
       {/* First Row: Find */}
       <div className="flex items-center gap-1.5">
         <IconButton

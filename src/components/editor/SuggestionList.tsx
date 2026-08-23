@@ -17,6 +17,7 @@ interface SuggestionListProps<T> {
   command: (item: T) => void;
   itemKey: (item: T) => string;
   renderItem: (item: T, isSelected: boolean) => ReactNode;
+  groupOf?: (item: T) => string;
   emptyText?: string;
   width?: string;
 }
@@ -28,7 +29,7 @@ function SuggestionListInner<T>(
     itemKey,
     renderItem,
     emptyText = "No results",
-    width = "w-64",
+    width = "w-56",
   }: SuggestionListProps<T>,
   ref: React.ForwardedRef<SuggestionListRef>,
 ) {

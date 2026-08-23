@@ -15,24 +15,26 @@ import type {
   FinanceTransaction,
   FinanceWorkspace,
 } from "../types/note";
+import { advanceNextBillingDate, isoDate, isMonthKey } from "../lib/finance";
 
 interface FinanceContextValue {
   workspace: FinanceWorkspace;
   isLoading: boolean;
   setCurrency: (currency: string) => void;
+  addMonth: (month: string) => void;
   saveSubscription: (subscription: FinanceSubscription) => void;
   saveTransaction: (transaction: FinanceTransaction) => void;
+  duplicateSubscription: (id: string) => void;
+  duplicateTransaction: (id: string) => void;
   archiveSubscription: (id: string, archived: boolean) => void;
-  archiveTransaction: (id: string, archived: boolean) => void;
+  deleteSubscription: (id: string) => void;
+  deleteTransaction: (id: string) => void;
+  confirmSubscription: (id: string) => void;
 }
 
 const FinanceContext = createContext<FinanceContextValue | null>(null);
 
 function defaultCurrency() {
-  const locale = Intl.DateTimeFormat().resolvedOptions().locale.toLowerCase();
-  if (locale.startsWith("bg")) return "BGN";
-  if (locale.startsWith("en-us")) return "USD";
-  if (locale.startsWith("en-gb")) return "GBP";
   return "EUR";
 }
 
@@ -47,8 +49,8 @@ export function createFinanceTransaction(kind: FinanceTransaction["kind"]): Fina
     kind,
     title: "",
     amountCents: 0,
-    date: new Date().toISOString().slice(0, 10),
-    category: kind === "income" ? "Client work" : "Software",
+    date: isoDate(),
+    category: "",
     archived: false,
     createdAt: now,
     updatedAt: now,
@@ -62,8 +64,8 @@ export function createFinanceSubscription(): FinanceSubscription {
     name: "",
     amountCents: 0,
     cadence: "monthly",
-    nextBillingDate: new Date().toISOString().slice(0, 10),
-    category: "Software",
+    nextBillingDate: isoDate(),
+    category: "",
     archived: false,
     createdAt: now,
     updatedAt: now,
@@ -71,7 +73,7 @@ export function createFinanceSubscription(): FinanceSubscription {
 }
 
 function initialWorkspace(): FinanceWorkspace {
-  return { version: 1, currency: defaultCurrency(), subscriptions: [], transactions: [] };
+  return { version: 1, currency: defaultCurrency(), subscriptions: [], transactions: [], months: [] };
 }
 
 function isDate(value: unknown): value is string {
@@ -102,7 +104,7 @@ function normalizeSubscription(value: unknown): FinanceSubscription | null {
       ? Math.max(1, Math.round(subscription.customIntervalDays ?? 30))
       : undefined,
     nextBillingDate: subscription.nextBillingDate,
-    category: typeof subscription.category === "string" && subscription.category.trim() ? subscription.category.trim() : "Other",
+    category: typeof subscription.category === "string" ? subscription.category.trim() : "",
     website: typeof subscription.website === "string" ? subscription.website.trim() : "",
     projectId: typeof subscription.projectId === "string" ? subscription.projectId : undefined,
     notes: typeof subscription.notes === "string" ? subscription.notes : "",
@@ -129,8 +131,9 @@ function normalizeTransaction(value: unknown): FinanceTransaction | null {
     kind: transaction.kind,
     amountCents: Math.round(transaction.amountCents),
     date: transaction.date,
-    category: typeof transaction.category === "string" && transaction.category.trim() ? transaction.category.trim() : "Other",
+    category: typeof transaction.category === "string" ? transaction.category.trim() : "",
     projectId: typeof transaction.projectId === "string" ? transaction.projectId : undefined,
+    subscriptionId: typeof transaction.subscriptionId === "string" ? transaction.subscriptionId : undefined,
     notes: typeof transaction.notes === "string" ? transaction.notes : "",
     archived: Boolean(transaction.archived),
     createdAt: Number.isFinite(transaction.createdAt) ? transaction.createdAt! : Date.now(),
@@ -140,17 +143,17 @@ function normalizeTransaction(value: unknown): FinanceTransaction | null {
 
 export function normalizeFinanceWorkspace(value: FinanceWorkspace | undefined): FinanceWorkspace {
   if (!value || value.version !== 1) return initialWorkspace();
-  const currency = typeof value.currency === "string" && /^[A-Za-z]{3}$/.test(value.currency)
-    ? value.currency.toUpperCase()
-    : defaultCurrency();
   return {
     version: 1,
-    currency,
+    currency: defaultCurrency(),
     subscriptions: Array.isArray(value.subscriptions)
       ? value.subscriptions.map(normalizeSubscription).filter((item): item is FinanceSubscription => Boolean(item))
       : [],
     transactions: Array.isArray(value.transactions)
       ? value.transactions.map(normalizeTransaction).filter((item): item is FinanceTransaction => Boolean(item))
+      : [],
+    months: Array.isArray(value.months)
+      ? [...new Set(value.months.filter((month): month is string => typeof month === "string" && isMonthKey(month)))]
       : [],
   };
 }
@@ -183,10 +186,10 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let cancelled = false;
     setIsLoading(true);
-    notesService.getSettings()
-      .then((settings) => {
+    notesService.getFinanceData()
+      .then((data) => {
         if (!cancelled) {
-          const nextWorkspace = normalizeFinanceWorkspace(settings.financeWorkspace);
+          const nextWorkspace = normalizeFinanceWorkspace(data);
           workspaceRef.current = nextWorkspace;
           setWorkspace(nextWorkspace);
         }
@@ -212,8 +215,7 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
       .catch(() => undefined)
       .then(async () => {
         try {
-          const settings = await notesService.getSettings();
-          await notesService.updateSettings({ ...settings, financeWorkspace: nextWorkspace });
+          await notesService.updateFinanceData(nextWorkspace);
           window.localStorage.removeItem(storageKey);
         } catch (error) {
           console.warn("Using local finance workspace storage:", error);
@@ -228,6 +230,17 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
     const currentWorkspace = workspaceRef.current;
     if (!/^[A-Z]{3}$/.test(nextCurrency) || currentWorkspace.currency === nextCurrency) return;
     persist({ ...currentWorkspace, currency: nextCurrency });
+  }, [persist]);
+
+  const addMonth = useCallback((month: string) => {
+    if (!isMonthKey(month)) return;
+    const currentWorkspace = workspaceRef.current;
+    const months = currentWorkspace.months ?? [];
+    if (months.includes(month)) return;
+    persist({
+      ...currentWorkspace,
+      months: [...months, month].sort((left, right) => right.localeCompare(left)),
+    });
   }, [persist]);
 
   const saveSubscription = useCallback((subscription: FinanceSubscription) => {
@@ -252,6 +265,28 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
     });
   }, [persist]);
 
+  const duplicateSubscription = useCallback((id: string) => {
+    const currentWorkspace = workspaceRef.current;
+    const source = currentWorkspace.subscriptions.find((item) => item.id === id);
+    if (!source) return;
+    const now = Date.now();
+    persist({
+      ...currentWorkspace,
+      subscriptions: [{ ...source, id: makeId(), archived: false, createdAt: now, updatedAt: now }, ...currentWorkspace.subscriptions],
+    });
+  }, [persist]);
+
+  const duplicateTransaction = useCallback((id: string) => {
+    const currentWorkspace = workspaceRef.current;
+    const source = currentWorkspace.transactions.find((item) => item.id === id);
+    if (!source) return;
+    const now = Date.now();
+    persist({
+      ...currentWorkspace,
+      transactions: [{ ...source, id: makeId(), archived: false, createdAt: now, updatedAt: now }, ...currentWorkspace.transactions],
+    });
+  }, [persist]);
+
   const archiveSubscription = useCallback((id: string, archived: boolean) => {
     const currentWorkspace = workspaceRef.current;
     persist({
@@ -260,11 +295,48 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
     });
   }, [persist]);
 
-  const archiveTransaction = useCallback((id: string, archived: boolean) => {
+  const deleteSubscription = useCallback((id: string) => {
     const currentWorkspace = workspaceRef.current;
     persist({
       ...currentWorkspace,
-      transactions: currentWorkspace.transactions.map((item) => item.id === id ? { ...item, archived, updatedAt: Date.now() } : item),
+      subscriptions: currentWorkspace.subscriptions.filter((item) => item.id !== id),
+    });
+  }, [persist]);
+
+  const deleteTransaction = useCallback((id: string) => {
+    const currentWorkspace = workspaceRef.current;
+    persist({
+      ...currentWorkspace,
+      transactions: currentWorkspace.transactions.filter((item) => item.id !== id),
+    });
+  }, [persist]);
+
+  const confirmSubscription = useCallback((id: string) => {
+    const currentWorkspace = workspaceRef.current;
+    const subscription = currentWorkspace.subscriptions.find((item) => item.id === id && !item.archived);
+    if (!subscription) return;
+    const now = Date.now();
+    const charge: FinanceTransaction = {
+      id: makeId(),
+      kind: "expense",
+      title: subscription.name,
+      amountCents: subscription.amountCents,
+      date: isoDate(),
+      category: subscription.category,
+      projectId: subscription.projectId,
+      subscriptionId: subscription.id,
+      archived: false,
+      createdAt: now,
+      updatedAt: now,
+    };
+    persist({
+      ...currentWorkspace,
+      transactions: [...currentWorkspace.transactions, charge],
+      subscriptions: currentWorkspace.subscriptions.map((item) =>
+        item.id === id
+          ? { ...item, nextBillingDate: advanceNextBillingDate(item), updatedAt: now }
+          : item
+      ),
     });
   }, [persist]);
 
@@ -272,13 +344,23 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
     workspace,
     isLoading,
     setCurrency,
+    addMonth,
     saveSubscription,
     saveTransaction,
+    duplicateSubscription,
+    duplicateTransaction,
     archiveSubscription,
-    archiveTransaction,
+    deleteSubscription,
+    deleteTransaction,
+    confirmSubscription,
   }), [
+    addMonth,
     archiveSubscription,
-    archiveTransaction,
+    confirmSubscription,
+    deleteSubscription,
+    deleteTransaction,
+    duplicateSubscription,
+    duplicateTransaction,
     isLoading,
     saveSubscription,
     saveTransaction,

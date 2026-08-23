@@ -1,22 +1,20 @@
 import { useState } from "react";
 import { NodeViewWrapper, NodeViewContent } from "@tiptap/react";
 import type { ReactNodeViewProps } from "@tiptap/react";
-import { SUPPORTED_LANGUAGES } from "./lowlight";
 import { MermaidRenderer } from "./MermaidRenderer";
 import { PencilIcon, EyeIcon } from "../icons/velocity";
-import { CodeCopyButton, Select } from "../ui";
+import { CodeCopyButton } from "../ui";
 
 const btnClass =
   "code-block-mermaid-btn inline-flex items-center gap-1 text-xs h-6 px-1.5 text-text-muted rounded cursor-pointer transition-colors hover:text-text hover:bg-bg-emphasis";
 
-export function CodeBlockView({ node, updateAttributes }: ReactNodeViewProps) {
-  const language: string = node.attrs.language || "";
-  const isMermaid = language === "mermaid";
+export function CodeBlockView({ node }: ReactNodeViewProps) {
+  const isMermaid = node.attrs.language === "mermaid";
   const [showSource, setShowSource] = useState(!node.textContent.trim());
   const codeContent = node.textContent;
 
   const toolbar = (
-    <div className="code-block-language-selector" contentEditable={false}>
+    <div className="code-block-toolbar" contentEditable={false}>
       <CodeCopyButton text={codeContent} className={btnClass} />
       {isMermaid && (
         <button
@@ -38,21 +36,6 @@ export function CodeBlockView({ node, updateAttributes }: ReactNodeViewProps) {
           )}
         </button>
       )}
-      <div className="flex items-center">
-        <Select
-          value={language}
-          onValueChange={(value) => updateAttributes({ language: value })}
-          aria-label="Code language"
-          className="h-6 w-auto min-w-0 border-transparent bg-transparent py-0 pl-1.5 pr-6 text-xs text-text-muted hover:bg-bg-emphasis focus-visible:border-transparent focus-visible:ring-0"
-          contentClassName="min-w-44"
-        >
-          {SUPPORTED_LANGUAGES.map((lang) => (
-            <option key={lang.value} value={lang.value}>
-              {lang.label}
-            </option>
-          ))}
-        </Select>
-      </div>
     </div>
   );
 

@@ -10,7 +10,6 @@ import {
   Heading1Icon,
   Heading2Icon,
   Heading3Icon,
-  Heading4Icon,
   ListIcon,
   ListOrderedIcon,
   CheckSquareIcon,
@@ -28,6 +27,7 @@ import { SlashCommandList, type SlashCommandListRef } from "./SlashCommandList";
 export interface SlashCommandItem {
   title: string;
   description: string;
+  group: "style" | "list" | "insert";
   icon: ReactNode;
   aliases: string[];
   command: (editor: TiptapEditor) => void;
@@ -35,54 +35,60 @@ export interface SlashCommandItem {
 
 const SLASH_COMMANDS: SlashCommandItem[] = [
   {
-    title: "Text",
-    description: "Plain body text",
-    icon: <PilcrowIcon />,
-    aliases: ["paragraph", "body", "plain", "normal"],
-    command: (editor) => {
-      editor.chain().focus().setParagraph().run();
-    },
-  },
-  {
-    title: "Heading 1",
-    description: "Large section heading",
-    icon: <Heading1Icon />,
+    title: "Title",
+    description: "Note title",
+    group: "style",
+    icon: <Heading1Icon className="size-4" />,
     aliases: ["h1", "heading", "title"],
     command: (editor) => {
       editor.chain().focus().toggleHeading({ level: 1 }).run();
     },
   },
   {
-    title: "Heading 2",
-    description: "Medium section heading",
-    icon: <Heading2Icon />,
+    title: "Heading",
+    description: "Section heading",
+    group: "style",
+    icon: <Heading2Icon className="size-4" />,
     aliases: ["h2", "heading", "subtitle"],
     command: (editor) => {
       editor.chain().focus().toggleHeading({ level: 2 }).run();
     },
   },
   {
-    title: "Heading 3",
-    description: "Small section heading",
-    icon: <Heading3Icon />,
+    title: "Subheading",
+    description: "Smaller heading",
+    group: "style",
+    icon: <Heading3Icon className="size-4" />,
     aliases: ["h3", "heading"],
     command: (editor) => {
       editor.chain().focus().toggleHeading({ level: 3 }).run();
     },
   },
   {
-    title: "Heading 4",
-    description: "Smallest section heading",
-    icon: <Heading4Icon />,
-    aliases: ["h4", "heading"],
+    title: "Body",
+    description: "Plain body text",
+    group: "style",
+    icon: <PilcrowIcon className="size-4" />,
+    aliases: ["paragraph", "body", "plain", "normal", "text"],
     command: (editor) => {
-      editor.chain().focus().toggleHeading({ level: 4 }).run();
+      editor.chain().focus().setParagraph().run();
     },
   },
   {
-    title: "Bullet List",
+    title: "Monostyled",
+    description: "Monospace block",
+    group: "style",
+    icon: <CodeIcon className="size-4" />,
+    aliases: ["code", "fenced", "pre", "mono"],
+    command: (editor) => {
+      editor.chain().focus().toggleCodeBlock().run();
+    },
+  },
+  {
+    title: "Bulleted List",
     description: "Unordered list",
-    icon: <ListIcon />,
+    group: "list",
+    icon: <ListIcon className="size-4" />,
     aliases: ["ul", "unordered", "list"],
     command: (editor) => {
       editor.chain().focus().toggleBulletList().run();
@@ -91,52 +97,48 @@ const SLASH_COMMANDS: SlashCommandItem[] = [
   {
     title: "Numbered List",
     description: "Ordered list",
-    icon: <ListOrderedIcon />,
+    group: "list",
+    icon: <ListOrderedIcon className="size-4" />,
     aliases: ["ol", "ordered", "list", "numbered"],
     command: (editor) => {
       editor.chain().focus().toggleOrderedList().run();
     },
   },
   {
-    title: "Task List",
+    title: "Checklist",
     description: "List with checkboxes",
-    icon: <CheckSquareIcon />,
-    aliases: ["todo", "checklist", "checkbox"],
+    group: "list",
+    icon: <CheckSquareIcon className="size-4" />,
+    aliases: ["todo", "checklist", "checkbox", "task"],
     command: (editor) => {
       editor.chain().focus().toggleTaskList().run();
     },
   },
   {
-    title: "Blockquote",
+    title: "Quote",
     description: "Block quotation",
-    icon: <QuoteIcon />,
-    aliases: ["quote"],
+    group: "insert",
+    icon: <QuoteIcon className="size-4" />,
+    aliases: ["quote", "blockquote"],
     command: (editor) => {
       editor.chain().focus().toggleBlockquote().run();
     },
   },
   {
-    title: "Code Block",
-    description: "Fenced code block",
-    icon: <CodeIcon />,
-    aliases: ["code", "fenced", "pre"],
-    command: (editor) => {
-      editor.chain().focus().toggleCodeBlock().run();
-    },
-  },
-  {
-    title: "Mermaid Diagram",
-    description: "Mermaid diagram block",
-    icon: <WorkflowIcon />,
+    title: "Mermaid",
+    description: "Diagram block",
+    group: "insert",
+    icon: <WorkflowIcon className="size-4" />,
     aliases: ["mermaid", "diagram", "flowchart", "chart"],
     command: (editor) => {
       editor.chain().focus().setCodeBlock({ language: "mermaid" }).run();
     },
   },
   {
-    title: "Block Math",
+    title: "Math",
     description: "Display math block",
-    icon: <BlockMathIcon />,
+    group: "insert",
+    icon: <BlockMathIcon className="size-4" />,
     aliases: ["math", "equation"],
     command: (editor) => {
       editor.chain().focus().run();
@@ -144,19 +146,21 @@ const SLASH_COMMANDS: SlashCommandItem[] = [
     },
   },
   {
-    title: "Horizontal Rule",
+    title: "Separator",
     description: "Visual divider",
-    icon: <SeparatorIcon />,
+    group: "insert",
+    icon: <SeparatorIcon className="size-4" />,
     aliases: ["divider", "separator", "hr", "line"],
     command: (editor) => {
       editor.chain().focus().setHorizontalRule().run();
     },
   },
   {
-    title: "Image",
+    title: "Photo",
     description: "Insert from file",
-    icon: <ImageIcon />,
-    aliases: ["picture", "photo", "img"],
+    group: "insert",
+    icon: <ImageIcon className="size-4" />,
+    aliases: ["picture", "photo", "img", "image"],
     command: (editor) => {
       editor.chain().focus().run();
       window.dispatchEvent(new CustomEvent("slash-command-image"));
@@ -165,7 +169,8 @@ const SLASH_COMMANDS: SlashCommandItem[] = [
   {
     title: "Table",
     description: "Insert a 3×3 table",
-    icon: <TableIcon />,
+    group: "insert",
+    icon: <TableIcon className="size-4" />,
     aliases: ["grid"],
     command: (editor) => {
       editor
@@ -178,7 +183,8 @@ const SLASH_COMMANDS: SlashCommandItem[] = [
   {
     title: "Wikilink",
     description: "Link to another note",
-    icon: <BracketsIcon />,
+    group: "insert",
+    icon: <BracketsIcon className="size-4" />,
     aliases: ["link", "note", "wikilink", "[["],
     command: (editor) => {
       editor.chain().focus().insertContent("[[").run();

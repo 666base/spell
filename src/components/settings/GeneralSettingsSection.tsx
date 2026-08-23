@@ -2,13 +2,10 @@ import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { toast } from "sonner";
 import { useNotes } from "../../context/NotesContext";
-import { useTheme } from "../../context/ThemeContext";
 import { useGit } from "../../context/GitContext";
 import { Button } from "../ui";
 import { Input } from "../ui";
 import {
-  FolderIcon,
-  FoldersIcon,
   ExternalLinkIcon,
   SpinnerIcon,
   CloudPlusIcon,
@@ -17,6 +14,7 @@ import {
 } from "../icons/velocity";
 import type { Settings } from "../../types/note";
 import * as notesService from "../../services/notes";
+import { AppUpdateSection } from "./AppUpdateSection";
 
 // Format remote URL for display - extract user/repo from full URL
 function formatRemoteUrl(url: string | null): string {
@@ -46,8 +44,6 @@ function getRemoteWebUrl(url: string | null): string | null {
 }
 
 export function GeneralSettingsSection() {
-  const { notesFolder, setNotesFolder } = useNotes();
-  const { reloadSettings } = useTheme();
   const {
     status,
     gitAvailable,
@@ -75,18 +71,23 @@ export function GeneralSettingsSection() {
 
   useEffect(() => {
     let cancelled = false;
-    notesService
-      .getCloudUserId()
-      .then((userId) => {
-        if (!cancelled) setIsCloudMode(Boolean(userId));
-      })
-      .catch(() => {
-        if (!cancelled) setIsCloudMode(false);
-      });
+    const load = () => {
+      notesService
+        .getCloudUserId()
+        .then((userId) => {
+          if (!cancelled) setIsCloudMode(Boolean(userId));
+        })
+        .catch(() => {
+          if (!cancelled) setIsCloudMode(false);
+        });
+    };
+    load();
+    window.addEventListener("spell-cloud-session-ready", load);
     return () => {
       cancelled = true;
+      window.removeEventListener("spell-cloud-session-ready", load);
     };
-  }, [notesFolder]);
+  }, []);
 
   // Load template from settings on mount
   useEffect(() => {
@@ -139,33 +140,6 @@ export function GeneralSettingsSection() {
     }
   };
 
-  const handleChangeFolder = async () => {
-    try {
-      const selected = await invoke<string | null>("open_folder_dialog", {
-        defaultPath: notesFolder || null,
-      });
-
-      if (selected) {
-        await setNotesFolder(selected);
-        // Reload theme/font settings from the new folder's .scratch/settings.json
-        await reloadSettings();
-      }
-    } catch (err) {
-      console.error("Failed to select folder:", err);
-      toast.error("Failed to select folder");
-    }
-  };
-
-  const handleOpenFolder = async () => {
-    if (!notesFolder) return;
-    try {
-      await invoke("open_in_file_manager", { path: notesFolder });
-    } catch (err) {
-      console.error("Failed to open folder:", err);
-      toast.error("Failed to open folder");
-    }
-  };
-
   const handleOpenUrl = async (url: string) => {
     try {
       await invoke("open_url_safe", { url });
@@ -173,18 +147,6 @@ export function GeneralSettingsSection() {
       console.error("Failed to open URL:", err);
       toast.error(err instanceof Error ? err.message : "Failed to open URL");
     }
-  };
-
-  // Format path for display - truncate middle if too long
-  const formatPath = (path: string | null): string => {
-    if (!path) return "Not set";
-    const maxLength = 50;
-    if (path.length <= maxLength) return path;
-
-    // Show start and end of path
-    const start = path.slice(0, 20);
-    const end = path.slice(-25);
-    return `${start}...${end}`;
   };
 
   const handleAddRemote = async () => {
@@ -262,98 +224,99 @@ export function GeneralSettingsSection() {
 
   return (
     <div className="space-y-8 py-8">
-      {/* Storage */}
-      <section className="pb-2">
-        <h2 className="text-xl font-medium mb-0.5">
-          {isCloudMode ? "Cloud Sync" : "Folder Location"}
-        </h2>
-        {isCloudMode ? (
-          <>
-            <p className="text-sm text-text-muted mb-4">
-              Your notes sync across devices and remain available offline
-            </p>
-            <div className="flex items-center gap-2.5 p-2.5 rounded-[10px] border border-border">
-              <div className="p-2 rounded-md bg-bg-muted">
-                <CloudPlusIcon className="w-4.5 h-4.5 stroke-[1.5] text-text-muted" />
-              </div>
-              <div className="min-w-0">
-                <p className="text-sm text-text font-medium">Supabase Cloud</p>
-                <p className="text-xs text-text-muted">
-                  Local cache keeps Spell fast and works without internet
-                </p>
-              </div>
-            </div>
-          </>
-        ) : (
-          <>
-            <p className="text-sm text-text-muted mb-4">
-              Your notes are stored as markdown files in this folder
-            </p>
-            <div className="flex items-center gap-2.5 p-2.5 rounded-[10px] border border-border mb-2.5">
-              <div className="p-2 rounded-md bg-bg-muted">
-                <FolderIcon className="w-4.5 h-4.5 stroke-[1.5] text-text-muted" />
-              </div>
-              <p
-                className="text-sm text-text-muted truncate"
-                title={notesFolder || undefined}
-              >
-                {formatPath(notesFolder)}
-              </p>
-            </div>
-            <div className="flex items-center gap-1">
-              <Button
-                onClick={handleChangeFolder}
-                variant="outline"
-                size="md"
-                className="gap-1.25"
-              >
-                <FoldersIcon className="w-4.5 h-4.5 stroke-[1.5]" />
-                Change Folder
-              </Button>
-              {notesFolder && (
-                <Button
-                  onClick={handleOpenFolder}
-                  variant="ghost"
-                  size="md"
-                  className="gap-1.25 text-text"
-                >
-                  Open Folder
-                </Button>
-              )}
-            </div>
-          </>
-        )}
-      </section>
+      <AppUpdateSection />
 
-      {/* Divider */}
       <div className="border-t border-border border-dashed" />
 
-      {/* Folders Section */}
+      {/* New Note Template */}
       <section className="pb-2">
-        <div className="flex items-center justify-between gap-6">
-          <div className="flex flex-col gap-0.75">
-            <div className="flex items-center gap-2">
-              <h2 className="text-xl font-medium">Enable Folders</h2>
-            </div>
-            <p className="text-sm text-text-muted max-w-lg">
-              Create and view nested folders to organize your notes. When off,
-              notes are shown in a flat list sorted by date.
-            </p>
+        <h2 className="text-xl font-medium mb-0.5">Default Note Name</h2>
+        <p className="text-sm text-text-muted mb-4">
+          Customize the default name when creating a new note
+        </p>
+
+        <div className="space-y-2">
+          <div>
+            <Input
+              type="text"
+              value={noteTemplate}
+              onChange={(e) => setNoteTemplate(e.target.value)}
+              onBlur={handleSaveTemplate}
+              placeholder="Untitled"
+            />
           </div>
-          <FoldersToggle />
+          <div className="text-2xs text-text-muted font-mono p-2 rounded-md bg-bg-muted mb-4">
+            Preview: {previewNoteName}
+          </div>
+
+          {/* Template Tags Reference */}
+          <details className="text-sm">
+            <summary className="cursor-pointer text-text-muted hover:text-text select-none flex items-center gap-1 font-medium">
+              <ChevronRightIcon className="state-disclosure w-3.5 h-3.5 stroke-2" />
+              Add template tags to your name
+            </summary>
+            <div className="mt-2 space-y-1.5 pl-2 text-text-muted">
+              <div className="grid grid-cols-2 gap-x-4 gap-y-1 font-mono text-xs">
+                <code>{"{timestamp}"}</code>
+                <span>1739586000</span>
+                <code>{"{date}"}</code>
+                <span>2026-02-15</span>
+                <code>{"{time}"}</code>
+                <span>14-30-45</span>
+                <code>{"{year}"}</code>
+                <span>2026</span>
+                <code>{"{month}"}</code>
+                <span>02</span>
+                <code>{"{day}"}</code>
+                <span>15</span>
+                <code>{"{monthName}"}</code>
+                <span>February</span>
+                <code>{"{monthShort}"}</code>
+                <span>Feb</span>
+                <code>{"{weekday}"}</code>
+                <span>Sunday</span>
+                <code>{"{weekdayShort}"}</code>
+                <span>Sun</span>
+                <code>{"{dayOrdinal}"}</code>
+                <span>15th</span>
+                <code>{"{counter}"}</code>
+                <span>1, 2, 3...</span>
+              </div>
+              <p className="text-xs mt-2 pt-2 border-t border-border">
+                Examples: <code>Note-{"{year}-{month}-{day}"}</code>
+              </p>
+            </div>
+          </details>
         </div>
       </section>
 
       {/* Divider */}
       <div className="border-t border-border border-dashed" />
 
-      {/* Git Section */}
-      <section className="pb-2 flex flex-col gap-4">
+      {/* Ignored Folders */}
+      <section className="pb-2">
+        <h2 className="text-xl font-medium mb-0.5">Ignored Folders</h2>
+        <p className="text-sm text-text-muted mb-4">
+          Folders matching these names are excluded from note discovery and
+          search indexing
+        </p>
+        <IgnoredFoldersEditor />
+      </section>
+
+      {!isCloudMode && (
+      <>
+      <div className="border-t border-border border-dashed" />
+      <details className="group pb-2">
+        <summary className="cursor-pointer text-text-muted hover:text-text select-none flex items-center gap-1 font-medium">
+          <ChevronRightIcon className="state-disclosure w-3.5 h-3.5 stroke-2" />
+          Git backup
+        </summary>
+      <section className="pt-4 flex flex-col gap-4">
         <div className="flex items-center justify-between gap-6">
           <div className="flex flex-col gap-0.75">
-            <h2 className="text-xl font-medium">Version Control</h2>
+            <h2 className="text-xl font-medium">Version history</h2>
             <p className="text-sm text-text-muted max-w-lg">
-              Track changes and store backups of your notes using Git
+              Optional Git backup for this local folder
             </p>
           </div>
           <div className="flex gap-1 p-1 rounded-[10px] border border-border">
@@ -708,150 +671,9 @@ export function GeneralSettingsSection() {
           </>
         )}
       </section>
-
-      {/* Divider */}
-      <div className="border-t border-border border-dashed" />
-
-      {/* New Note Template */}
-      <section className="pb-2">
-        <h2 className="text-xl font-medium mb-0.5">Default Note Name</h2>
-        <p className="text-sm text-text-muted mb-4">
-          Customize the default name when creating a new note
-        </p>
-
-        <div className="space-y-2">
-          <div>
-            <Input
-              type="text"
-              value={noteTemplate}
-              onChange={(e) => setNoteTemplate(e.target.value)}
-              onBlur={handleSaveTemplate}
-              placeholder="Untitled"
-            />
-          </div>
-          <div className="text-2xs text-text-muted font-mono p-2 rounded-md bg-bg-muted mb-4">
-            Preview: {previewNoteName}
-          </div>
-
-          {/* Template Tags Reference */}
-          <details className="text-sm">
-            <summary className="cursor-pointer text-text-muted hover:text-text select-none flex items-center gap-1 font-medium">
-              <ChevronRightIcon className="state-disclosure w-3.5 h-3.5 stroke-2" />
-              Add template tags to your name
-            </summary>
-            <div className="mt-2 space-y-1.5 pl-2 text-text-muted">
-              <div className="grid grid-cols-2 gap-x-4 gap-y-1 font-mono text-xs">
-                <code>{"{timestamp}"}</code>
-                <span>1739586000</span>
-                <code>{"{date}"}</code>
-                <span>2026-02-15</span>
-                <code>{"{time}"}</code>
-                <span>14-30-45</span>
-                <code>{"{year}"}</code>
-                <span>2026</span>
-                <code>{"{month}"}</code>
-                <span>02</span>
-                <code>{"{day}"}</code>
-                <span>15</span>
-                <code>{"{monthName}"}</code>
-                <span>February</span>
-                <code>{"{monthShort}"}</code>
-                <span>Feb</span>
-                <code>{"{weekday}"}</code>
-                <span>Sunday</span>
-                <code>{"{weekdayShort}"}</code>
-                <span>Sun</span>
-                <code>{"{dayOrdinal}"}</code>
-                <span>15th</span>
-                <code>{"{counter}"}</code>
-                <span>1, 2, 3...</span>
-              </div>
-              <p className="text-xs mt-2 pt-2 border-t border-border">
-                Examples: <code>Note-{"{year}-{month}-{day}"}</code>
-              </p>
-            </div>
-          </details>
-        </div>
-      </section>
-
-      {/* Divider */}
-      <div className="border-t border-border border-dashed" />
-
-      {/* Ignored Folders */}
-      <section className="pb-2">
-        <h2 className="text-xl font-medium mb-0.5">Ignored Folders</h2>
-        <p className="text-sm text-text-muted mb-4">
-          Folders matching these names are excluded from note discovery and
-          search indexing
-        </p>
-        <IgnoredFoldersEditor />
-      </section>
-    </div>
-  );
-}
-
-function FoldersToggle() {
-  const [foldersEnabled, setFoldersEnabled] = useState<boolean | null>(null);
-  const [isUpdating, setIsUpdating] = useState(false);
-
-  useEffect(() => {
-    invoke<Settings>("get_settings")
-      .then((s) => {
-        setFoldersEnabled(s.foldersEnabled === true);
-      })
-      .catch((error) => {
-        console.error("Failed to load folder setting:", error);
-        setFoldersEnabled(false);
-      });
-  }, []);
-
-  const handleToggle = async (enabled: boolean) => {
-    if (isUpdating) return;
-    setIsUpdating(true);
-    try {
-      const settings = await invoke<Settings>("get_settings");
-      await invoke("update_settings", {
-        newSettings: { ...settings, foldersEnabled: enabled },
-      });
-      setFoldersEnabled(enabled);
-    } catch {
-      toast.error("Failed to update folder setting");
-    } finally {
-      setIsUpdating(false);
-    }
-  };
-
-  if (foldersEnabled === null) {
-    return (
-      <div className="flex gap-1 p-1 rounded-[10px] border border-border shrink-0">
-        <Button variant="ghost" size="xs" disabled>
-          Off
-        </Button>
-        <Button variant="ghost" size="xs" disabled>
-          On
-        </Button>
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex gap-1 p-1 rounded-[10px] border border-border shrink-0">
-      <Button
-        onClick={() => handleToggle(false)}
-        variant={!foldersEnabled ? "primary" : "ghost"}
-        size="xs"
-        disabled={isUpdating}
-      >
-        Off
-      </Button>
-      <Button
-        onClick={() => handleToggle(true)}
-        variant={foldersEnabled ? "primary" : "ghost"}
-        size="xs"
-        disabled={isUpdating}
-      >
-        On
-      </Button>
+      </details>
+      </>
+      )}
     </div>
   );
 }

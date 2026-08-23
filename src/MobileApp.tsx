@@ -1,41 +1,216 @@
-import { useState, useRef, useEffect } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { Editor as TiptapEditor } from "@tiptap/react";
+import { format } from "date-fns";
+import { bg } from "date-fns/locale";
 import { NotesProvider, useNotes } from "./context/NotesContext";
 import { ThemeProvider } from "./context/ThemeContext";
 import { GitProvider } from "./context/GitContext";
 import { KanbanWorkspaceProvider } from "./context/KanbanWorkspaceContext";
 import { FinanceProvider } from "./context/FinanceContext";
 import { TooltipProvider, Toaster } from "./components/ui";
-import { Sidebar, type SidebarPanel } from "./components/layout/Sidebar";
-import { RightSidebar } from "./components/layout/RightSidebar";
 import { Editor } from "./components/editor/Editor";
 import { JournalPage } from "./components/journal/JournalPage";
-import { KanbanPage } from "./components/kanban/KanbanPage";
-import { FinancePage } from "./components/finance/FinancePage";
 import { FolderPicker } from "./components/layout/FolderPicker";
-import { MobileTopBar } from "./components/layout/MobileTopBar";
-import { MobileDrawer } from "./components/layout/MobileDrawers";
-import type { Editor as TiptapEditor } from "@tiptap/react";
-import { CommandPalette } from "./components/command-palette/CommandPalette";
 import { CloudSync } from "./components/cloud/CloudSync";
 import { SpinnerIcon } from "./components/icons/velocity";
 import { SettingsPage } from "./components/settings";
+import { MobileFolders } from "./components/layout/mobile/MobileFolders";
+import { MobileWorkspace } from "./components/layout/mobile/MobileWorkspace";
+import { MobilePager, MobilePagerSlide } from "./components/layout/mobile/MobilePager";
+import {
+  MobileNavBar,
+  MobileScreen,
+  MobileTintButton,
+  useKeyboardInset,
+} from "./components/layout/mobile/MobileChrome";
+import { FoldersIcon, KanbanIcon } from "./components/icons/velocity";
+import { useOpenJournal } from "./components/journal/useOpenJournal";
+import { startOfLocalDay, isSameLocalDay } from "./lib/journal";
+import { replaceMarkdownTitle, setEditorDocumentTitle } from "./lib/noteTitle";
+import { cleanTitle } from "./lib/utils";
 
-type MobileView = "notes" | "settings";
+const DAILY = 1;
+
+function DailyPage({
+  onOpenFolders,
+  onOpenWorkspace,
+  onOpenToday,
+}: {
+  onOpenFolders: () => void;
+  onOpenWorkspace: () => void;
+  onOpenToday: () => void;
+}) {
+  const { currentNote, saveNote } = useNotes();
+  const editorRef = useRef<TiptapEditor | null>(null);
+  const [journalDate, setJournalDate] = useState(() => startOfLocalDay());
+  const isVaultNote = Boolean(currentNote && !currentNote.id.startsWith("journals/"));
+  const today = startOfLocalDay();
+  const showToday = !isVaultNote && !isSameLocalDay(journalDate, today);
+  const dateLabel = format(journalDate, "d MMMM yyyy", { locale: bg });
+
+  const handleEditorReady = useCallback((editor: TiptapEditor | null) => {
+    editorRef.current = editor;
+  }, []);
+
+  const commitTitle = useCallback(
+    (nextTitle: string) => {
+      if (!currentNote || currentNote.id.startsWith("journals/")) return;
+      const trimmed = nextTitle.trim() || "Untitled";
+      if (trimmed === cleanTitle(currentNote.title)) return;
+      const editor = editorRef.current;
+      if (editor && !editor.isDestroyed) {
+        setEditorDocumentTitle(editor, trimmed);
+        return;
+      }
+      void saveNote(replaceMarkdownTitle(currentNote.content, trimmed), currentNote.id);
+    },
+    [currentNote, saveNote],
+  );
+
+  return (
+    <MobileScreen className="mobile-daily">
+      <MobileNavBar
+        title={
+          isVaultNote ? (
+            <MobileNoteTitle
+              key={currentNote?.id}
+              value={cleanTitle(currentNote?.title)}
+              onCommit={commitTitle}
+            />
+          ) : (
+            <>
+              <span className="mobile-nav-date">{dateLabel}</span>
+              {showToday && (
+                <button type="button" className="mobile-nav-today" onClick={onOpenToday}>
+                  Today
+                </button>
+              )}
+            </>
+          )
+        }
+        leading={
+          <MobileTintButton title="Folders" onClick={onOpenFolders}>
+            <FoldersIcon />
+          </MobileTintButton>
+        }
+        trailing={
+          <MobileTintButton title="Workspace" onClick={onOpenWorkspace}>
+            <KanbanIcon />
+          </MobileTintButton>
+        }
+      />
+      <div className="mobile-editor-body">
+        <div className="mobile-pager-edge mobile-pager-edge-start" aria-hidden />
+        <div className="mobile-pager-edge mobile-pager-edge-end" aria-hidden />
+        <div
+          className="mobile-editor-pane"
+          data-pager-ignore
+        >
+          {isVaultNote ? (
+            <Editor
+              sidebarVisible={false}
+              focusMode={false}
+              hideTitleBar
+              onEditorReady={handleEditorReady}
+            />
+          ) : (
+            <JournalPage
+              sidebarVisible={false}
+              focusMode={false}
+              hideEditorTitleBar
+              onDateChange={setJournalDate}
+              onEditorReady={handleEditorReady}
+            />
+          )}
+        </div>
+      </div>
+    </MobileScreen>
+  );
+}
+
+function MobileNoteTitle({
+  value,
+  onCommit,
+}: {
+  value: string;
+  onCommit: (title: string) => void;
+}) {
+  const [draft, setDraft] = useState(value);
+
+  useEffect(() => {
+    setDraft(value);
+  }, [value]);
+
+  return (
+    <input
+      className="mobile-nav-title-input"
+      value={draft}
+      size={Math.max(4, draft.length || 8)}
+      aria-label="Note title"
+      data-pager-ignore
+      onChange={(event) => setDraft(event.target.value)}
+      onBlur={() => onCommit(draft)}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          event.currentTarget.blur();
+        }
+        if (event.key === "Escape") {
+          setDraft(value);
+          event.currentTarget.blur();
+        }
+      }}
+    />
+  );
+}
 
 function MobileAppContent() {
-  const { notesFolder, isLoading, currentNote, notes, selectNote } = useNotes();
-  const [leftDrawerOpen, setLeftDrawerOpen] = useState(false);
-  const [rightDrawerOpen, setRightDrawerOpen] = useState(false);
-  const [sidebarPanel, setSidebarPanel] = useState<SidebarPanel>("notes");
-  const [paletteOpen, setPaletteOpen] = useState(false);
-  const [view, setView] = useState<MobileView>("notes");
-  const editorRef = useRef<TiptapEditor | null>(null);
+  const { notesFolder, isLoading, createNoteInFolder } = useNotes();
+  const openJournal = useOpenJournal();
+  const [index, setIndex] = useState(DAILY);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  useKeyboardInset();
 
-  // Selecting a file from the mobile vault should return to the editor,
-  // matching the push-in / pop-out feel of Obsidian's mobile file explorer.
   useEffect(() => {
-    if (currentNote) setLeftDrawerOpen(false);
-  }, [currentNote]);
+    document.documentElement.classList.add("mobile-app");
+    return () => document.documentElement.classList.remove("mobile-app");
+  }, []);
+
+  useEffect(() => {
+    const onPopState = () => {
+      if (settingsOpen) {
+        setSettingsOpen(false);
+        history.pushState({ spell: true }, "");
+        return;
+      }
+      if (index !== DAILY) {
+        setIndex(DAILY);
+        history.pushState({ spell: true }, "");
+      }
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, [index, settingsOpen]);
+
+  const goTo = useCallback((next: number) => {
+    setIndex((current) => {
+      if (current === next) return current;
+      if (current === DAILY && next !== DAILY) {
+        history.pushState({ spell: next }, "");
+      }
+      return next;
+    });
+  }, []);
+
+  const compose = useCallback(async () => {
+    await createNoteInFolder("");
+    goTo(DAILY);
+  }, [createNoteInFolder, goTo]);
+
+  const openToday = useCallback(async () => {
+    await openJournal(startOfLocalDay());
+    goTo(DAILY);
+  }, [goTo, openJournal]);
 
   if (isLoading) {
     return (
@@ -56,135 +231,45 @@ function MobileAppContent() {
     return <FolderPicker />;
   }
 
-  if (view === "settings") {
-    return (
-      <>
-        <CloudSync />
-        <SettingsPage onBack={() => setView("notes")} />
-      </>
-    );
-  }
-
-  // Mobile Topbar Title
-  const title = sidebarPanel === "kanban"
-    ? "Projects"
-    : sidebarPanel === "finance"
-    ? "Money"
-    : sidebarPanel === "journal" 
-    ? "Journal" 
-    : (currentNote ? currentNote.title || "Untitled" : "Notes");
-
   return (
     <>
       <CloudSync />
-      <div className="flex flex-col h-[100dvh] w-full bg-bg text-text overflow-hidden">
-        <MobileTopBar
-        title={title}
-        onOpenLeftDrawer={() => setLeftDrawerOpen(true)}
-        onOpenRightDrawer={() => setRightDrawerOpen(true)}
-      />
-
-      <main className="flex-1 overflow-hidden relative">
-        {!currentNote && sidebarPanel === "notes" ? (
-          <div className="h-full bg-bg-secondary">
-            <Sidebar
-              panel="notes"
-              onSelectPanel={setSidebarPanel}
-              onOpenSettings={() => setView("settings")}
+      <div data-mobile-shell className="mobile-shell">
+        <MobilePager index={index} onIndexChange={goTo}>
+          <MobilePagerSlide>
+            <MobileFolders
+              onOpenNote={() => goTo(DAILY)}
+              onOpenJournal={() => {
+                void openToday();
+              }}
+              onOpenSettings={() => {
+                history.pushState({ spell: "settings" }, "");
+                setSettingsOpen(true);
+              }}
+              onCompose={() => {
+                void compose();
+              }}
             />
+          </MobilePagerSlide>
+          <MobilePagerSlide>
+            <DailyPage
+              onOpenFolders={() => goTo(0)}
+              onOpenWorkspace={() => goTo(2)}
+              onOpenToday={() => {
+                void openToday();
+              }}
+            />
+          </MobilePagerSlide>
+          <MobilePagerSlide>
+            <MobileWorkspace onBackToDaily={() => goTo(DAILY)} />
+          </MobilePagerSlide>
+        </MobilePager>
+        {settingsOpen && (
+          <div className="mobile-settings-overlay">
+            <SettingsPage compact onBack={() => setSettingsOpen(false)} />
           </div>
-        ) : sidebarPanel === "kanban" ? (
-          <KanbanPage rightSidebarVisible={false} />
-        ) : sidebarPanel === "finance" ? (
-          <FinancePage />
-        ) : sidebarPanel === "journal" ? (
-          <JournalPage
-            sidebarVisible={false}
-            rightSidebarVisible={true}
-            focusMode={false}
-            onEditorReady={(editor) => {
-              editorRef.current = editor;
-            }}
-          />
-        ) : (
-          <Editor
-            sidebarVisible={false}
-            focusMode={false}
-            onEditorReady={(editor) => {
-              editorRef.current = editor;
-            }}
-          />
         )}
-      </main>
-
-      {/* Left Drawer - Navigation & File Explorer */}
-      <MobileDrawer open={leftDrawerOpen} onClose={() => setLeftDrawerOpen(false)} side="left">
-        <Sidebar
-          panel={sidebarPanel}
-          onSelectPanel={(panel) => {
-            setSidebarPanel(panel);
-            setLeftDrawerOpen(false);
-          }}
-          onOpenSettings={() => {
-            setLeftDrawerOpen(false);
-            setView("settings");
-          }}
-        />
-      </MobileDrawer>
-
-      {/* Right Drawer - Metadata & Outline */}
-      <MobileDrawer open={rightDrawerOpen} onClose={() => setRightDrawerOpen(false)} side="right">
-        <RightSidebar
-          width={320} // arbitrary fixed width for inner content, drawer handles max-width
-          currentNote={currentNote}
-          notes={notes}
-          onWidthChange={() => {}}
-          onClose={() => setRightDrawerOpen(false)}
-          onSelectNote={(id) => {
-            selectNote(id);
-            setRightDrawerOpen(false);
-          }}
-          onOpenHeading={(text, occurrence) => {
-            const editor = editorRef.current;
-            if (!editor) return;
-            let seen = 0;
-            let position: number | null = null;
-            editor.state.doc.descendants((node, pos) => {
-              if (
-                position === null &&
-                node.type.name === "heading" &&
-                node.textContent === text
-              ) {
-                if (seen === occurrence) position = pos + 1;
-                seen += 1;
-              }
-            });
-            if (position !== null) {
-              editor
-                .chain()
-                .focus()
-                .setTextSelection(position)
-                .scrollIntoView()
-                .run();
-              setRightDrawerOpen(false);
-            }
-          }}
-          onOpenSettings={() => {
-            setRightDrawerOpen(false);
-            setView("settings");
-          }}
-        />
-      </MobileDrawer>
-
-      <CommandPalette
-        open={paletteOpen}
-        onClose={() => setPaletteOpen(false)}
-        onOpenSettings={() => setView("settings")}
-        onOpenAiModal={() => {}}
-        focusMode={false}
-        onToggleFocusMode={() => {}}
-      />
-    </div>
+      </div>
     </>
   );
 }

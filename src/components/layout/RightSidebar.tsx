@@ -35,6 +35,7 @@ import {
   SettingsIcon,
 } from "../icons/velocity";
 import { RightSidebarResizeHandle } from "./RightSidebarResizeHandle";
+import { WindowControls } from "./WindowControls";
 
 
 export type RightPanelId = "outline" | "calendar" | "export" | "settings";
@@ -51,6 +52,7 @@ const PANELS: PanelDefinition[] = [
   { id: "export", label: "Export", icon: ExportIcon },
   { id: "settings", label: "Settings", icon: SettingsIcon },
 ];
+const PANEL_BY_ID = new Map(PANELS.map((panel) => [panel.id, panel]));
 const DEFAULT_ORDER = PANELS.map((panel) => panel.id);
 const ORDER_KEY = "spell:right-sidebar-order";
 const ENABLED_KEY = "spell:right-sidebar-enabled";
@@ -83,6 +85,13 @@ function loadEnabled(): RightPanelId[] {
 
 interface RightSidebarProps {
   width: number;
+  fluid?: boolean;
+  resizable?: boolean;
+  initialPanel?: Exclude<RightPanelId, "settings">;
+  activePanel?: Exclude<RightPanelId, "settings">;
+  chrome?: boolean;
+  mobile?: boolean;
+  showWindowControls?: boolean;
   currentNote: Note | null;
   notes: NoteMetadata[];
   onWidthChange: (width: number) => void;
@@ -95,6 +104,13 @@ interface RightSidebarProps {
 
 export function RightSidebar({
   width,
+  fluid = false,
+  resizable = true,
+  initialPanel = "outline",
+  activePanel,
+  chrome = true,
+  mobile = false,
+  showWindowControls = false,
   currentNote,
   notes,
   onWidthChange,
@@ -105,18 +121,25 @@ export function RightSidebar({
   onOpenSettings,
 }: RightSidebarProps) {
   const [order, setOrder] = useState<RightPanelId[]>(loadOrder);
-  const [enabled, setEnabled] = useState<RightPanelId[]>(loadEnabled);
-  const [active, setActive] = useState<RightPanelId>(
-    () => loadEnabled().find((id) => id !== "settings") ?? "outline",
+  const [enabled, setEnabled] = useState<RightPanelId[]>(() =>
+    mobile ? DEFAULT_ORDER : loadEnabled(),
   );
+  const [active, setActive] = useState<RightPanelId>(() => {
+    const available = mobile ? DEFAULT_ORDER : loadEnabled();
+    return available.includes(initialPanel)
+      ? initialPanel
+      : available.find((id) => id !== "settings") ?? "outline";
+  });
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
   );
 
+  const enabledSet = useMemo(() => new Set(enabled), [enabled]);
   const visiblePanels = useMemo(
-    () => order.filter((id) => enabled.includes(id)),
-    [enabled, order],
+    () => order.filter((id) => enabledSet.has(id)),
+    [enabledSet, order],
   );
+  const shownPanel = activePanel ?? active;
   useEffect(() => {
     if (!enabled.includes(active)) {
       setActive(enabled.find((id) => id !== "settings") ?? "outline");
@@ -171,35 +194,45 @@ export function RightSidebar({
 
   return (
     <aside
-      className="relative h-full shrink-0 border-l border-border bg-bg-secondary text-text select-none"
-      style={{ width }}
+      className="app-sidebar-surface relative h-full shrink-0 border-l border-border text-text select-none"
+      style={{ width: fluid ? "100%" : width }}
+      data-mobile={mobile || undefined}
       aria-label="Right sidebar"
     >
-      <RightSidebarResizeHandle width={width} onWidthChange={onWidthChange} />
+      {resizable && <RightSidebarResizeHandle width={width} onWidthChange={onWidthChange} />}
       <div className="flex h-full flex-col overflow-hidden">
-        <ContextMenu.Root>
+        {chrome && <ContextMenu.Root>
           <ContextMenu.Trigger asChild>
             <div
-              className="flex h-10 shrink-0 items-center gap-px border-b border-border bg-bg-secondary px-1.5"
+              className={cn(
+                "app-chrome flex shrink-0 items-center gap-px",
+                mobile ? "h-14 px-2" : "h-11 px-1.5",
+              )}
             >
               {showCloseButton && (
                 <div>
-                  <IconButton onClick={onClose} aria-label="Close right sidebar">
+                  <IconButton
+                    onClick={onClose}
+                    aria-label="Close right sidebar"
+                    className={mobile ? "!h-11 !w-11 rounded-xl" : undefined}
+                  >
                     <PanelToggleIcon side="right" open />
                   </IconButton>
                 </div>
               )}
 
-              <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
+              <DndContext sensors={mobile ? undefined : sensors} onDragEnd={handleDragEnd}>
                 <SortableContext items={visiblePanels} strategy={horizontalListSortingStrategy}>
                   <div className="flex min-w-0 flex-1 items-center gap-px">
                     {visiblePanels.map((id) => {
-                      const panel = PANELS.find((item) => item.id === id)!;
+                      const panel = PANEL_BY_ID.get(id);
+                      if (!panel) return null;
                       return (
                         <SortablePanelButton
                           key={id}
                           panel={panel}
                           active={id !== "settings" && active === id}
+                          mobile={mobile}
                           onSelect={selectPanel}
                         />
                       );
@@ -235,16 +268,25 @@ export function RightSidebar({
               </ContextMenu.Item>
             </ContextMenu.Content>
           </ContextMenu.Portal>
-        </ContextMenu.Root>
+        </ContextMenu.Root>}
+
+        {!chrome && showWindowControls && (
+          <div
+            className="flex h-11 shrink-0 items-center justify-end px-1.5"
+            data-tauri-drag-region
+          >
+            <WindowControls />
+          </div>
+        )}
 
         <div className="min-h-0 flex-1 overflow-y-auto">
-          {active === "outline" && (
+          {shownPanel === "outline" && (
             <OutlinePanel note={currentNote} onOpenHeading={onOpenHeading} />
           )}
-          {active === "calendar" && (
+          {shownPanel === "calendar" && (
             <CalendarPanel notes={notes} onSelectNote={onSelectNote} />
           )}
-          {active === "export" && <ExportPanel disabled={!currentNote} />}
+          {shownPanel === "export" && <ExportPanel disabled={!currentNote} />}
         </div>
       </div>
     </aside>
@@ -254,34 +296,34 @@ export function RightSidebar({
 function SortablePanelButton({
   panel,
   active,
+  mobile = false,
   onSelect,
 }: {
   panel: PanelDefinition;
   active: boolean;
+  mobile?: boolean;
   onSelect: (id: RightPanelId) => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: panel.id });
   const Icon = panel.icon;
   return (
-    <button
+    <IconButton
       ref={setNodeRef}
-      type="button"
-      aria-label={panel.label}
+      size={mobile ? "xl" : "md"}
+      title={panel.label}
       className={cn(
-        "motion-interactive flex shrink-0 cursor-grab items-center justify-center text-text-muted hover:bg-bg-emphasis hover:text-text active:cursor-grabbing",
-        "h-7 w-7 rounded-md",
-        active && "bg-bg-emphasis text-text",
+        mobile ? "rounded-xl" : "cursor-grab rounded-lg active:cursor-grabbing",
+        active && "bg-bg-selected text-text hover:bg-bg-selected",
         isDragging && "z-50 opacity-70 shadow-lg",
       )}
       style={{ transform: CSS.Transform.toString(transform), transition }}
       onClick={() => onSelect(panel.id)}
       {...attributes}
       {...listeners}
-      aria-pressed={active}
     >
-      <Icon className="h-3.5 w-3.5 stroke-[1.55]" />
-    </button>
+      <Icon />
+    </IconButton>
   );
 }
 
@@ -312,7 +354,7 @@ function OutlinePanel({
   }, [note]);
 
   return (
-    <PanelSection title="Outline">
+    <PanelSection>
       {!note ? (
         <EmptyState>No note selected</EmptyState>
       ) : headings.length === 0 ? (
@@ -323,7 +365,7 @@ function OutlinePanel({
             <button
               key={`${heading.text}-${heading.occurrence}-${index}`}
               type="button"
-              className="motion-interactive block w-full truncate rounded-md py-1 pr-2 text-left text-[11px] text-text-muted hover:bg-bg-muted hover:text-text"
+              className="nav-item-surface motion-interactive block w-full truncate rounded-md py-1 pr-2 text-left text-[11px] text-text-muted hover:bg-bg-muted hover:text-text"
               style={{ paddingLeft: `${8 + (heading.level - 1) * 12}px` }}
               onClick={() => onOpenHeading(heading.text, heading.occurrence)}
             >
@@ -350,6 +392,7 @@ function CalendarPanel({
   const [selected, setSelected] = useState(() => new Date());
   const year = month.getFullYear();
   const monthIndex = month.getMonth();
+  const today = new Date();
   const firstDay = (new Date(year, monthIndex, 1).getDay() + 6) % 7;
   const days = new Date(year, monthIndex + 1, 0).getDate();
   const noteDays = useMemo(() => {
@@ -376,27 +419,35 @@ function CalendarPanel({
   );
 
   return (
-    <PanelSection title="Calendar">
-      <div className="mb-2.5 flex items-center justify-between">
+    <PanelSection>
+      <div className="mb-3 grid grid-cols-[1.75rem_1fr_1.75rem] items-center">
         <IconButton
           size="xs"
+          aria-label="Previous month"
           onClick={() => setMonth(new Date(year, monthIndex - 1, 1))}
         >
-          <ChevronLeftIcon className="h-3.5 w-3.5" />
+          <ChevronLeftIcon className="h-3.5 w-3.5 stroke-[1.6]" />
         </IconButton>
-        <div className="text-[11px] font-medium">
+        <div className="text-center text-xs font-medium tracking-[-0.01em] text-text">
           {month.toLocaleDateString([], { month: "long", year: "numeric" })}
         </div>
         <IconButton
           size="xs"
+          aria-label="Next month"
+          className="justify-self-end"
           onClick={() => setMonth(new Date(year, monthIndex + 1, 1))}
         >
-          <ChevronRightIcon className="h-3.5 w-3.5" />
+          <ChevronRightIcon className="h-3.5 w-3.5 stroke-[1.6]" />
         </IconButton>
       </div>
-      <div className="grid grid-cols-7 gap-1 text-center text-[11px]">
+      <div className="grid grid-cols-7 gap-y-0.5 text-center">
         {['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((day, index) => (
-          <div key={`${day}-${index}`} className="py-1 text-text-muted">{day}</div>
+          <div
+            key={`${day}-${index}`}
+            className="h-5 text-2xs font-medium uppercase leading-5 text-text-muted/80"
+          >
+            {day}
+          </div>
         ))}
         {Array.from({ length: firstDay }, (_, index) => <div key={`blank-${index}`} />)}
         {Array.from({ length: days }, (_, index) => {
@@ -405,37 +456,45 @@ function CalendarPanel({
             selected.getFullYear() === year &&
             selected.getMonth() === monthIndex &&
             selected.getDate() === day;
+          const isToday =
+            today.getFullYear() === year &&
+            today.getMonth() === monthIndex &&
+            today.getDate() === day;
           return (
             <button
               key={day}
               type="button"
               className={cn(
-                "relative aspect-square rounded-md text-[11px] hover:bg-bg-emphasis",
-                isSelected && "bg-bg-emphasis text-text",
+                "relative mx-auto flex h-8 w-8 items-center justify-center rounded-full text-2xs text-text-muted transition-[background-color,color,box-shadow] duration-150 hover:bg-bg-muted hover:text-text focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40",
+                isToday && !isSelected && "font-semibold text-accent shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--color-accent)_42%,transparent)]",
+                isSelected && "bg-accent font-semibold text-text-inverse shadow-[0_1px_2px_color-mix(in_srgb,var(--color-accent)_32%,transparent)]",
               )}
               onClick={() => setSelected(new Date(year, monthIndex, day))}
             >
               {day}
               {noteDays.has(day) && (
-                <span className="absolute bottom-0.5 left-1/2 h-1 w-1 -translate-x-1/2 rounded-full bg-text-muted" />
+                <span className={cn(
+                  "absolute bottom-0.75 h-0.75 w-0.75 rounded-full bg-accent",
+                  isSelected && "bg-text-inverse/75",
+                )} />
               )}
             </button>
           );
         })}
       </div>
-      <div className="my-2.5 h-px bg-border" />
-      <div className="mb-1 text-[11px] font-medium text-text-muted">
+      <div className="my-4 h-px bg-border" />
+      <div className="mb-2 px-1 text-2xs font-medium uppercase tracking-[0.08em] text-text-muted">
         {selected.toLocaleDateString([], { weekday: "long", month: "short", day: "numeric" })}
       </div>
       {selectedNotes.length === 0 ? (
         <EmptyState>No notes changed on this day</EmptyState>
       ) : (
-        <div className="space-y-0.5">
+        <div className="space-y-1">
           {selectedNotes.map((note) => (
             <button
               key={note.id}
               type="button"
-              className="motion-interactive block w-full truncate rounded-md px-2 py-1 text-left text-[11px] hover:bg-bg-muted"
+              className="block w-full truncate rounded-md px-2.5 py-1.5 text-left text-xs text-text focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
               onClick={() => onSelectNote(note.id)}
             >
               {cleanTitle(note.title)}
@@ -456,7 +515,7 @@ function ExportPanel({ disabled }: { disabled: boolean }) {
     { label: "Print as PDF", icon: DownloadIcon, event: "export-pdf" },
   ];
   return (
-    <PanelSection title="Export">
+    <PanelSection>
       <div className="space-y-0.5">
         {actions.map((action) => {
           const Icon = action.icon;
@@ -478,14 +537,9 @@ function ExportPanel({ disabled }: { disabled: boolean }) {
   );
 }
 
-function PanelSection({ title, children }: { title: string; children: ReactNode }) {
+function PanelSection({ children }: { children: ReactNode }) {
   return (
-    <section className="px-2.5 py-3">
-      <h2 className="mb-1.5 px-1 text-2xs font-semibold uppercase tracking-[0.08em] text-text-muted">
-        {title}
-      </h2>
-      {children}
-    </section>
+    <section className="px-3 py-3.5">{children}</section>
   );
 }
 

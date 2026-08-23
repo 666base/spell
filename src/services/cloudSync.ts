@@ -20,9 +20,80 @@ interface CloudMutation {
 }
 
 const queuePrefix = "spell-cloud-queue:";
+const lastSyncPrefix = "spell-cloud-last-sync:";
 let activeUserId: string | null = null;
 let flushTimer: number | null = null;
 let flushPromise: Promise<void> | null = null;
+
+export interface CloudSyncStatus {
+  isSyncing: boolean;
+  lastSyncedAt: number | null;
+  lastError: string | null;
+  pendingCount: number;
+}
+
+let syncStatus: CloudSyncStatus = {
+  isSyncing: false,
+  lastSyncedAt: null,
+  lastError: null,
+  pendingCount: 0,
+};
+
+let syncOps = 0;
+
+const statusListeners = new Set<(status: CloudSyncStatus) => void>();
+
+function lastSyncKey(userId: string): string {
+  return `${lastSyncPrefix}${userId}`;
+}
+
+function readLastSyncedAt(userId: string | null): number | null {
+  if (!userId) return null;
+  const stored = localStorage.getItem(lastSyncKey(userId));
+  if (!stored) return null;
+  const parsed = Number(stored);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function writeLastSyncedAt(userId: string, timestamp: number): void {
+  localStorage.setItem(lastSyncKey(userId), String(timestamp));
+}
+
+function emitSyncStatus(patch: Partial<CloudSyncStatus> = {}): void {
+  syncStatus = {
+    ...syncStatus,
+    ...patch,
+    pendingCount: activeUserId ? readQueue(activeUserId).length : 0,
+  };
+  const snapshot = { ...syncStatus };
+  statusListeners.forEach((listener) => listener(snapshot));
+}
+
+function beginSync(): void {
+  syncOps += 1;
+  emitSyncStatus({ isSyncing: true, lastError: null });
+}
+
+function endSync(): void {
+  syncOps = Math.max(0, syncOps - 1);
+  emitSyncStatus({ isSyncing: syncOps > 0 });
+}
+
+export function getCloudSyncStatus(): CloudSyncStatus {
+  return {
+    ...syncStatus,
+    pendingCount: activeUserId ? readQueue(activeUserId).length : 0,
+  };
+}
+
+export function subscribeCloudSyncStatus(
+  listener: (status: CloudSyncStatus) => void,
+): () => void {
+  statusListeners.add(listener);
+  return () => {
+    statusListeners.delete(listener);
+  };
+}
 
 function queueKey(userId: string): string {
   return `${queuePrefix}${userId}`;
@@ -52,6 +123,7 @@ function addMutation(mutation: CloudMutation): void {
   );
   queue.push(mutation);
   writeQueue(activeUserId, queue);
+  emitSyncStatus();
   scheduleFlush();
 }
 
@@ -65,6 +137,26 @@ function scheduleFlush(): void {
 
 export function setActiveCloudUser(userId: string | null): void {
   activeUserId = userId;
+  emitSyncStatus({
+    lastSyncedAt: readLastSyncedAt(userId),
+    lastError: userId ? syncStatus.lastError : null,
+  });
+}
+
+export async function activateCloudVault(
+  userId: string,
+  syncNotesFolder: (path: string) => Promise<void>,
+): Promise<void> {
+  setActiveCloudUser(userId);
+  const path = await notesService.setCloudNotesFolder(userId);
+  await syncNotesFolder(path);
+  window.dispatchEvent(new CustomEvent("spell-cloud-session-ready"));
+}
+
+export async function syncNow(): Promise<boolean> {
+  const userId = activeUserId ?? (await notesService.getCloudUserId());
+  if (!userId) throw new Error("Spell Cloud is not enabled on this vault");
+  return syncCloudNotes(userId);
 }
 
 export function queueCloudUpsert(note: Note): void {
@@ -90,6 +182,7 @@ export async function flushCloudQueue(): Promise<void> {
   if (!activeUserId || !navigator.onLine) return;
 
   const userId = activeUserId;
+  beginSync();
   flushPromise = (async () => {
     const session = await getCloudSession();
     if (!session || session.user.id !== userId) return;
@@ -118,9 +211,21 @@ export async function flushCloudQueue(): Promise<void> {
         );
       }
     }
-  })().finally(() => {
-    flushPromise = null;
-  });
+
+    const syncedAt = Date.now();
+    writeLastSyncedAt(userId, syncedAt);
+    emitSyncStatus({ lastSyncedAt: syncedAt, lastError: null });
+  })()
+    .catch((error) => {
+      emitSyncStatus({
+        lastError: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    })
+    .finally(() => {
+      flushPromise = null;
+      endSync();
+    });
 
   return flushPromise;
 }
@@ -148,34 +253,47 @@ async function applyRemoteRow(row: CloudNoteRow): Promise<boolean> {
 
 export async function syncCloudNotes(userId: string): Promise<boolean> {
   setActiveCloudUser(userId);
-  await flushCloudQueue();
+  beginSync();
+  try {
+    await flushCloudQueue();
 
-  const supabase = await getSupabase();
-  const { data, error } = await supabase
-    .from("spell_notes")
-    .select("owner_id,path,content,modified_at,deleted,updated_at")
-    .order("modified_at", { ascending: true });
-  if (error) throw error;
+    const supabase = await getSupabase();
+    const { data, error } = await supabase
+      .from("spell_notes")
+      .select("owner_id,path,content,modified_at,deleted,updated_at")
+      .order("modified_at", { ascending: true });
+    if (error) throw error;
 
-  const remoteRows = (data ?? []) as CloudNoteRow[];
-  const remoteByPath = new Map(remoteRows.map((row) => [row.path, row]));
-  const localNotes = await notesService.listNotes();
-  let localChanged = false;
+    const remoteRows = (data ?? []) as CloudNoteRow[];
+    const remoteByPath = new Map(remoteRows.map((row) => [row.path, row]));
+    const localNotes = await notesService.listNotes();
+    let localChanged = false;
 
-  for (const metadata of localNotes) {
-    const remote = remoteByPath.get(metadata.id);
-    if (!remote || metadata.modified > remote.modified_at) {
-      const note = await notesService.readNote(metadata.id);
-      queueCloudUpsert(note);
+    for (const metadata of localNotes) {
+      const remote = remoteByPath.get(metadata.id);
+      if (!remote || metadata.modified > remote.modified_at) {
+        const note = await notesService.readNote(metadata.id);
+        queueCloudUpsert(note);
+      }
     }
-  }
 
-  for (const remote of remoteRows) {
-    localChanged = (await applyRemoteRow(remote)) || localChanged;
-  }
+    for (const remote of remoteRows) {
+      localChanged = (await applyRemoteRow(remote)) || localChanged;
+    }
 
-  await flushCloudQueue();
-  return localChanged;
+    await flushCloudQueue();
+    const syncedAt = Date.now();
+    writeLastSyncedAt(userId, syncedAt);
+    emitSyncStatus({ lastSyncedAt: syncedAt, lastError: null });
+    return localChanged;
+  } catch (error) {
+    emitSyncStatus({
+      lastError: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
+  } finally {
+    endSync();
+  }
 }
 
 export async function subscribeToCloudNotes(

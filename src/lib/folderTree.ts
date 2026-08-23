@@ -96,17 +96,9 @@ export type TreeItem =
 /** Build a flat list of visible tree items in DFS order (for keyboard navigation). */
 export function getVisibleItems(
   tree: FolderTreeData,
-  pinnedIds: Set<string>,
   collapsedFolders: Set<string>,
 ): TreeItem[] {
   const items: TreeItem[] = [];
-
-  // Pinned root notes first
-  for (const note of tree.rootNotes) {
-    if (pinnedIds.has(note.id)) {
-      items.push({ type: "note", id: note.id });
-    }
-  }
 
   // Folders (recursive DFS)
   function walkFolder(folder: FolderNode) {
@@ -124,14 +116,17 @@ export function getVisibleItems(
     walkFolder(folder);
   }
 
-  // Unpinned root notes
+  // Root notes follow the folder block in the same order as the sidebar.
   for (const note of tree.rootNotes) {
-    if (!pinnedIds.has(note.id)) {
-      items.push({ type: "note", id: note.id });
-    }
+    items.push({ type: "note", id: note.id });
   }
 
   return items;
+}
+
+export function ancestorFolderPaths(path: string): string[] {
+  const parts = path.split("/").filter(Boolean);
+  return parts.slice(0, -1).map((_, index) => parts.slice(0, index + 1).join("/"));
 }
 
 export function countNotesInFolder(folder: FolderNode): number {

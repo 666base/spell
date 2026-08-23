@@ -74,10 +74,10 @@ const Select = React.forwardRef<HTMLButtonElement, SelectProps>(
             type="button"
             disabled={disabled}
             aria-expanded={open}
-            data-open={open}
+            data-open={open ? "true" : "false"}
             className={cn(
-              "spell-select-trigger motion-interactive flex h-9 w-full items-center gap-2 rounded-lg border border-border bg-bg px-3 text-left text-sm text-text",
-              "focus:outline-none focus-visible:border-accent focus-visible:ring-2 focus-visible:ring-accent/15",
+              "app-control spell-select-trigger motion-interactive flex h-9 w-full items-center gap-2 rounded-lg border border-border bg-bg px-3 text-left text-sm text-text shadow-[var(--shadow-control)]",
+              "focus:outline-none focus-visible:border-accent focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]",
               "disabled:cursor-not-allowed disabled:opacity-50",
               className,
             )}

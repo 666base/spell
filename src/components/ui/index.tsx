@@ -14,8 +14,9 @@ export {
 } from "./Tooltip";
 export { Button } from "./Button";
 export { CodeCopyButton } from "./CodeCopyButton";
-export { CheckmarkIcon, DisclosureIcon, PanelToggleIcon } from "./StateIcon";
+export { CheckmarkIcon, DisclosureIcon, FolderGlyph, PanelToggleIcon } from "./StateIcon";
 export { Input } from "./Input";
+export { InlineNameInput } from "./InlineNameInput";
 export { Select } from "./Select";
 export { Toaster } from "./Toaster";
 export {
@@ -48,11 +49,11 @@ export function ToolbarButton({
   return (
     <button
       className={cn(
-        "toolbar-button motion-interactive h-7 w-7 flex items-center justify-center text-sm rounded-lg shrink-0",
-        "focus:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1",
+        "app-control toolbar-button motion-interactive size-7 flex items-center justify-center text-sm rounded-md shrink-0",
+        "focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)] focus-visible:ring-offset-1",
         isActive
-          ? "bg-bg-muted text-text"
-          : "hover:bg-bg-muted text-text-muted",
+          ? "bg-bg-selected text-text"
+          : "hover:bg-bg-hover text-text-muted",
         className,
       )}
       aria-label={title}
@@ -73,44 +74,57 @@ export interface IconButtonProps
   size?: "xs" | "sm" | "md" | "lg" | "xl";
   variant?: "primary" | "default" | "secondary" | "ghost" | "outline";
   title?: string;
+  pressed?: boolean;
 }
 
 const iconButtonSizes = {
-  xs: "w-6 h-6", // 24px
-  sm: "w-7 h-7", // 28px
-  md: "w-8 h-8", // 32px
-  lg: "w-9 h-9", // 36px
-  xl: "w-10 h-10", // 40px
+  xs: "size-6",
+  sm: "size-7",
+  md: "size-8",
+  lg: "size-9",
+  xl: "size-10",
 };
 
 const iconButtonVariants = {
   primary: "bg-accent text-text-inverse hover:bg-accent/90",
-  default: "bg-bg-emphasis text-text hover:bg-bg-muted",
-  secondary: "bg-bg-muted text-text hover:bg-bg-emphasis",
-  ghost: "hover:bg-bg-muted text-text-muted hover:text-text",
+  default: "bg-bg-emphasis text-text hover:bg-bg-hover",
+  secondary: "bg-bg-muted text-text hover:bg-bg-hover",
+  ghost: "",
   outline:
-    "border border-border text-text-muted hover:bg-bg-muted hover:text-text",
+    "border border-border text-text-muted hover:bg-bg-hover hover:text-text",
 };
 
 export const IconButton = React.forwardRef<HTMLButtonElement, IconButtonProps>(
   (
-    { className, children, title, size = "sm", variant = "ghost", ...props },
+    {
+      className,
+      children,
+      title,
+      size = "sm",
+      variant = "ghost",
+      pressed = false,
+      ...props
+    },
     ref
   ) => {
+    const active = pressed || props["aria-pressed"] === true;
     return (
       <button
         ref={ref}
+        {...props}
+        type={props.type ?? "button"}
         className={cn(
-          "icon-button motion-interactive flex items-center justify-center rounded-lg",
-          "focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-offset-1",
-          "disabled:pointer-events-none disabled:opacity-50 cursor-pointer",
+          "app-control icon-button motion-interactive flex items-center justify-center rounded-md",
+          "focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)] focus-visible:ring-offset-1",
+          "disabled:pointer-events-none cursor-pointer",
           iconButtonSizes[size],
           iconButtonVariants[variant],
           className,
         )}
-        aria-label={title}
-        type={props.type ?? "button"}
-        {...props}
+        data-size={size}
+        data-active={active ? "true" : "false"}
+        aria-label={title ?? props["aria-label"]}
+        aria-pressed={pressed || props["aria-pressed"] != null ? active : undefined}
       >
         {normalizeIconChildren(children)}
       </button>
@@ -125,8 +139,9 @@ interface ListItemProps {
   subtitle?: string;
   meta?: string;
   isSelected?: boolean;
+  isMultiSelected?: boolean;
   isPinned?: boolean;
-  onClick?: () => void;
+  onClick?: React.MouseEventHandler<HTMLButtonElement>;
   /** Optional status icon to display next to meta */
 }
 
@@ -135,6 +150,7 @@ export function ListItem({
   subtitle,
   meta,
   isSelected = false,
+  isMultiSelected = false,
   isPinned = false,
   onClick,
   onContextMenu,
@@ -152,44 +168,24 @@ export function ListItem({
       onClick={onClick}
       onContextMenu={onContextMenu}
       className={cn(
-        "w-full rounded-lg border-0 bg-transparent px-2.5 py-2.25 text-left cursor-pointer select-none",
-        "focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40",
-        isSelected
-          ? "bg-bg-muted group-focus/notelist:ring-1 group-focus/notelist:ring-text-muted"
-          : "hover:bg-bg-muted",
+        "note-row w-full rounded-[8px] border-0 bg-transparent px-3 py-[9px] text-left cursor-pointer select-none",
+        "focus:outline-none",
+        (isSelected || isMultiSelected) && "note-row-selected",
       )}
+      data-selected={isSelected || isMultiSelected ? "true" : "false"}
     >
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-1 min-w-0">
-          {isPinned && (
-            <PinIcon className="w-4.25 h-4.25 stroke-[1.6] fill-current text-text-muted shrink-0" />
-          )}
-          <span className={cn("text-sm font-medium truncate text-text")}>
-            {title}
-          </span>
-        </div>
+      <div className="note-row-title-line">
+        <span className="note-row-title">{title}</span>
+        {isPinned && <PinIcon aria-hidden="true" className="source-list-pin" />}
       </div>
-      <div className="flex items-center gap-1.5 shrink-0">
-        {meta && (
-          <div
-            className={cn(
-              "text-xs whitespace-nowrap",
-              isSelected ? "text-text" : "text-text-muted"
-            )}
-          >
-            {meta}
-          </div>
-        )}
-        <p
-          className={cn(
-            "text-xs line-clamp-1 min-h-5",
-            hasSubtitle ? "text-text-muted" : "text-transparent",
-            isSelected ? "opacity-100" : "opacity-70"
+      {(meta || hasSubtitle) && (
+        <p className="note-row-meta-line">
+          {meta && <span className="note-row-date">{meta}</span>}
+          {hasSubtitle && (
+            <span className="note-row-preview">{cleanSubtitle}</span>
           )}
-        >
-          {hasSubtitle ? cleanSubtitle : "\u00A0"}
         </p>
-      </div>
+      )}
     </button>
   );
 }
@@ -209,7 +205,7 @@ interface CommandItemProps {
 export function CommandItem({
   label,
   subtitle,
-  shortcut: _shortcut,
+  shortcut,
   icon,
   iconText,
   variant = "command",
@@ -221,9 +217,9 @@ export function CommandItem({
       type="button"
       onClick={onClick}
       className={cn(
-        "flex w-full cursor-pointer items-center justify-between rounded-lg border-0 bg-transparent px-3 py-2 text-left",
+        "flex w-full cursor-pointer items-center justify-between rounded-lg border-0 bg-transparent px-2 py-1.5 text-left",
         "focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40",
-        isSelected ? "bg-bg-muted text-text" : "text-text hover:bg-bg-muted",
+        isSelected ? "bg-bg-selected text-text" : "text-text hover:bg-bg-hover",
       )}
     >
       <div className="flex items-center gap-3 min-w-0">
@@ -245,12 +241,13 @@ export function CommandItem({
           </div>
         )}
         <div className="flex flex-col min-w-0">
-          <span className="text-[15px] font-medium truncate">{label}</span>
+          <span className="text-[13px] font-medium truncate">{label}</span>
           {subtitle && (
-            <span className="text-sm truncate text-text-muted">{subtitle}</span>
+            <span className="text-[12px] truncate text-text-muted">{subtitle}</span>
           )}
         </div>
       </div>
+      {shortcut && <span className="spell-menu-shortcut">{shortcut}</span>}
     </button>
   );
 }

@@ -36,6 +36,7 @@ interface NotesDataContextValue {
 // Actions context: stable references, rarely causes re-renders
 interface NotesActionsContextValue {
   selectNote: (id: string) => Promise<void>;
+  clearSelection: () => void;
   createNote: () => Promise<void>;
   consumePendingNewNote: (id: string) => boolean;
   saveNote: (content: string, noteId?: string) => Promise<void>;
@@ -49,8 +50,6 @@ interface NotesActionsContextValue {
   clearSearch: () => void;
   pinNote: (id: string) => Promise<void>;
   unpinNote: (id: string) => Promise<void>;
-  bookmarkNote: (id: string) => Promise<void>;
-  removeBookmark: (id: string) => Promise<void>;
   createNoteInFolder: (folderPath: string) => Promise<void>;
   createFolder: (parentPath: string, name: string) => Promise<void>;
   deleteFolder: (path: string) => Promise<void>;
@@ -147,6 +146,14 @@ export function NotesProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const clearSelection = useCallback(() => {
+    selectRequestIdRef.current += 1;
+    pendingNewNoteIdRef.current = null;
+    setSelectedNoteId(null);
+    setCurrentNote(null);
+    setHasExternalChanges(false);
+  }, []);
+
   const reloadCurrentNote = useCallback(async () => {
     if (!selectedNoteIdRef.current) return;
     try {
@@ -221,20 +228,13 @@ export function NotesProvider({ children }: { children: ReactNode }) {
         if (updated.id !== savingNoteId) {
           recentlySavedRef.current.add(updated.id);
 
-          // Keep pin and bookmark references attached when a note is renamed.
+          // Keep pin references attached when a note is renamed.
           const currentSettings = await notesService.getSettings();
           const pinnedIds = currentSettings.pinnedNoteIds || [];
-          const bookmarkedIds = currentSettings.bookmarkedNoteIds || [];
-          if (
-            pinnedIds.includes(savingNoteId) ||
-            bookmarkedIds.includes(savingNoteId)
-          ) {
+          if (pinnedIds.includes(savingNoteId)) {
             const updatedSettings = {
               ...currentSettings,
               pinnedNoteIds: pinnedIds.map((id) =>
-                id === savingNoteId ? updated.id : id
-              ),
-              bookmarkedNoteIds: bookmarkedIds.map((id) =>
                 id === savingNoteId ? updated.id : id
               ),
             };
@@ -278,17 +278,13 @@ export function NotesProvider({ children }: { children: ReactNode }) {
         await notesService.deleteNote(id);
         queueCloudDelete(id);
 
-        // Remove deleted notes from both independent collections.
+        // Remove deleted notes from pinned references.
         const currentSettings = await notesService.getSettings();
         const pinnedIds = currentSettings.pinnedNoteIds || [];
-        const bookmarkedIds = currentSettings.bookmarkedNoteIds || [];
-        if (pinnedIds.includes(id) || bookmarkedIds.includes(id)) {
+        if (pinnedIds.includes(id)) {
           const updatedSettings = {
             ...currentSettings,
             pinnedNoteIds: pinnedIds.filter((pinId) => pinId !== id),
-            bookmarkedNoteIds: bookmarkedIds.filter(
-              (bookmarkId) => bookmarkId !== id,
-            ),
           };
           await notesService.updateSettings(updatedSettings);
         }
@@ -336,7 +332,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
         if (!pinnedIds.includes(id)) {
           const updatedSettings = {
             ...currentSettings,
-            pinnedNoteIds: [...pinnedIds, id],
+            pinnedNoteIds: [id, ...pinnedIds],
           };
           await notesService.updateSettings(updatedSettings);
           await refreshNotes();
@@ -366,38 +362,6 @@ export function NotesProvider({ children }: { children: ReactNode }) {
     },
     [refreshNotes]
   );
-
-  const bookmarkNote = useCallback(async (id: string) => {
-    try {
-      const currentSettings = await notesService.getSettings();
-      const bookmarkedIds = currentSettings.bookmarkedNoteIds || [];
-      if (!bookmarkedIds.includes(id)) {
-        await notesService.updateSettings({
-          ...currentSettings,
-          bookmarkedNoteIds: [...bookmarkedIds, id],
-        });
-        await refreshNotes();
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to add bookmark");
-    }
-  }, [refreshNotes]);
-
-  const removeBookmark = useCallback(async (id: string) => {
-    try {
-      const currentSettings = await notesService.getSettings();
-      const bookmarkedIds = currentSettings.bookmarkedNoteIds || [];
-      await notesService.updateSettings({
-        ...currentSettings,
-        bookmarkedNoteIds: bookmarkedIds.filter(
-          (bookmarkId) => bookmarkId !== id,
-        ),
-      });
-      await refreshNotes();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to remove bookmark");
-    }
-  }, [refreshNotes]);
 
   const createNoteInFolder = useCallback(
     async (folderPath: string) => {
@@ -530,6 +494,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
         await refreshNotes();
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to move note");
+        throw err;
       }
     },
     [refreshNotes]
@@ -576,6 +541,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
         await refreshNotes();
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to move folder");
+        throw err;
       }
     },
     [refreshNotes]
@@ -792,6 +758,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
   const actionsValue = useMemo<NotesActionsContextValue>(
     () => ({
       selectNote,
+      clearSelection,
       createNote,
       consumePendingNewNote,
       saveNote,
@@ -805,8 +772,6 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       clearSearch,
       pinNote,
       unpinNote,
-      bookmarkNote,
-      removeBookmark,
       createNoteInFolder,
       createFolder: createFolderAction,
       deleteFolder: deleteFolderAction,
@@ -816,6 +781,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
     }),
     [
       selectNote,
+      clearSelection,
       createNote,
       consumePendingNewNote,
       saveNote,
@@ -829,8 +795,6 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       clearSearch,
       pinNote,
       unpinNote,
-      bookmarkNote,
-      removeBookmark,
       createNoteInFolder,
       createFolderAction,
       deleteFolderAction,

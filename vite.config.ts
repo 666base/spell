@@ -1,4 +1,4 @@
-import { defineConfig } from "vite";
+import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 
@@ -56,10 +56,8 @@ export default defineConfig(async () => ({
             "@tiptap/extension-table-row",
             "@tiptap/extension-table-cell",
             "@tiptap/extension-table-header",
-            "@tiptap/extension-code-block-lowlight",
+            "@tiptap/extension-code-block",
           ],
-          // Syntax highlighting
-          "highlight": ["lowlight", "highlight.js"],
           // React core
           "react-vendor": ["react", "react-dom"],
           // Tauri APIs
@@ -86,7 +84,11 @@ export default defineConfig(async () => ({
       "@tiptap/react",
       "@tiptap/starter-kit",
       "@tiptap/markdown",
-      "lowlight",
     ],
+  },
+
+  test: {
+    environment: "jsdom",
+    include: ["src/**/*.test.ts", "src/**/*.test.tsx"],
   },
 }));

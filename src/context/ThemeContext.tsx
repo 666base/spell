@@ -44,34 +44,34 @@ const DEFAULT_CUSTOM_WIDTH_PX = 768;
 // Default editor font settings (simplified)
 const defaultEditorFontSettings: Required<EditorFontSettings> = {
   baseFontFamily: "system-sans",
-  baseFontSize: 15,
+  baseFontSize: 17,
   boldWeight: 600,
-  lineHeight: 1.6,
+  lineHeight: 1.47,
 };
 
 // Default theme colors (must match App.css :root / .dark values)
 const defaultThemeColors: Record<"light" | "dark", Record<ThemeColorKey, string>> = {
   light: {
-    bg: "#fdfdfc",
-    "bg-secondary": "#f7f7f5",
-    "bg-muted": "rgba(28, 25, 23, 0.06)",
-    "bg-emphasis": "rgba(28, 25, 23, 0.09)",
-    text: "#1c1917",
-    "text-muted": "#78716c",
-    border: "rgba(28, 25, 23, 0.08)",
-    accent: "#1c1917",
-    selection: "rgba(250, 204, 21, 0.4)",
+    bg: "#ffffff",
+    "bg-secondary": "#f2f2f7",
+    "bg-muted": "rgba(60, 60, 67, 0.08)",
+    "bg-emphasis": "rgba(60, 60, 67, 0.12)",
+    text: "#1c1c1e",
+    "text-muted": "#8e8e93",
+    border: "rgba(60, 60, 67, 0.12)",
+    accent: "#1c1c1e",
+    selection: "rgba(255, 204, 0, 0.38)",
   },
   dark: {
-    bg: "rgb(23, 21, 20)",
-    "bg-secondary": "rgb(16, 14, 13)",
-    "bg-muted": "rgba(250, 249, 249, 0.05)",
-    "bg-emphasis": "rgba(250, 249, 249, 0.08)",
-    text: "#fafaf9",
-    "text-muted": "#a8a29e",
-    border: "rgba(250, 249, 249, 0.07)",
-    accent: "#fafaf9",
-    selection: "rgba(253, 224, 71, 0.35)",
+    bg: "#1c1c1e",
+    "bg-secondary": "#2c2c2e",
+    "bg-muted": "rgba(235, 235, 245, 0.08)",
+    "bg-emphasis": "rgba(235, 235, 245, 0.12)",
+    text: "#f5f5f7",
+    "text-muted": "#98989d",
+    border: "rgba(235, 235, 245, 0.12)",
+    accent: "#f5f5f7",
+    selection: "rgba(255, 214, 10, 0.32)",
   },
 };
 
@@ -152,10 +152,10 @@ function applyFontCSSVariables(fonts: Required<EditorFontSettings>) {
   root.style.setProperty("--editor-line-height", String(lineHeight));
 
   // Computed header sizes (based on base)
-  root.style.setProperty("--editor-h1-size", `${baseSize * 2.25}px`);
-  root.style.setProperty("--editor-h2-size", `${baseSize * 1.75}px`);
-  root.style.setProperty("--editor-h3-size", `${baseSize * 1.5}px`);
-  root.style.setProperty("--editor-h4-size", `${baseSize * 1.25}px`);
+  root.style.setProperty("--editor-h1-size", `${baseSize * 1.65}px`);
+  root.style.setProperty("--editor-h2-size", `${baseSize * 1.35}px`);
+  root.style.setProperty("--editor-h3-size", `${baseSize * 1.18}px`);
+  root.style.setProperty("--editor-h4-size", `${baseSize * 1.06}px`);
   root.style.setProperty("--editor-h5-size", `${baseSize}px`);
   root.style.setProperty("--editor-h6-size", `${baseSize}px`);
 

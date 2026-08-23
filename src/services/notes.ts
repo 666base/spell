@@ -17,6 +17,10 @@ export async function setCloudNotesFolder(userId: string): Promise<string> {
   return invoke("set_cloud_notes_folder", { userId });
 }
 
+export async function disconnectCloud(): Promise<void> {
+  return invoke("disconnect_cloud");
+}
+
 export async function applyCloudNote(
   id: string,
   content: string,
@@ -112,4 +116,20 @@ export async function searchNotes(query: string): Promise<SearchResult[]> {
 
 export async function startFileWatcher(): Promise<void> {
   return invoke("start_file_watcher");
+}
+
+export async function getKanbanData(): Promise<any> {
+  return invoke("get_kanban_data");
+}
+
+export async function updateKanbanData(data: any): Promise<void> {
+  return invoke("update_kanban_data", { data });
+}
+
+export async function getFinanceData(): Promise<any> {
+  return invoke("get_finance_data");
+}
+
+export async function updateFinanceData(data: any): Promise<void> {
+  return invoke("update_finance_data", { data });
 }
