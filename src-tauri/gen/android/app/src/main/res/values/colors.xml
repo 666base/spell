@@ -8,5 +8,5 @@
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
     <color name="spell_window_surface">#FF171514</color>
-    <color name="ic_launcher_background">#FFCC06</color>
+    <color name="ic_launcher_background">#FF000000</color>
 </resources>

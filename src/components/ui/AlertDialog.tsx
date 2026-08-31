@@ -16,7 +16,7 @@ const AlertDialogOverlay = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <AlertDialogPrimitive.Overlay
     className={cn(
-      "fixed inset-0 z-50 bg-text/50 backdrop-blur-sm",
+      "fixed inset-0 z-50 spell-overlay",
       className
     )}
     {...props}
@@ -36,13 +36,12 @@ const AlertDialogContent = React.forwardRef<
       className={cn(
         "app-sheet-surface fixed z-50 grid w-full gap-4 border border-border p-6",
         isMobileApp
-          ? "mobile-drawer left-0 right-0 bottom-0 top-auto max-w-none translate-x-0 translate-y-0 rounded-t-[14px] rounded-b-none pb-[calc(1.25rem+var(--safe-area-bottom))]"
+          ? "mobile-drawer inset-x-3 top-[calc(var(--safe-area-top)+10px)] bottom-auto max-w-none translate-x-0 translate-y-0 rounded-[14px] p-5"
           : "left-[50%] top-[50%] max-w-md translate-x-[-50%] translate-y-[-50%] rounded-xl",
         className
       )}
       {...props}
     >
-      {isMobileApp && <span className="mobile-drawer-handle" aria-hidden />}
       {children}
     </AlertDialogPrimitive.Content>
   </AlertDialogPortal>
@@ -70,7 +69,7 @@ const AlertDialogFooter = ({
 }: React.HTMLAttributes<HTMLDivElement>) => (
   <div
     className={cn(
-      "flex flex-col-reverse gap-2 sm:flex-row sm:justify-end",
+      "flex flex-row justify-end gap-2",
       className
     )}
     {...props}

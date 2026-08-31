@@ -1,6 +1,7 @@
 import * as React from "react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { cn } from "../../lib/utils";
+import { isMobileApp } from "../../lib/platform";
 import { ChevronDownIcon } from "../icons/velocity";
 import { CheckmarkIcon } from "./StateIcon";
 
@@ -66,6 +67,37 @@ const Select = React.forwardRef<HTMLButtonElement, SelectProps>(
       (option) => option.value === selectedValue,
     );
 
+    if (isMobileApp) {
+      return (
+        <select
+          ref={ref as React.Ref<HTMLSelectElement>}
+          disabled={disabled}
+          value={selectedValue ?? ""}
+          aria-label={typeof props["aria-label"] === "string" ? props["aria-label"] : placeholder}
+          onChange={(event) => onValueChange?.(event.target.value)}
+          className={cn(
+            "app-control spell-select-trigger motion-interactive flex h-9 w-full items-center gap-2 rounded-lg border border-border bg-bg px-3 text-left text-sm text-text shadow-[var(--shadow-control)]",
+            "focus:outline-none focus-visible:border-accent focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]",
+            "disabled:cursor-not-allowed disabled:opacity-50",
+            className,
+          )}
+        >
+          {selectedValue == null && (
+            <option value="" disabled>
+              {placeholder}
+            </option>
+          )}
+          {resolvedOptions.map((option) => (
+            <option key={option.value} value={option.value} disabled={option.disabled}>
+              {typeof option.label === "string" || typeof option.label === "number"
+                ? option.label
+                : option.value}
+            </option>
+          ))}
+        </select>
+      );
+    }
+
     return (
       <DropdownMenu.Root open={open} onOpenChange={setOpen}>
         <DropdownMenu.Trigger asChild>
@@ -107,9 +139,10 @@ const Select = React.forwardRef<HTMLButtonElement, SelectProps>(
                   className="spell-menu-item spell-select-option"
                 >
                   <span className="min-w-0 flex-1 truncate">{option.label}</span>
-                  <DropdownMenu.ItemIndicator className="flex h-4 w-4 items-center justify-center">
-                    <CheckmarkIcon checked className="h-3.5 w-3.5" />
-                  </DropdownMenu.ItemIndicator>
+                  <CheckmarkIcon
+                    checked={option.value === selectedValue}
+                    className="h-3.5 w-3.5"
+                  />
                 </DropdownMenu.RadioItem>
               ))}
             </DropdownMenu.RadioGroup>

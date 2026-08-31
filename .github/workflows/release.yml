@@ -128,7 +128,7 @@ jobs:
           NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
         run: |
           export ANDROID_HOME="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
-          npx tauri android build --apk
+          npx tauri android build --apk --target aarch64
 
       - name: Upload APK to GitHub release
         if: steps.signing.outputs.available == 'true'

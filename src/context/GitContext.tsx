@@ -355,9 +355,8 @@ export function GitProvider({ children }: { children: ReactNode }) {
     }
 
     let cancelled = false;
-    const requestId = ++settingsReadRequestIdRef.current;
-
-    (async () => {
+    const load = async () => {
+      const requestId = ++settingsReadRequestIdRef.current;
       try {
         const settings = await notesService.getSettings();
         if (cancelled || requestId !== settingsReadRequestIdRef.current) return;
@@ -367,7 +366,6 @@ export function GitProvider({ children }: { children: ReactNode }) {
           return;
         }
 
-        // Not explicitly set — auto-detect by checking if folder is a git repo
         const gitStatus = await gitService.getGitStatus();
         if (cancelled || requestId !== settingsReadRequestIdRef.current) return;
         setGitEnabledState(gitStatus.isRepo === true);
@@ -375,10 +373,13 @@ export function GitProvider({ children }: { children: ReactNode }) {
         if (cancelled || requestId !== settingsReadRequestIdRef.current) return;
         setGitEnabledState(false);
       }
-    })();
+    };
 
+    void load();
+    window.addEventListener("spell-git-settings-changed", load);
     return () => {
       cancelled = true;
+      window.removeEventListener("spell-git-settings-changed", load);
     };
   }, [notesFolder]);
 

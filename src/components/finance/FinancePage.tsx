@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { createPortal } from "react-dom";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import type {
   FinanceSubscription,
@@ -19,8 +18,11 @@ import {
   formatMoney,
   formatSignedMoney,
   isoDate,
+  monthExpenses,
+  monthIncome,
   monthNet,
   monthTitle,
+  monthlyCost,
   parseCaptureLine,
   parseMoney,
   postedInMonth,
@@ -30,12 +32,14 @@ import { useKanbanWorkspace } from "../../context/KanbanWorkspaceContext";
 import { cn } from "../../lib/utils";
 import type { NotesScope } from "../../lib/notesScope";
 import { NoteTitlebar } from "../layout/NoteTitlebar";
-import { isMobileApp } from "../../lib/platform";
 import {
+  AppPopover,
   Input,
   Select,
+  SpellDateField,
 } from "../ui";
-import { CheckmarkIcon } from "../ui/StateIcon";
+import { PlusIcon } from "../icons/velocity";
+import { CHECK_DRAW_MS, CheckmarkIcon } from "../ui/StateIcon";
 
 const menuItemClass = "spell-menu-item cursor-pointer";
 
@@ -95,8 +99,16 @@ export function FinancePage({
     [workspace.subscriptions],
   );
   const net = monthNet(workspace, month);
+  const income = monthIncome(workspace, month);
+  const expenses = monthExpenses(workspace, month);
+  const monthlyBurn = useMemo(
+    () => subscriptions.reduce((total, subscription) => total + monthlyCost(subscription), 0),
+    [subscriptions],
+  );
   const monthEmpty = !isSubscriptions && !isOverview && posted.length === 0 && dues.length === 0;
   const overviewEmpty = isOverview && recent.length === 0 && dues.length === 0;
+  const showEmptyActions = overviewEmpty || monthEmpty;
+  const activity = isOverview ? recent : posted;
 
   const pageTitle = isSubscriptions ? "Subscriptions" : isOverview ? "Money" : monthTitle(month);
 
@@ -165,301 +177,136 @@ export function FinancePage({
 
   if (isLoading) {
     return (
-      <div className="flex min-w-0 flex-1 flex-col overflow-hidden bg-bg">
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden bg-bg-secondary">
         {!hideTitleBar && titlebar}
-        <div className="flex-1 bg-bg" />
+        <div className="flex-1 bg-bg-secondary" />
       </div>
     );
   }
 
+  const emptyActions = (
+    <MoneyGroup>
+      <button
+        type="button"
+        className="money-row"
+        onClick={() => openTransactionEditor(createFinanceTransaction("income"))}
+      >
+        <span className="money-row-title">Income</span>
+      </button>
+      <button
+        type="button"
+        className="money-row"
+        onClick={() => openTransactionEditor(createFinanceTransaction("expense"))}
+      >
+        <span className="money-row-title">Expense</span>
+      </button>
+      <button
+        type="button"
+        className="money-row"
+        onClick={() => openSubscriptionEditor(createFinanceSubscription())}
+      >
+        <span className="money-row-title">Add a subscription</span>
+      </button>
+    </MoneyGroup>
+  );
+
+  const dueGroup = dues.length > 0 && (
+    <MoneyGroup title="Due">
+      {dues.map((subscription) => (
+        <DueRow
+          key={subscription.id}
+          subscription={subscription}
+          currency={workspace.currency}
+          onConfirm={() => confirmSubscription(subscription.id)}
+          onOpen={() => openSubscriptionEditor(subscription)}
+          onDuplicate={() => duplicateSubscription(subscription.id)}
+          onArchive={() => archiveSubscription(subscription.id, true)}
+          onDelete={() => deleteSubscription(subscription.id)}
+        />
+      ))}
+    </MoneyGroup>
+  );
+
+  const content = isSubscriptions ? (
+    <>
+      <MoneyHero label="Per month" value={formatMoney(monthlyBurn, workspace.currency)} />
+      <MoneyGroup>
+        {subscriptions.length === 0 ? (
+          <button
+            type="button"
+            className="money-row"
+            onClick={() => openSubscriptionEditor(createFinanceSubscription())}
+          >
+            <span className="money-row-title">Add a subscription</span>
+          </button>
+        ) : (
+          subscriptions.map((subscription) => (
+            <SubscriptionRow
+              key={subscription.id}
+              subscription={subscription}
+              currency={workspace.currency}
+              onOpen={() => openSubscriptionEditor(subscription)}
+              onDuplicate={() => duplicateSubscription(subscription.id)}
+              onArchive={() => archiveSubscription(subscription.id, true)}
+              onDelete={() => deleteSubscription(subscription.id)}
+            />
+          ))
+        )}
+      </MoneyGroup>
+    </>
+  ) : (
+    <>
+      <MoneyHero
+        label={isOverview ? "This month" : "Net"}
+        value={formatSignedMoney(net, workspace.currency)}
+        inCents={income}
+        outCents={expenses}
+        currency={workspace.currency}
+      />
+      {showEmptyActions && emptyActions}
+      {dueGroup}
+      {activity.length > 0 && (
+        <MoneyGroup>
+          {activity.map((transaction) => (
+            <PostedRow
+              key={transaction.id}
+              transaction={transaction}
+              currency={workspace.currency}
+              projectName={projectName(transaction.projectId)}
+              onOpen={() => openTransactionEditor(transaction)}
+              onDuplicate={() => duplicateTransaction(transaction.id)}
+              onDelete={() => deleteTransaction(transaction.id)}
+            />
+          ))}
+        </MoneyGroup>
+      )}
+    </>
+  );
+
+  const capture = (
+    <CaptureLine
+      autoFocus={focusCapture}
+      onFocused={() => setFocusCapture(false)}
+      onAdd={addFromCapture}
+    />
+  );
+
   return (
-      <div className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-bg">
+    <div className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-bg-secondary">
       {!hideTitleBar && titlebar}
-      <div className="relative min-h-0 flex-1">
+      <div className="relative min-h-0 flex-1 overflow-hidden">
         {hideTitleBar ? (
           <div className="mobile-money">
-            {isSubscriptions ? (
-              <section className="mobile-group">
-                <div className="mobile-group-card">
-                  {subscriptions.length === 0 ? (
-                    <button
-                      type="button"
-                      className="mobile-folder-row"
-                      onClick={() => openSubscriptionEditor(createFinanceSubscription())}
-                    >
-                      <span className="mobile-folder-label">Add a subscription</span>
-                    </button>
-                  ) : (
-                    subscriptions.map((subscription) => (
-                      <SubscriptionRow
-                        key={subscription.id}
-                        subscription={subscription}
-                        currency={workspace.currency}
-                        onOpen={() => openSubscriptionEditor(subscription)}
-                        onDuplicate={() => duplicateSubscription(subscription.id)}
-                        onArchive={() => archiveSubscription(subscription.id, true)}
-                        onDelete={() => deleteSubscription(subscription.id)}
-                      />
-                    ))
-                  )}
-                </div>
-              </section>
-            ) : isOverview ? (
-              <>
-                {overviewEmpty && (
-                  <section className="mobile-group">
-                    <div className="mobile-group-card">
-                      <button
-                        type="button"
-                        className="mobile-folder-row"
-                        onClick={() => openTransactionEditor(createFinanceTransaction("income"))}
-                      >
-                        <span className="mobile-folder-label">Income</span>
-                      </button>
-                      <button
-                        type="button"
-                        className="mobile-folder-row"
-                        onClick={() => openTransactionEditor(createFinanceTransaction("expense"))}
-                      >
-                        <span className="mobile-folder-label">Expense</span>
-                      </button>
-                      <button
-                        type="button"
-                        className="mobile-folder-row"
-                        onClick={() => openSubscriptionEditor(createFinanceSubscription())}
-                      >
-                        <span className="mobile-folder-label">Add a subscription</span>
-                      </button>
-                    </div>
-                  </section>
-                )}
-                {dues.length > 0 && (
-                  <section className="mobile-group">
-                    <h2 className="mobile-group-title">Due</h2>
-                    <div className="mobile-group-card">
-                      {dues.map((subscription) => (
-                        <DueRow
-                          key={subscription.id}
-                          subscription={subscription}
-                          currency={workspace.currency}
-                          onConfirm={() => confirmSubscription(subscription.id)}
-                          onOpen={() => openSubscriptionEditor(subscription)}
-                          onDuplicate={() => duplicateSubscription(subscription.id)}
-                          onArchive={() => archiveSubscription(subscription.id, true)}
-                          onDelete={() => deleteSubscription(subscription.id)}
-                        />
-                      ))}
-                    </div>
-                  </section>
-                )}
-                {recent.length > 0 && (
-                  <section className="mobile-group">
-                    <h2 className="mobile-group-title">Recent</h2>
-                    <div className="mobile-group-card">
-                      {recent.map((transaction) => (
-                        <PostedRow
-                          key={transaction.id}
-                          transaction={transaction}
-                          currency={workspace.currency}
-                          projectName={projectName(transaction.projectId)}
-                          onOpen={() => openTransactionEditor(transaction)}
-                          onDuplicate={() => duplicateTransaction(transaction.id)}
-                          onDelete={() => deleteTransaction(transaction.id)}
-                        />
-                      ))}
-                    </div>
-                  </section>
-                )}
-              </>
-            ) : (
-              <>
-                <p className="mobile-money-net">
-                  {posted.length === 0 ? "Empty" : formatSignedMoney(net, workspace.currency)}
-                </p>
-                {dues.length > 0 && (
-                  <section className="mobile-group">
-                    <h2 className="mobile-group-title">Due</h2>
-                    <div className="mobile-group-card">
-                      {dues.map((subscription) => (
-                        <DueRow
-                          key={subscription.id}
-                          subscription={subscription}
-                          currency={workspace.currency}
-                          onConfirm={() => confirmSubscription(subscription.id)}
-                          onOpen={() => openSubscriptionEditor(subscription)}
-                          onDuplicate={() => duplicateSubscription(subscription.id)}
-                          onArchive={() => archiveSubscription(subscription.id, true)}
-                          onDelete={() => deleteSubscription(subscription.id)}
-                        />
-                      ))}
-                    </div>
-                  </section>
-                )}
-                <section className="mobile-group">
-                  <h2 className="mobile-group-title">Posted</h2>
-                  <div className="mobile-group-card">
-                    {posted.length === 0 ? (
-                      <>
-                        <button
-                          type="button"
-                          className="mobile-folder-row"
-                          onClick={() => openTransactionEditor(createFinanceTransaction("income"))}
-                        >
-                          <span className="mobile-folder-label">Income</span>
-                        </button>
-                        <button
-                          type="button"
-                          className="mobile-folder-row"
-                          onClick={() => openTransactionEditor(createFinanceTransaction("expense"))}
-                        >
-                          <span className="mobile-folder-label">Expense</span>
-                        </button>
-                      </>
-                    ) : (
-                      posted.map((transaction) => (
-                        <PostedRow
-                          key={transaction.id}
-                          transaction={transaction}
-                          currency={workspace.currency}
-                          projectName={projectName(transaction.projectId)}
-                          onOpen={() => openTransactionEditor(transaction)}
-                          onDuplicate={() => duplicateTransaction(transaction.id)}
-                          onDelete={() => deleteTransaction(transaction.id)}
-                        />
-                      ))
-                    )}
-                  </div>
-                </section>
-              </>
-            )}
-            <div className="mobile-money-capture">
-              <CaptureLine
-                autoFocus={focusCapture}
-                onFocused={() => setFocusCapture(false)}
-                onAdd={addFromCapture}
-              />
-            </div>
+            {content}
+            <div className="mobile-money-capture">{capture}</div>
           </div>
         ) : (
-        <div className="h-full overflow-y-auto">
-          <div
-            className="prose mx-auto w-full px-6 pt-3 pb-24"
-            style={{ maxWidth: "var(--editor-max-width, 48rem)" }}
-          >
-            {!isSubscriptions && !isOverview && (
-              <p className="not-prose mb-4 text-[13px] leading-5 text-text-muted">
-                {posted.length === 0 ? "Empty" : formatSignedMoney(net, workspace.currency)}
-              </p>
-            )}
-
-            {isSubscriptions ? (
-              <>
-                {subscriptions.length === 0 && (
-                  <div className="not-prose mb-4 text-[length:var(--editor-base-font-size)] leading-[var(--editor-line-height)] text-text-muted">
-                    <button type="button" className="hover:text-text" onClick={() => openSubscriptionEditor(createFinanceSubscription())}>
-                      Add a subscription
-                    </button>
-                  </div>
-                )}
-                {subscriptions.map((subscription) => (
-                  <SubscriptionRow
-                    key={subscription.id}
-                    subscription={subscription}
-                    currency={workspace.currency}
-                    onOpen={() => openSubscriptionEditor(subscription)}
-                    onDuplicate={() => duplicateSubscription(subscription.id)}
-                    onArchive={() => archiveSubscription(subscription.id, true)}
-                    onDelete={() => deleteSubscription(subscription.id)}
-                  />
-                ))}
-              </>
-            ) : isOverview ? (
-              <>
-                {overviewEmpty && (
-                  <div className="not-prose mb-4 flex flex-wrap items-baseline gap-x-4 gap-y-1 text-[length:var(--editor-base-font-size)] leading-[var(--editor-line-height)] text-text-muted">
-                    <button type="button" className="hover:text-text" onClick={() => openTransactionEditor(createFinanceTransaction("income"))}>
-                      Income
-                    </button>
-                    <button type="button" className="hover:text-text" onClick={() => openTransactionEditor(createFinanceTransaction("expense"))}>
-                      Expense
-                    </button>
-                    <button type="button" className="hover:text-text" onClick={() => openSubscriptionEditor(createFinanceSubscription())}>
-                      Add a subscription
-                    </button>
-                  </div>
-                )}
-                {dues.map((subscription) => (
-                  <DueRow
-                    key={subscription.id}
-                    subscription={subscription}
-                    currency={workspace.currency}
-                    onConfirm={() => confirmSubscription(subscription.id)}
-                    onOpen={() => openSubscriptionEditor(subscription)}
-                    onDuplicate={() => duplicateSubscription(subscription.id)}
-                    onArchive={() => archiveSubscription(subscription.id, true)}
-                    onDelete={() => deleteSubscription(subscription.id)}
-                  />
-                ))}
-                {recent.map((transaction) => (
-                  <PostedRow
-                    key={transaction.id}
-                    transaction={transaction}
-                    currency={workspace.currency}
-                    projectName={projectName(transaction.projectId)}
-                    onOpen={() => openTransactionEditor(transaction)}
-                    onDuplicate={() => duplicateTransaction(transaction.id)}
-                    onDelete={() => deleteTransaction(transaction.id)}
-                  />
-                ))}
-              </>
-            ) : (
-              <>
-                {monthEmpty && (
-                  <div className="not-prose mb-4 flex flex-wrap items-baseline gap-x-4 gap-y-1 text-[length:var(--editor-base-font-size)] leading-[var(--editor-line-height)] text-text-muted">
-                    <button type="button" className="hover:text-text" onClick={() => openTransactionEditor(createFinanceTransaction("income"))}>
-                      Income
-                    </button>
-                    <button type="button" className="hover:text-text" onClick={() => openTransactionEditor(createFinanceTransaction("expense"))}>
-                      Expense
-                    </button>
-                    <button type="button" className="hover:text-text" onClick={() => openSubscriptionEditor(createFinanceSubscription())}>
-                      Add a subscription
-                    </button>
-                  </div>
-                )}
-                {dues.map((subscription) => (
-                  <DueRow
-                    key={subscription.id}
-                    subscription={subscription}
-                    currency={workspace.currency}
-                    onConfirm={() => confirmSubscription(subscription.id)}
-                    onOpen={() => openSubscriptionEditor(subscription)}
-                    onDuplicate={() => duplicateSubscription(subscription.id)}
-                    onArchive={() => archiveSubscription(subscription.id, true)}
-                    onDelete={() => deleteSubscription(subscription.id)}
-                  />
-                ))}
-                {posted.map((transaction) => (
-                  <PostedRow
-                    key={transaction.id}
-                    transaction={transaction}
-                    currency={workspace.currency}
-                    projectName={projectName(transaction.projectId)}
-                    onOpen={() => openTransactionEditor(transaction)}
-                    onDuplicate={() => duplicateTransaction(transaction.id)}
-                    onDelete={() => deleteTransaction(transaction.id)}
-                  />
-                ))}
-              </>
-            )}
-
-            <CaptureLine
-              autoFocus={focusCapture}
-              onFocused={() => setFocusCapture(false)}
-              onAdd={addFromCapture}
-            />
+          <div className="money-page">
+            <div className="money-page-inner">
+              {content}
+              <MoneyGroup>{capture}</MoneyGroup>
+            </div>
           </div>
-        </div>
         )}
 
         {subscriptionEditor && (
@@ -505,6 +352,46 @@ export function FinancePage({
   );
 }
 
+function MoneyHero({
+  label,
+  value,
+  inCents,
+  outCents,
+  currency,
+}: {
+  label: string;
+  value: string;
+  inCents?: number;
+  outCents?: number;
+  currency?: string;
+}) {
+  return (
+    <header className="money-hero">
+      <p className="money-hero-label">{label}</p>
+      <p className="money-hero-value">{value}</p>
+      {currency !== undefined && inCents !== undefined && outCents !== undefined && (
+        <p className="money-hero-split">
+          <span>
+            In <strong>{formatMoney(inCents, currency)}</strong>
+          </span>
+          <span>
+            Out <strong>{formatMoney(outCents, currency)}</strong>
+          </span>
+        </p>
+      )}
+    </header>
+  );
+}
+
+function MoneyGroup({ title, children }: { title?: string; children: ReactNode }) {
+  return (
+    <section className="money-group">
+      {title && <h2 className="money-group-title">{title}</h2>}
+      <div className="money-group-card">{children}</div>
+    </section>
+  );
+}
+
 function CaptureLine({
   onAdd,
   autoFocus = false,
@@ -524,22 +411,25 @@ function CaptureLine({
   }, [autoFocus, onFocused]);
 
   return (
-    <input
-      ref={inputRef}
-      value={value}
-      onChange={(event) => setValue(event.target.value)}
-      onKeyDown={(event) => {
-        if (event.key !== "Enter") return;
-        event.preventDefault();
-        const next = value.trim();
-        if (!next) return;
-        onAdd(next);
-        setValue("");
-      }}
-      placeholder="Add"
-      aria-label="Add"
-      className="not-prose mt-2 w-full bg-transparent py-1 text-[length:var(--editor-base-font-size)] leading-[var(--editor-line-height)] text-text outline-none placeholder:text-text-muted/45"
-    />
+    <div className="money-capture-field">
+      <PlusIcon className="money-capture-icon" aria-hidden="true" />
+      <input
+        ref={inputRef}
+        value={value}
+        onChange={(event) => setValue(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key !== "Enter") return;
+          event.preventDefault();
+          const next = value.trim();
+          if (!next) return;
+          onAdd(next);
+          setValue("");
+        }}
+        placeholder="Add"
+        aria-label="Add a record"
+        className="money-capture"
+      />
+    </div>
   );
 }
 
@@ -561,6 +451,11 @@ function DueRow({
   onDelete: () => void;
 }) {
   const due = dueLabel(subscription.nextBillingDate);
+  const [checked, setChecked] = useState(false);
+  const confirmTimer = useRef<number>(0);
+
+  useEffect(() => () => window.clearTimeout(confirmTimer.current), []);
+
   return (
     <RowMenu
       items={[
@@ -569,21 +464,27 @@ function DueRow({
         { label: "Delete", onSelect: onDelete, danger: true },
       ]}
     >
-      <div className="not-prose flex w-full items-start gap-2 py-1.5 text-left text-[length:var(--editor-base-font-size)] leading-[var(--editor-line-height)]">
+      <div className="money-row">
         <button
           type="button"
           aria-label={`Confirm ${subscription.name}`}
-          onClick={onConfirm}
-          className="mt-1 flex size-[18px] shrink-0 items-center justify-center rounded-full border-[1.5px] border-black/25 bg-transparent text-transparent transition-[background-color,border-color,transform] duration-[var(--motion-fast)] ease-[var(--ease-out)] hover:border-black/40 active:scale-90 dark:border-white/30"
+          aria-pressed={checked}
+          onClick={() => {
+            if (checked) return;
+            setChecked(true);
+            confirmTimer.current = window.setTimeout(onConfirm, CHECK_DRAW_MS);
+          }}
+          className={cn("money-row-check", checked && "is-checked")}
         >
-          <CheckmarkIcon checked={false} className="size-2.5" />
+          <CheckmarkIcon checked={checked} className="size-2.5" />
         </button>
-        <button type="button" onClick={onOpen} className="min-w-0 flex-1 text-left">
-          <span className="block truncate text-text">{subscription.name}</span>
-          <span className={cn("block text-[12px] leading-4 text-text-muted", due.tone === "overdue" && "text-[var(--color-menu-danger)]")}>
-            {due.text} · {formatMoney(subscription.amountCents, currency)}
+        <button type="button" onClick={onOpen} className="money-row-main">
+          <span className="money-row-title">{subscription.name}</span>
+          <span className={cn("money-row-meta", due.tone === "overdue" && "is-overdue")}>
+            {due.text}
           </span>
         </button>
+        <span className="money-row-amount">{formatMoney(subscription.amountCents, currency)}</span>
       </div>
     </RowMenu>
   );
@@ -610,6 +511,8 @@ function PostedRow({
     : date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
   const amount = `${transaction.kind === "income" ? "+" : "−"}${formatMoney(transaction.amountCents, currency)}`;
 
+  const meta = [dateLabel, projectName].filter(Boolean).join(" · ");
+
   return (
     <RowMenu
       items={[
@@ -617,19 +520,14 @@ function PostedRow({
         { label: "Delete", onSelect: onDelete, danger: true },
       ]}
     >
-      <button
-        type="button"
-        onClick={onOpen}
-        className="not-prose flex w-full items-baseline gap-3 py-1.5 text-left text-[length:var(--editor-base-font-size)] leading-[var(--editor-line-height)]"
-      >
-        <span className="w-16 shrink-0 text-[13px] text-text-muted">{dateLabel}</span>
-        <span className="min-w-0 flex-1">
-          <span className="block truncate text-text">{transaction.title}</span>
-          {projectName && (
-            <span className="block truncate text-[12px] leading-4 text-text-muted">{projectName}</span>
-          )}
+      <button type="button" onClick={onOpen} className="money-row">
+        <span className="money-row-main">
+          <span className="money-row-title">{transaction.title}</span>
+          <span className="money-row-meta">{meta}</span>
         </span>
-        <span className="shrink-0 tabular-nums text-text">{amount}</span>
+        <span className={cn("money-row-amount", transaction.kind === "income" && "is-income")}>
+          {amount}
+        </span>
       </button>
     </RowMenu>
   );
@@ -659,18 +557,14 @@ function SubscriptionRow({
         { label: "Delete", onSelect: onDelete, danger: true },
       ]}
     >
-      <button
-        type="button"
-        onClick={onOpen}
-        className="not-prose flex w-full items-baseline gap-3 py-1.5 text-left text-[length:var(--editor-base-font-size)] leading-[var(--editor-line-height)]"
-      >
-        <span className="min-w-0 flex-1">
-          <span className="block truncate text-text">{subscription.name}</span>
-          <span className={cn("block text-[12px] leading-4 text-text-muted", due.tone === "overdue" && "text-[var(--color-menu-danger)]")}>
+      <button type="button" onClick={onOpen} className="money-row">
+        <span className="money-row-main">
+          <span className="money-row-title">{subscription.name}</span>
+          <span className={cn("money-row-meta", due.tone === "overdue" && "is-overdue")}>
             {cadenceLabel(subscription.cadence)} · {due.text}
           </span>
         </span>
-        <span className="shrink-0 tabular-nums text-text">{formatMoney(subscription.amountCents, currency)}</span>
+        <span className="money-row-amount">{formatMoney(subscription.amountCents, currency)}</span>
       </button>
     </RowMenu>
   );
@@ -702,68 +596,6 @@ function RowMenu({
         </ContextMenu.Content>
       </ContextMenu.Portal>
     </ContextMenu.Root>
-  );
-}
-
-function MoneyPopover({
-  title,
-  canDone,
-  onCancel,
-  onDone,
-  children,
-  footer,
-}: {
-  title: string;
-  canDone: boolean;
-  onCancel: () => void;
-  onDone: () => void;
-  children: ReactNode;
-  footer?: ReactNode;
-}) {
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        onCancel();
-      }
-      if (event.key === "Enter" && (event.metaKey || event.ctrlKey) && canDone) {
-        event.preventDefault();
-        onDone();
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [canDone, onCancel, onDone]);
-
-  return createPortal(
-    <div className={cn("money-popover-layer", isMobileApp && "mobile-drawer-layer")} onMouseDown={onCancel}>
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label={title}
-        className={cn("money-popover", isMobileApp && "mobile-drawer")}
-        onMouseDown={(event) => event.stopPropagation()}
-      >
-        {isMobileApp && <span className="mobile-drawer-handle" aria-hidden />}
-        <header className="grid h-11 shrink-0 grid-cols-[4.75rem_1fr_4.75rem] items-center border-b border-border px-3">
-          <button type="button" className="justify-self-start text-[13px] text-text-muted hover:text-text" onClick={onCancel}>
-            Cancel
-          </button>
-          <span className="truncate text-center text-[13px] font-semibold text-text">{title}</span>
-          <button
-            type="button"
-            disabled={!canDone}
-            className="justify-self-end text-[13px] font-semibold text-text disabled:text-text-muted/40"
-            onClick={onDone}
-          >
-            Done
-          </button>
-        </header>
-        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">{children}</div>
-        {footer}
-      </div>
-    </div>,
-    document.body,
   );
 }
 
@@ -826,7 +658,7 @@ function SubscriptionEditor({
   const canDone = Boolean(draft.name.trim() && draft.amountCents > 0 && draft.nextBillingDate);
 
   return (
-    <MoneyPopover
+    <AppPopover
       title="Subscription"
       canDone={canDone}
       onCancel={onClose}
@@ -870,7 +702,10 @@ function SubscriptionEditor({
           </Field>
         )}
         <Field label="Next bill">
-          <Input type="date" value={draft.nextBillingDate} className="h-9" onChange={(event) => setDraft((current) => ({ ...current, nextBillingDate: event.target.value }))} />
+          <SpellDateField
+            value={draft.nextBillingDate}
+            onChange={(nextBillingDate) => setDraft((current) => ({ ...current, nextBillingDate }))}
+          />
         </Field>
         <Field label="Category" optional>
           <Input value={draft.category} className="h-9" onChange={(event) => setDraft((current) => ({ ...current, category: event.target.value }))} />
@@ -891,7 +726,7 @@ function SubscriptionEditor({
           />
         </Field>
       </div>
-    </MoneyPopover>
+    </AppPopover>
   );
 }
 
@@ -915,7 +750,7 @@ function TransactionEditor({
   const canDone = Boolean(draft.title.trim() && draft.amountCents > 0 && draft.date);
 
   return (
-    <MoneyPopover
+    <AppPopover
       title="Record"
       canDone={canDone}
       onCancel={onClose}
@@ -951,7 +786,10 @@ function TransactionEditor({
             <MoneyInput valueCents={draft.amountCents} onChange={(amountCents) => setDraft((current) => ({ ...current, amountCents }))} currency={currency} />
           </Field>
           <Field label="Date">
-            <Input type="date" value={draft.date} className="h-9" onChange={(event) => setDraft((current) => ({ ...current, date: event.target.value }))} />
+            <SpellDateField
+              value={draft.date}
+              onChange={(date) => setDraft((current) => ({ ...current, date }))}
+            />
           </Field>
         </div>
         <Field label="Category" optional>
@@ -973,6 +811,6 @@ function TransactionEditor({
           />
         </Field>
       </div>
-    </MoneyPopover>
+    </AppPopover>
   );
 }

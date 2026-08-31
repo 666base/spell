@@ -168,7 +168,7 @@ const SLASH_COMMANDS: SlashCommandItem[] = [
   },
   {
     title: "Table",
-    description: "Insert a 3×3 table",
+    description: "Insert a table",
     group: "insert",
     icon: <TableIcon className="size-4" />,
     aliases: ["grid"],

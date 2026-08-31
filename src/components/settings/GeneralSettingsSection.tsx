@@ -15,6 +15,7 @@ import {
 import type { Settings } from "../../types/note";
 import * as notesService from "../../services/notes";
 import { AppUpdateSection } from "./AppUpdateSection";
+import { isMobileApp } from "../../lib/platform";
 
 // Format remote URL for display - extract user/repo from full URL
 function formatRemoteUrl(url: string | null): string {
@@ -224,9 +225,12 @@ export function GeneralSettingsSection() {
 
   return (
     <div className="space-y-8 py-8">
-      <AppUpdateSection />
-
-      <div className="border-t border-border border-dashed" />
+      {!isMobileApp && (
+        <>
+          <AppUpdateSection />
+          <div className="border-t border-border border-dashed" />
+        </>
+      )}
 
       {/* New Note Template */}
       <section className="pb-2">

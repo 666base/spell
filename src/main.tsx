@@ -1,5 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
+import "@fontsource-variable/sn-pro";
+import "@fontsource-variable/sn-pro/wght-italic.css";
 import "katex/dist/katex.min.css";
 import "./App.css";
 

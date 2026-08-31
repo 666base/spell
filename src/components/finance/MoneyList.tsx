@@ -1,9 +1,14 @@
-import { memo, useRef } from "react";
+import { memo, useCallback, useRef, useState } from "react";
+import * as ContextMenu from "@radix-ui/react-context-menu";
 import { cn } from "../../lib/utils";
 import { useFinance } from "../../context/FinanceContext";
-import { isMonthKey, moneyListItems } from "../../lib/finance";
+import { moneyListItems } from "../../lib/finance";
 import { CalendarIcon, FinanceIcon, PlusIcon, SubscriptionIcon } from "../icons/velocity";
 import type { NotesScope } from "../../lib/notesScope";
+import { IconButton } from "../ui";
+import { SpellMonthPicker } from "../ui/SpellCalendar";
+
+const menuItemClass = "spell-menu-item cursor-pointer";
 
 interface MoneyListProps {
   scope: NotesScope;
@@ -11,16 +16,17 @@ interface MoneyListProps {
 }
 
 export function MoneyList({ scope, onSelect }: MoneyListProps) {
-  const { workspace, addMonth } = useFinance();
+  const { workspace } = useFinance();
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickerAnchor, setPickerAnchor] = useState<HTMLElement | null>(null);
   const items = moneyListItems(workspace);
 
-  const handleAddMonth = (month: string) => {
-    addMonth(month);
-    onSelect({ type: "moneyMonth", month });
-  };
+  const handleAdd = useCallback((month: string) => {
+    window.dispatchEvent(new CustomEvent("create-new-month", { detail: month }));
+  }, []);
 
   return (
-    <div className="flex h-full flex-col bg-bg-secondary">
+    <div className="flex min-h-0 flex-1 flex-col">
       <div className="min-h-0 flex-1 overflow-y-auto px-1 pt-2.5 pb-2">
         {items.map((item) => {
           const selected =
@@ -39,15 +45,21 @@ export function MoneyList({ scope, onSelect }: MoneyListProps) {
                   else if (item.kind === "subscriptions") onSelect({ type: "subscriptions" });
                   else onSelect({ type: "moneyMonth", month: item.month });
                 }}
+                onAddMonth={(anchor) => {
+                  setPickerAnchor(anchor);
+                  setPickerOpen(true);
+                }}
               />
             </div>
           );
         })}
       </div>
-
-      <div className="titlebar-no-drag shrink-0 border-t border-border px-2 py-1">
-        <AddMonthButton onAdd={handleAddMonth} />
-      </div>
+      <SpellMonthPicker
+        open={pickerOpen}
+        anchor={pickerAnchor}
+        onClose={() => setPickerOpen(false)}
+        onSelect={handleAdd}
+      />
     </div>
   );
 }
@@ -59,61 +71,52 @@ export function AddMonthButton({
   onAdd: (month: string) => void;
   variant?: "footer" | "row";
 }) {
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  const openPicker = () => {
-    const input = inputRef.current;
-    if (!input) return;
-    if (typeof input.showPicker === "function") {
-      input.showPicker();
-      return;
-    }
-    input.click();
-  };
-
-  const handleChange = (value: string) => {
-    if (!isMonthKey(value)) return;
-    onAdd(value);
-  };
+  const [open, setOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
 
   if (variant === "row") {
     return (
-      <div className="relative">
-        <button type="button" className="mobile-folder-row" onClick={openPicker}>
+      <>
+        <button
+          ref={triggerRef}
+          type="button"
+          data-add-month
+          className="mobile-folder-row"
+          onClick={() => setOpen(true)}
+        >
           <span className="mobile-folder-icon">
             <PlusIcon />
           </span>
           <span className="mobile-folder-label">Add month</span>
         </button>
-        <input
-          ref={inputRef}
-          type="month"
-          aria-label="Choose month"
-          className="pointer-events-none absolute h-0 w-0 opacity-0"
-          onChange={(event) => handleChange(event.target.value)}
+        <SpellMonthPicker
+          open={open}
+          anchor={triggerRef.current}
+          onClose={() => setOpen(false)}
+          onSelect={onAdd}
         />
-      </div>
+      </>
     );
   }
 
   return (
-    <div className="relative">
-      <button
-        type="button"
-        onClick={openPicker}
-        className="motion-interactive flex h-8 w-full items-center gap-2 rounded-md px-2 text-[13px] text-text-muted hover:bg-bg-hover hover:text-text"
+    <>
+      <IconButton
+        ref={triggerRef}
+        size="sm"
+        title="Add month"
+        data-add-month
+        onClick={() => setOpen(true)}
       >
-        <PlusIcon className="size-4 shrink-0" />
-        Add month
-      </button>
-      <input
-        ref={inputRef}
-        type="month"
-        aria-label="Choose month"
-        className="pointer-events-none absolute h-0 w-0 opacity-0"
-        onChange={(event) => handleChange(event.target.value)}
+        <PlusIcon />
+      </IconButton>
+      <SpellMonthPicker
+        open={open}
+        anchor={triggerRef.current}
+        onClose={() => setOpen(false)}
+        onSelect={onAdd}
       />
-    </div>
+    </>
   );
 }
 
@@ -123,30 +126,52 @@ const MoneyRow = memo(function MoneyRow({
   kind,
   selected,
   onSelect,
+  onAddMonth,
 }: {
   title: string;
   subtitle: string;
   kind: "overview" | "month" | "subscriptions";
   selected: boolean;
   onSelect: () => void;
+  onAddMonth: (anchor: HTMLElement) => void;
 }) {
+  const rowRef = useRef<HTMLButtonElement>(null);
   const Icon = kind === "overview" ? FinanceIcon : kind === "subscriptions" ? SubscriptionIcon : CalendarIcon;
   return (
-    <button
-      type="button"
-      onClick={onSelect}
-      data-selected={selected ? "true" : "false"}
-      className={cn("note-row flex w-full items-start gap-2 rounded-[8px] px-3 py-[9px] text-left", selected && "note-row-selected")}
-    >
-      <Icon className="mt-0.5 size-4 shrink-0 text-text-muted" />
-      <span className="min-w-0 flex-1">
-        <span className="block min-w-0 truncate text-[13px] font-semibold leading-[18px] tracking-[-0.01em] text-text">
-          {title}
-        </span>
-        <span className="mt-0.5 block truncate text-[12px] leading-4 text-text-muted">
-          {subtitle}
-        </span>
-      </span>
-    </button>
+    <ContextMenu.Root>
+      <ContextMenu.Trigger asChild>
+        <div data-spell-context-menu>
+          <button
+            ref={rowRef}
+            type="button"
+            onClick={onSelect}
+            data-selected={selected ? "true" : "false"}
+            className={cn("note-row flex w-full items-center gap-2.5 rounded-[8px] px-3 py-[9px] text-left", selected && "note-row-selected")}
+          >
+            <Icon className="size-4 shrink-0 text-text-muted" />
+            <span className="flex min-w-0 flex-1 flex-col">
+              <span className="note-row-title-line">
+                <span className="note-row-title">{title}</span>
+              </span>
+              <span className="note-row-meta-line">
+                <span className="min-w-0 truncate tabular-nums">{subtitle}</span>
+              </span>
+            </span>
+          </button>
+        </div>
+      </ContextMenu.Trigger>
+      <ContextMenu.Portal>
+        <ContextMenu.Content data-spell-context-menu className="spell-menu z-50 min-w-40">
+          <ContextMenu.Item
+            className={menuItemClass}
+            onSelect={() => {
+              if (rowRef.current) onAddMonth(rowRef.current);
+            }}
+          >
+            Add month
+          </ContextMenu.Item>
+        </ContextMenu.Content>
+      </ContextMenu.Portal>
+    </ContextMenu.Root>
   );
 });

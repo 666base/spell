@@ -26,8 +26,8 @@ export default defineConfig(async () => ({
         }
       : undefined,
     watch: {
-      // 3. tell Vite to ignore watching `src-tauri`
-      ignored: ["**/src-tauri/**"],
+      // 3. tell Vite to ignore watching non-frontend paths
+      ignored: ["**/src-tauri/**", "**/mock_notes/**"],
     },
   },
 
@@ -65,6 +65,7 @@ export default defineConfig(async () => ({
             "@tauri-apps/api",
             "@tauri-apps/plugin-dialog",
             "@tauri-apps/plugin-opener",
+            "@tauri-apps/plugin-deep-link",
           ],
         },
       },

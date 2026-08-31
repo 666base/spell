@@ -1,12 +1,13 @@
 import { memo, type MouseEvent, type ReactNode } from "react";
 import { type Editor, useEditorState } from "@tiptap/react";
 import { cn } from "../../lib/utils";
-import { NOTE_HIGHLIGHTS, sameNoteColor } from "../../lib/noteColors";
+import { NOTE_HIGHLIGHTS, NOTE_INKS, sameNoteColor } from "../../lib/noteColors";
 import { CheckmarkIcon } from "../ui";
 import {
   ArrowLeftToLineIcon,
   ArrowRightToLineIcon,
   BoldIcon,
+  HighlightIcon,
   ItalicIcon,
   ListIcon,
   ListOrderedIcon,
@@ -14,6 +15,7 @@ import {
   UnderlineIcon,
 } from "../icons/velocity";
 import { applyStyle, currentStyle, NOTE_STYLES } from "./TextStyleMenu";
+import { mod, shift } from "../../lib/platform";
 
 interface FormatToolbarProps {
   editor: Editor;
@@ -37,6 +39,7 @@ export const FormatToolbar = memo(function FormatToolbar({
       bulletList: current?.isActive("bulletList") ?? false,
       orderedList: current?.isActive("orderedList") ?? false,
       highlightColor: current?.getAttributes("highlight").color as string | undefined,
+      inkColor: current?.getAttributes("textStyle").color as string | undefined,
     }),
   });
 
@@ -73,28 +76,28 @@ export const FormatToolbar = memo(function FormatToolbar({
 
       <div className="format-cluster">
         <ClusterButton
-          label="Bold"
+          label={`Bold (${mod}+B)`}
           active={formatting.bold}
           onClick={() => editor.chain().focus().toggleBold().run()}
         >
           <BoldIcon />
         </ClusterButton>
         <ClusterButton
-          label="Italic"
+          label={`Italic (${mod}+I)`}
           active={formatting.italic}
           onClick={() => editor.chain().focus().toggleItalic().run()}
         >
           <ItalicIcon />
         </ClusterButton>
         <ClusterButton
-          label="Underline"
+          label={`Underline (${mod}+U)`}
           active={formatting.underline}
           onClick={() => editor.chain().focus().toggleUnderline().run()}
         >
           <UnderlineIcon />
         </ClusterButton>
         <ClusterButton
-          label="Strikethrough"
+          label={`Strikethrough (${mod}+${shift}+X)`}
           active={formatting.strike}
           onClick={() => editor.chain().focus().toggleStrike().run()}
         >
@@ -105,14 +108,14 @@ export const FormatToolbar = memo(function FormatToolbar({
       <div className="format-cluster-row">
         <div className="format-cluster">
           <ClusterButton
-            label="Bulleted list"
+            label={`Bulleted list (${mod}+${shift}+8)`}
             active={formatting.bulletList}
             onClick={() => editor.chain().focus().toggleBulletList().run()}
           >
             <ListIcon />
           </ClusterButton>
           <ClusterButton
-            label="Numbered list"
+            label={`Numbered list (${mod}+${shift}+7)`}
             active={formatting.orderedList}
             onClick={() => editor.chain().focus().toggleOrderedList().run()}
           >
@@ -147,25 +150,54 @@ export const FormatToolbar = memo(function FormatToolbar({
 
       <div className="spell-menu-separator" />
 
-      <div className="format-swatches" role="group" aria-label="Highlight">
-        <Swatch
-          name="No highlight"
-          value="var(--color-bg)"
-          selected={!formatting.highlightColor}
-          struck
-          onPick={() => editor.chain().focus().unsetHighlight().unsetColor().run()}
-        />
-        {NOTE_HIGHLIGHTS.map((color) => (
+      <div className="format-ink-row" role="group" aria-label="Color">
+        <span className="format-ink-label" aria-hidden="true">
+          A
+        </span>
+        <div className="format-swatches">
           <Swatch
-            key={color.value}
-            name={`${color.name} highlight`}
-            value={color.swatch}
-            selected={sameNoteColor(formatting.highlightColor, color.value)}
-            onPick={() => {
-              editor.chain().focus().unsetColor().setHighlight({ color: color.value }).run();
-            }}
+            name="Default color"
+            value="var(--color-bg)"
+            selected={!formatting.inkColor}
+            struck
+            onPick={() => editor.chain().focus().unsetColor().run()}
           />
-        ))}
+          {NOTE_INKS.map((color) => (
+            <Swatch
+              key={color.value}
+              name={color.name}
+              value={color.value}
+              selected={sameNoteColor(formatting.inkColor, color.value)}
+              onPick={() => editor.chain().focus().setColor(color.value).run()}
+            />
+          ))}
+        </div>
+      </div>
+
+      <div className="format-ink-row" role="group" aria-label="Highlight">
+        <span className="format-ink-label" aria-hidden="true">
+          <HighlightIcon />
+        </span>
+        <div className="format-swatches">
+          <Swatch
+            name="No highlight"
+            value="var(--color-bg)"
+            selected={!formatting.highlightColor}
+            struck
+            onPick={() => editor.chain().focus().unsetHighlight().run()}
+          />
+          {NOTE_HIGHLIGHTS.map((color) => (
+            <Swatch
+              key={color.value}
+              name={`${color.name} highlight`}
+              value={color.swatch}
+              selected={sameNoteColor(formatting.highlightColor, color.value)}
+              onPick={() => {
+                editor.chain().focus().setHighlight({ color: color.value }).run();
+              }}
+            />
+          ))}
+        </div>
       </div>
     </div>
   );
@@ -185,6 +217,7 @@ function ClusterButton({
   return (
     <button
       type="button"
+      title={label}
       aria-label={label}
       aria-pressed={active}
       data-active={active ? "true" : "false"}

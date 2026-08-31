@@ -11,10 +11,19 @@ import {
 } from "./components/layout/Sidebar";
 import { SidebarResizeHandle } from "./components/layout/SidebarResizeHandle";
 import { FolderSourceList } from "./components/layout/FolderSourceList";
+import { LibraryDnd } from "./components/layout/LibraryDnd";
 import { FOLDER_SIDEBAR_PX, SIDEBAR_DEFAULT_PX } from "./lib/sidebar";
-import { useOpenTransition } from "./lib/presence";
+import { PANEL_TRANSITION_MS, useOpenTransition } from "./lib/presence";
 import { cn } from "./lib/utils";
-import { isMoneyTab, isProjectsTab, notesInScope, type NotesScope } from "./lib/notesScope";
+import {
+  isMoneyTab,
+  isProjectsTab,
+  notesInScope,
+  scopeForNote,
+  selectionAfterNotesChange,
+  selectionAfterScopeChange,
+  type NotesScope,
+} from "./lib/notesScope";
 import { startOfLocalDay } from "./lib/journal";
 import { Editor } from "./components/editor/Editor";
 import { JournalPage } from "./components/journal/JournalPage";
@@ -25,14 +34,15 @@ import { FinancePage } from "./components/finance/FinancePage";
 import type { Editor as TiptapEditor } from "@tiptap/react";
 import { FolderPicker } from "./components/layout/FolderPicker";
 import { SettingsPage } from "./components/settings";
-import { SpinnerIcon } from "./components/icons/velocity";
 import { PreviewApp } from "./components/preview/PreviewApp";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { isMac, isWindows } from "./lib/platform";
 import { CloudSync } from "./components/cloud/CloudSync";
 import { AppContextMenu } from "./components/layout/AppContextMenu";
 import { KanbanWorkspaceProvider, useKanbanWorkspace } from "./context/KanbanWorkspaceContext";
-import { FinanceProvider } from "./context/FinanceContext";
+import { FinanceProvider, useFinance } from "./context/FinanceContext";
+import { noteTemplate, type NoteTemplateId } from "./lib/noteTemplates";
+import { pickNotesToImport } from "./lib/importNotes";
 
 function getWindowMode(): {
   isPreview: boolean;
@@ -55,6 +65,8 @@ function AppContent() {
     isLoading,
     createNote,
     createNoteInFolder,
+    createNoteWithContent,
+    importNotePaths,
     duplicateNote,
     notes,
     selectedNoteId,
@@ -66,6 +78,7 @@ function AppContent() {
   } = useNotes();
   const openJournal = useOpenJournal();
   const { selectProject } = useKanbanWorkspace();
+  const { addMonth } = useFinance();
   const { interfaceZoom, setInterfaceZoom, reloadSettings } = useTheme();
   const interfaceZoomRef = useRef(interfaceZoom);
   const currentNoteRef = useRef(currentNote);
@@ -76,10 +89,22 @@ function AppContent() {
   const [openProjectCardId, setOpenProjectCardId] = useState<string | null>(null);
   const [focusMode, setFocusMode] = useState(false);
   const editorRef = useRef<TiptapEditor | null>(null);
+  const workspaceTab = isProjectsTab(notesScope) || isMoneyTab(notesScope);
   const foldersOpen = sidebarVisible && !focusMode;
-  const notesListOpen = !focusMode;
+  const notesListOpen = !focusMode && !workspaceTab;
   const folderRail = useOpenTransition(foldersOpen);
   const notesRail = useOpenTransition(notesListOpen);
+  const folderWidth = workspaceTab ? SIDEBAR_DEFAULT_PX : FOLDER_SIDEBAR_PX;
+  const [folderWidthAnimating, setFolderWidthAnimating] = useState(false);
+  const folderWidthRef = useRef(folderWidth);
+
+  useEffect(() => {
+    if (folderWidthRef.current === folderWidth) return;
+    folderWidthRef.current = folderWidth;
+    setFolderWidthAnimating(true);
+    const timeout = window.setTimeout(() => setFolderWidthAnimating(false), PANEL_TRANSITION_MS);
+    return () => window.clearTimeout(timeout);
+  }, [folderWidth]);
 
   useEffect(() => {
     interfaceZoomRef.current = interfaceZoom;
@@ -124,7 +149,15 @@ function AppContent() {
     if (scope.type === "project") selectProject(scope.id);
     setSidebarPanel(scope.type === "journal" ? "journal" : "notes");
     setSidebarVisible(true);
-  }, [selectProject]);
+    if (scope.type !== "all" && scope.type !== "folder") return;
+    const scoped = notesInScope(notes, scope);
+    const decision = selectionAfterScopeChange({
+      selectedNoteId,
+      scopedIds: scoped.map((note) => note.id),
+    });
+    if (decision.type === "select") void selectNote(decision.id);
+    else if (decision.type === "clear") clearSelection();
+  }, [clearSelection, notes, selectNote, selectProject, selectedNoteId]);
 
   const notesScopeRef = useRef(notesScope);
   const pendingNewProjectRef = useRef(false);
@@ -143,6 +176,19 @@ function AppContent() {
   }, []);
 
   useEffect(() => {
+    const onAddMonth = (event: Event) => {
+      const month = (event as CustomEvent<string>).detail;
+      if (!month) return;
+      addMonth(month);
+      setNotesScope({ type: "moneyMonth", month });
+      setSidebarPanel("notes");
+      setSidebarVisible(true);
+    };
+    window.addEventListener("create-new-month", onAddMonth);
+    return () => window.removeEventListener("create-new-month", onAddMonth);
+  }, [addMonth]);
+
+  useEffect(() => {
     if (!pendingNewProjectRef.current || !isProjectsTab(notesScope)) return;
     pendingNewProjectRef.current = false;
     window.dispatchEvent(new CustomEvent("create-new-project"));
@@ -150,24 +196,47 @@ function AppContent() {
 
   const selectSidebarPanel = useCallback((panel: SidebarPanel) => {
     setSidebarPanel(panel);
-    setNotesScope(panel === "journal" ? { type: "journal" } : { type: "all" });
+    const next: NotesScope = panel === "journal" ? { type: "journal" } : { type: "all" };
+    setNotesScope(next);
     setSidebarVisible(true);
-  }, []);
+    if (next.type !== "all") return;
+    const scoped = notesInScope(notes, next);
+    const decision = selectionAfterScopeChange({
+      selectedNoteId,
+      scopedIds: scoped.map((note) => note.id),
+    });
+    if (decision.type === "select") void selectNote(decision.id);
+    else if (decision.type === "clear") clearSelection();
+  }, [clearSelection, notes, selectNote, selectedNoteId]);
 
   useEffect(() => {
     if (isLoading) return;
     if (notesScope.type !== "all" && notesScope.type !== "folder") return;
 
     const scoped = notesInScope(notes, notesScope);
-    if (selectedNoteId && scoped.some((note) => note.id === selectedNoteId)) {
-      return;
-    }
-    if (scoped.length > 0) {
-      void selectNote(scoped[0].id);
-      return;
-    }
-    if (selectedNoteId) clearSelection();
+    const decision = selectionAfterNotesChange({
+      selectedNoteId,
+      noteIds: notes.map((note) => note.id),
+      scopedIds: scoped.map((note) => note.id),
+    });
+    if (decision.type === "select") void selectNote(decision.id);
+    else if (decision.type === "clear") clearSelection();
   }, [clearSelection, isLoading, notes, notesScope, selectNote, selectedNoteId]);
+
+  useEffect(() => {
+    const onCreated = (event: Event) => {
+      const id = (event as CustomEvent<string>).detail;
+      if (!id) return;
+      setView("notes");
+      setFocusMode(false);
+      const next = scopeForNote(id);
+      setNotesScope(next);
+      setSidebarPanel(next.type === "journal" ? "journal" : "notes");
+      setSidebarVisible(true);
+    };
+    window.addEventListener("spell-note-created", onCreated);
+    return () => window.removeEventListener("spell-note-created", onCreated);
+  }, []);
 
   const createNoteInContext = useCallback(() => {
     if (notesScope.type === "projects") {
@@ -200,7 +269,67 @@ function AppContent() {
     void createNote();
   }, [createNote, createNoteInFolder, notesScope, openJournal]);
 
+  const folderForNewNote = notesScope.type === "folder" ? notesScope.path : undefined;
+
+  const createFromTemplate = useCallback(
+    (id: NoteTemplateId) => {
+      setSidebarVisible(true);
+      if (notesScope.type === "folder") setSidebarPanel("notes");
+      void createNoteWithContent(noteTemplate(id).content, folderForNewNote);
+    },
+    [createNoteWithContent, folderForNewNote, notesScope.type],
+  );
+
+  const importNotes = useCallback(
+    async (kind: "files" | "folder") => {
+      const paths = await pickNotesToImport(kind);
+      if (!paths?.length) return;
+      try {
+        const report = await importNotePaths(paths, folderForNewNote);
+        if (report.imported === 0) {
+          toast.message("Nothing to import");
+          return;
+        }
+        const imported =
+          report.imported === 1 ? "Imported 1 note" : `Imported ${report.imported} notes`;
+        toast.success(
+          report.skipped > 0 ? `${imported} · ${report.skipped} skipped` : imported,
+        );
+      } catch {
+        toast.error("Could not import those files");
+      }
+    },
+    [folderForNewNote, importNotePaths],
+  );
+
+  useEffect(() => {
+    const onTemplate = (event: Event) => {
+      const id = (event as CustomEvent<NoteTemplateId>).detail;
+      if (id) createFromTemplate(id);
+    };
+    const onImport = () => {
+      void importNotes("files");
+    };
+    const onImportFolder = () => {
+      void importNotes("folder");
+    };
+    window.addEventListener("create-from-template", onTemplate);
+    window.addEventListener("import-notes", onImport);
+    window.addEventListener("import-notes-folder", onImportFolder);
+    return () => {
+      window.removeEventListener("create-from-template", onTemplate);
+      window.removeEventListener("import-notes", onImport);
+      window.removeEventListener("import-notes-folder", onImportFolder);
+    };
+  }, [createFromTemplate, importNotes]);
+
   const openSettings = useCallback(() => setView("settings"), []);
+
+  useEffect(() => {
+    const openAccount = () => setView("settings");
+    window.addEventListener("open-account-settings", openAccount);
+    return () => window.removeEventListener("open-account-settings", openAccount);
+  }, []);
 
   const toggleFocusMode = useCallback(() => {
     if (!focusMode && !selectedNoteId) return;
@@ -287,7 +416,7 @@ function AppContent() {
         return;
       }
 
-      if (e.key === "Tab") {
+      if (e.key === "Tab" && !isInEditor && !isInInput) {
         e.preventDefault();
         return;
       }
@@ -407,18 +536,7 @@ function AppContent() {
   ]);
 
   if (isLoading) {
-    return (
-      <div className="h-full min-h-0 flex items-center justify-center bg-bg-secondary">
-        <div className="app-loading">
-          <div className="app-loading-mark">
-            <SpinnerIcon className="w-4.5 h-4.5 stroke-[1.6] animate-spin" />
-          </div>
-          <span>
-            Opening <span className="text-text">Spell</span>
-          </span>
-        </div>
-      </div>
-    );
+    return <div className="h-full min-h-0 bg-bg-secondary" />;
   }
 
   if (!notesFolder) {
@@ -438,15 +556,15 @@ function AppContent() {
         {view === "settings" ? (
           <SettingsPage onBack={closeSettings} />
         ) : (
-          <>
+          <LibraryDnd>
             <div
               data-sidebar
               data-state={folderRail.state}
               className={cn(
-                "app-workspace-panel relative h-full shrink-0 overflow-hidden border-r border-border",
-                folderRail.animating && "is-animating",
+                "app-workspace-panel relative h-full shrink-0 overflow-hidden",
+                (folderRail.animating || folderWidthAnimating) && "is-animating",
               )}
-              style={{ "--panel-width": `${FOLDER_SIDEBAR_PX}px` } as CSSProperties}
+              style={{ "--panel-width": `${folderWidth}px` } as CSSProperties}
               inert={folderRail.state === "closed" ? true : undefined}
               aria-hidden={folderRail.state === "closed"}
             >
@@ -478,7 +596,6 @@ function AppContent() {
                   onToggle={toggleSidebar}
                   foldersVisible={foldersOpen || folderRail.animating}
                   scope={notesScope}
-                  onSelectScope={selectScope}
                 />
                 {notesRail.state === "open" && <SidebarResizeHandle />}
               </div>
@@ -523,7 +640,7 @@ function AppContent() {
                 {...editorChrome}
               />
             )}
-          </>
+          </LibraryDnd>
         )}
       </div>
 

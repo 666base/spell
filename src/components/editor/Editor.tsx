@@ -4,6 +4,7 @@ import {
   useRef,
   useCallback,
   useState,
+  type CSSProperties,
   type ReactNode,
 } from "react";
 import {
@@ -18,8 +19,9 @@ import Placeholder from "@tiptap/extension-placeholder";
 import Link from "@tiptap/extension-link";
 import Image from "@tiptap/extension-image";
 import TaskList from "@tiptap/extension-task-list";
-import TaskItem from "@tiptap/extension-task-item";
+import { SpellTaskItem } from "./SpellTaskItem";
 import { TableKit } from "@tiptap/extension-table";
+import { SpellTableView } from "./SpellTableView";
 import { Markdown } from "@tiptap/markdown";
 import { TextStyle } from "@tiptap/extension-text-style";
 import { Color } from "@tiptap/extension-color";
@@ -27,8 +29,11 @@ import Highlight from "@tiptap/extension-highlight";
 import Underline from "@tiptap/extension-underline";
 import CodeBlock from "@tiptap/extension-code-block";
 import { CodeBlockView } from "./CodeBlockView";
-import { Extension, InputRule } from "@tiptap/core";
+import { parseTableGrid, tableContentFromGrid } from "../../lib/tablePaste";
+import { highlightMarkdown, inkMarkdown } from "../../lib/noteColors";
+import { Extension, InputRule, type Content } from "@tiptap/core";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
+import type { Node as PMNode } from "@tiptap/pm/model";
 import {
   NodeSelection,
   Plugin,
@@ -42,7 +47,6 @@ import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { join } from "@tauri-apps/api/path";
 import { toast } from "sonner";
 import { isMac, isMobileApp } from "../../lib/platform";
-import { playCheckAnimation } from "../../lib/checkAnimation";
 
 // Prepend https:// if no protocol is present
 function normalizeUrl(url: string): string {
@@ -74,14 +78,62 @@ import { Wikilink, type WikilinkStorage } from "./Wikilink";
 import { WikilinkSuggestion } from "./WikilinkSuggestion";
 import { EditorWidthHandles } from "./EditorWidthHandle";
 import { ScratchBlockMath, normalizeBlockMath } from "./MathExtensions";
+import { FormatShortcuts } from "./FormatShortcuts";
 import { plainTextFromMarkdown } from "../../lib/plainText";
+import { capturePendingEditorSave, isEditorRename } from "../../lib/editorSave";
 import { downloadPdf, downloadMarkdown } from "../../services/pdf";
 import {
-  SpinnerIcon,
-  RefreshCwIcon,
-} from "../icons/velocity";
+  getPublishedToken,
+  needsCloudSignIn,
+  publishErrorMessage,
+  publishNote,
+  publishedNoteUrl,
+  refreshPublishedPage,
+  unpublishNote,
+} from "../../services/notePublish";
+import { SpinnerIcon } from "../icons/velocity";
 import { NoteTitlebar } from "../layout/NoteTitlebar";
 import { NoNotesEmpty } from "../notes/NoNotesEmpty";
+
+function clearNativeSelection() {
+  const selection = window.getSelection();
+  if (selection && selection.rangeCount > 0) selection.removeAllRanges();
+}
+
+/** Cursor after a leading H1 so a hidden mobile title cannot bleed a DOM highlight. */
+function bodyCaretPos(doc: PMNode): number {
+  const size = doc.content.size;
+  const first = doc.firstChild;
+  if (first?.type.name === "heading" && first.attrs.level === 1) {
+    return Math.min(first.nodeSize, size);
+  }
+  return Math.min(1, size);
+}
+
+function collapseNoteSelection(editor: TiptapEditor) {
+  const { doc } = editor.state;
+  const selection = TextSelection.near(doc.resolve(bodyCaretPos(doc)), 1);
+  if (!editor.state.selection.eq(selection)) {
+    editor.view.dispatch(editor.state.tr.setSelection(selection));
+  }
+  editor.commands.blur();
+  editor.view.dom.blur();
+  clearNativeSelection();
+}
+
+function loadNoteContent(editor: TiptapEditor, content: Content) {
+  editor
+    .chain()
+    .setContent(content)
+    .command(({ tr }) => {
+      tr.setSelection(TextSelection.near(tr.doc.resolve(bodyCaretPos(tr.doc)), 1));
+      return true;
+    })
+    .blur()
+    .run();
+  editor.view.dom.blur();
+  clearNativeSelection();
+}
 
 function focusAndSelectTitle(editor: TiptapEditor): boolean {
   let titleFrom = -1;
@@ -190,6 +242,9 @@ interface EditorProps {
   onNewNote?: () => void;
   showWindowControls?: boolean;
   header?: ReactNode;
+  titlebarCenter?: ReactNode;
+  showCompose?: boolean;
+  composePlus?: boolean;
 }
 
 /**
@@ -257,6 +312,9 @@ export function Editor({
   onNewNote,
   showWindowControls = false,
   header,
+  titlebarCenter,
+  showCompose,
+  composePlus,
 }: EditorProps) {
   // Always call the hook (rules of hooks), but it returns null outside NotesProvider
   const notesCtx = useOptionalNotes();
@@ -280,26 +338,11 @@ export function Editor({
     : notesCtx!.saveNote;
 
   const consumePendingNewNote = notesCtx?.consumePendingNewNote;
-  const hasExternalChanges = previewMode
-    ? previewMode.hasExternalChanges
-    : notesCtx!.hasExternalChanges;
-  const reloadCurrentNote = previewMode
-    ? previewMode.reload
-    : notesCtx!.reloadCurrentNote;
   const reloadVersion = previewMode
     ? previewMode.reloadVersion
     : notesCtx!.reloadVersion;
   const notes = notesCtx?.notes;
   const { textDirection } = useTheme();
-  const [isSaving, setIsSaving] = useState(false);
-  // Delay transition classes until after initial mount to avoid format bar height animation on note load
-  const [hasTransitioned, setHasTransitioned] = useState(false);
-  useEffect(() => {
-    if (!hasTransitioned && currentNote) {
-      const id = requestAnimationFrame(() => setHasTransitioned(true));
-      return () => cancelAnimationFrame(id);
-    }
-  }, [hasTransitioned, currentNote]);
 
   // Source mode state
   const [sourceMode, setSourceMode] = useState(false);
@@ -331,6 +374,18 @@ export function Editor({
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<TiptapEditor | null>(null);
   const currentNoteIdRef = useRef<string | null>(null);
+  const currentNoteRef = useRef(currentNote);
+  // Track which note's content is currently loaded in the editor
+  const loadedNoteIdRef = useRef<string | null>(null);
+  const lastSaveRef = useRef<{
+    noteId: string;
+    content: string;
+    resultId?: string;
+  } | null>(null);
+  const sourceModeRef = useRef(false);
+  const sourceContentRef = useRef("");
+  const sourceDirtyRef = useRef(false);
+  const flushPendingSaveRef = useRef<() => void>(() => {});
   // Track if we need to save (use ref to avoid computing markdown on every keystroke)
   const needsSaveRef = useRef(false);
   // Stable refs for wikilink click handler (avoids re-registering listener on every notes change)
@@ -364,7 +419,16 @@ export function Editor({
   // Keep ref in sync with the committed current note ID.
   useEffect(() => {
     currentNoteIdRef.current = currentNote?.id ?? null;
-  }, [currentNote?.id]);
+    currentNoteRef.current = currentNote;
+  }, [currentNote]);
+
+  useEffect(() => {
+    sourceModeRef.current = sourceMode;
+  }, [sourceMode]);
+
+  useEffect(() => {
+    sourceContentRef.current = sourceContent;
+  }, [sourceContent]);
 
   // Get markdown from editor
   const getMarkdown = useCallback(
@@ -483,31 +547,55 @@ export function Editor({
   // Immediate save function (used for flushing)
   const saveImmediately = useCallback(
     async (noteId: string, content: string) => {
-      setIsSaving(true);
-      try {
-        lastSaveRef.current = { noteId, content };
-        await saveNote(content, noteId);
-      } finally {
-        setIsSaving(false);
+      lastSaveRef.current = { noteId, content };
+      const updated = await saveNote(content, noteId);
+      if (updated && lastSaveRef.current?.noteId === noteId) {
+        lastSaveRef.current = {
+          ...lastSaveRef.current,
+          resultId: updated.id,
+        };
       }
+      const active = editorRef.current;
+      const note = currentNoteRef.current;
+      if (!active || active.isDestroyed || !note) return;
+      void refreshPublishedPage(
+        currentNoteIdRef.current ?? note.id,
+        note.title,
+        active.getHTML(),
+      ).catch(() => {});
     },
     [saveNote],
   );
 
   // Flush any pending save immediately (saves to the note currently loaded in editor)
-  const flushPendingSave = useCallback(async () => {
+  const flushPendingSave = useCallback(() => {
     if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current);
       saveTimeoutRef.current = null;
     }
-
-    // Use loadedNoteIdRef (the note in the editor) not currentNoteIdRef (which may have changed)
-    if (needsSaveRef.current && editorRef.current && loadedNoteIdRef.current) {
-      needsSaveRef.current = false;
-      const markdown = getMarkdown(editorRef.current);
-      await saveImmediately(loadedNoteIdRef.current, markdown);
+    if (sourceTimeoutRef.current) {
+      clearTimeout(sourceTimeoutRef.current);
+      sourceTimeoutRef.current = null;
     }
+
+    const editor = editorRef.current;
+    const canReadEditor = Boolean(editor && !editor.isDestroyed);
+    if (!sourceModeRef.current && !canReadEditor) return;
+    const markdown = sourceModeRef.current
+      ? sourceContentRef.current
+      : getMarkdown(editor!);
+    const snapshot = capturePendingEditorSave({
+      needsSave: needsSaveRef.current || sourceDirtyRef.current,
+      noteId: loadedNoteIdRef.current,
+      markdown,
+    });
+    if (!snapshot) return;
+    needsSaveRef.current = false;
+    sourceDirtyRef.current = false;
+    void saveImmediately(snapshot.noteId, snapshot.content);
   }, [saveImmediately, getMarkdown]);
+
+  flushPendingSaveRef.current = flushPendingSave;
 
   // Schedule a debounced save (markdown computed only when timer fires)
   const scheduleSave = useCallback(() => {
@@ -515,24 +603,19 @@ export function Editor({
       clearTimeout(saveTimeoutRef.current);
     }
 
-    const savingNoteId = currentNote?.id;
+    const savingNoteId = loadedNoteIdRef.current ?? currentNoteIdRef.current;
     if (!savingNoteId) return;
 
     needsSaveRef.current = true;
 
-    saveTimeoutRef.current = window.setTimeout(async () => {
-      if (currentNoteIdRef.current !== savingNoteId || !needsSaveRef.current) {
+    saveTimeoutRef.current = window.setTimeout(() => {
+      const activeId = loadedNoteIdRef.current ?? currentNoteIdRef.current;
+      if (activeId !== savingNoteId || !needsSaveRef.current) {
         return;
       }
-
-      // Compute markdown only now, when we actually save
-      if (editorRef.current) {
-        needsSaveRef.current = false;
-        const markdown = getMarkdown(editorRef.current);
-        await saveImmediately(savingNoteId, markdown);
-      }
+      flushPendingSave();
     }, 300);
-  }, [saveImmediately, getMarkdown, currentNote?.id]);
+  }, [flushPendingSave]);
 
   const closeBlockMathPopup = useCallback(() => {
     if (blockMathPopupRef.current) {
@@ -799,6 +882,7 @@ export function Editor({
   }, [closeBlockMathPopup, handleEditBlockMath]);
 
   const editor = useEditor({
+    autofocus: false,
     textDirection,
     extensions: [
       StarterKit.configure({
@@ -823,10 +907,17 @@ export function Editor({
           class: "underline cursor-pointer",
         },
       }),
-      TextStyle,
+      TextStyle.extend({
+        renderMarkdown: (node, helpers) =>
+          inkMarkdown(helpers.renderChildren(node), node.attrs?.color),
+      }),
       Color.configure({ types: ["textStyle"] }),
-      Highlight.configure({ multicolor: true }),
+      Highlight.extend({
+        renderMarkdown: (node, helpers) =>
+          highlightMarkdown(helpers.renderChildren(node), node.attrs?.color),
+      }).configure({ multicolor: true }),
       Underline,
+      FormatShortcuts,
       // Convert markdown link syntax [text](url) into real links when typed
       Extension.create({
         name: "markdownLinkInputRule",
@@ -855,12 +946,16 @@ export function Editor({
         allowBase64: false,
       }),
       TaskList,
-      TaskItem.configure({
+      SpellTaskItem.configure({
         nested: true,
       }),
       TableKit.configure({
         table: {
-          resizable: false,
+          resizable: true,
+          lastColumnResizable: true,
+          cellMinWidth: 120,
+          handleWidth: 8,
+          View: SpellTableView,
           HTMLAttributes: {
             class: "not-prose",
           },
@@ -893,6 +988,7 @@ export function Editor({
         spellcheck: "true",
         autocorrect: "on",
         autocapitalize: "sentences",
+        ...(isMobileApp ? { tabindex: "-1" } : {}),
       },
       // Serialize copied text as markdown instead of plain text
       clipboardTextSerializer: (slice) => {
@@ -974,8 +1070,20 @@ export function Editor({
           }
         }
 
-        // Handle markdown text paste
+        // Spreadsheet and markdown tables paste as a real table, not a blob of text.
         const text = clipboardData.getData("text/plain");
+        if (text && !editorRef.current?.isActive("table")) {
+          const grid = parseTableGrid(text);
+          if (grid) {
+            editorRef.current
+              ?.chain()
+              .focus()
+              .insertContent(tableContentFromGrid(grid))
+              .run();
+            return true;
+          }
+        }
+
         if (!text) return false;
 
         // Check if text looks like markdown (has common markdown patterns)
@@ -1020,12 +1128,8 @@ export function Editor({
     immediatelyRender: false,
   });
 
-  // Track which note's content is currently loaded in the editor
-  const loadedNoteIdRef = useRef<string | null>(null);
   // Track the modified timestamp of the loaded content
   const loadedModifiedRef = useRef<number | null>(null);
-  // Track the last save (note ID and content) to detect our own saves vs external changes
-  const lastSaveRef = useRef<{ noteId: string; content: string } | null>(null);
   // Track reloadVersion to detect manual refreshes
   const lastReloadVersionRef = useRef(0);
 
@@ -1186,21 +1290,8 @@ export function Editor({
     const editorElement = editor.view.dom;
     editorElement.addEventListener("click", handleEditorClick);
 
-    const handleCheckboxChange = (event: Event) => {
-      const target = event.target;
-      if (!(target instanceof HTMLInputElement) || target.type !== "checkbox") return;
-      if (!target.checked) return;
-      if (!target.closest('ul[data-type="taskList"]')) return;
-      const host = target.closest("label") ?? target.parentElement;
-      if (host) {
-        playCheckAnimation(host).catch(() => {});
-      }
-    };
-    editorElement.addEventListener("change", handleCheckboxChange);
-
     return () => {
       editorElement.removeEventListener("click", handleEditorClick);
-      editorElement.removeEventListener("change", handleCheckboxChange);
     };
   }, [editor]);
 
@@ -1213,28 +1304,30 @@ export function Editor({
 
     const isSameNote = currentNote.id === loadedNoteIdRef.current;
 
-    // Detect rename BEFORE flush to prevent stale-ID saves from creating duplicates.
-    // When a save renames the file (title changed), the ID changes but we're still
-    // editing the same note. Update loadedNoteIdRef first so any flush uses the new ID.
-    if (!isSameNote) {
-      const lastSave = lastSaveRef.current;
-      if (
-        lastSave?.noteId === loadedNoteIdRef.current &&
-        lastSave?.content === currentNote.content
-      ) {
-        loadedNoteIdRef.current = currentNote.id;
-        loadedModifiedRef.current = currentNote.modified;
-        lastSaveRef.current = null;
-        // If user typed during the rename, flush with the now-correct ID
-        if (needsSaveRef.current) {
-          flushPendingSave();
-        }
-        return;
+    // A title save renames the file. Stay on this document: no blur, no
+    // scroll-to-top, no re-parse that wipes keystrokes typed during the save.
+    if (
+      isEditorRename({
+        loadedNoteId: loadedNoteIdRef.current,
+        nextNoteId: currentNote.id,
+        lastSavedNoteId: lastSaveRef.current?.noteId ?? null,
+        lastSavedResultId: lastSaveRef.current?.resultId ?? null,
+      })
+    ) {
+      loadedNoteIdRef.current = currentNote.id;
+      loadedModifiedRef.current = currentNote.modified;
+      if (lastSaveRef.current) {
+        lastSaveRef.current = { ...lastSaveRef.current, noteId: currentNote.id };
       }
+      currentNoteIdRef.current = currentNote.id;
+      if (needsSaveRef.current) {
+        flushPendingSave();
+      }
+      return;
     }
 
     // Flush any pending save before switching to a different note
-    if (!isSameNote && needsSaveRef.current) {
+    if (!isSameNote && (needsSaveRef.current || sourceDirtyRef.current)) {
       flushPendingSave();
     }
     // Reset source mode when genuinely switching notes (renames return early above)
@@ -1259,13 +1352,12 @@ export function Editor({
         const manager = editor.storage.markdown?.manager;
         if (manager) {
           try {
-            const parsed = manager.parse(contentToLoad);
-            editor.commands.setContent(parsed);
+            loadNoteContent(editor, manager.parse(contentToLoad));
           } catch {
-            editor.commands.setContent(contentToLoad);
+            loadNoteContent(editor, contentToLoad);
           }
         } else {
-          editor.commands.setContent(contentToLoad);
+          loadNoteContent(editor, contentToLoad);
         }
         isLoadingRef.current = false;
         return;
@@ -1287,18 +1379,15 @@ export function Editor({
 
     const contentToLoad = currentNote.content;
 
-    // Parse markdown and set content
     const manager = editor.storage.markdown?.manager;
     if (manager) {
       try {
-        const parsed = manager.parse(contentToLoad);
-        editor.commands.setContent(parsed);
+        loadNoteContent(editor, manager.parse(contentToLoad));
       } catch {
-        // Fallback to plain text if parsing fails
-        editor.commands.setContent(contentToLoad);
+        loadNoteContent(editor, contentToLoad);
       }
     } else {
-      editor.commands.setContent(contentToLoad);
+      loadNoteContent(editor, contentToLoad);
     }
 
     // Scroll to top after content is set (must be after setContent to work reliably)
@@ -1318,23 +1407,18 @@ export function Editor({
       isLoadingRef.current = false;
 
       if (consumePendingNewNote?.(loadingNoteId)) {
+        if (isMobileApp) {
+          collapseNoteSelection(editor);
+          window.dispatchEvent(new Event("focus-mobile-note-title"));
+          return;
+        }
         if (!focusAndSelectTitle(editor)) {
           editor.commands.focus("start");
         }
         return;
       }
 
-      // For brand new empty notes, focus and select all so user can start typing
-      // Skip if the note list has focus (e.g. keyboard navigation with arrow keys)
-      if (contentToLoad.trim() === "") {
-        const noteListFocused =
-          document.activeElement?.closest("[data-note-list]");
-        if (!noteListFocused) {
-          editor.commands.focus("start");
-          editor.commands.selectAll();
-        }
-      }
-      // For existing notes, don't auto-focus - let user click where they want
+      collapseNoteSelection(editor);
     });
   }, [
     currentNote,
@@ -1351,20 +1435,18 @@ export function Editor({
 
   // Cleanup on unmount - flush pending saves
   useEffect(() => {
+    const flush = () => flushPendingSaveRef.current();
+    const onHide = () => {
+      if (document.visibilityState === "hidden") flush();
+    };
+    window.addEventListener("pagehide", flush);
+    window.addEventListener("beforeunload", flush);
+    document.addEventListener("visibilitychange", onHide);
     return () => {
-      if (saveTimeoutRef.current) {
-        clearTimeout(saveTimeoutRef.current);
-      }
-      // Flush any pending save before unmounting
-      if (needsSaveRef.current && editorRef.current) {
-        needsSaveRef.current = false;
-        const manager = editorRef.current.storage.markdown?.manager;
-        const markdown = manager
-          ? manager.serialize(editorRef.current.getJSON())
-          : editorRef.current.getText();
-        // Fire and forget - save will complete in background
-        saveNote(markdown);
-      }
+      window.removeEventListener("pagehide", flush);
+      window.removeEventListener("beforeunload", flush);
+      document.removeEventListener("visibilitychange", onHide);
+      flush();
       if (linkPopupRef.current) {
         linkPopupRef.current.destroy();
       }
@@ -1372,8 +1454,7 @@ export function Editor({
         blockMathPopupRef.current.destroy();
       }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Only run cleanup on unmount, not when saveNote changes
+  }, []);
 
   // Link handlers - show inline popup at cursor position
   const handleAddLink = useCallback(() => {
@@ -1516,7 +1597,7 @@ export function Editor({
     });
     if (selected) {
       try {
-        // Copy image to assets folder and get relative path (assets/filename.ext)
+        // Copy image into Attachments and get a relative path
         const relativePath = await invoke<string>("copy_image_to_assets", {
           sourcePath: selected as string,
         });
@@ -1709,6 +1790,54 @@ export function Editor({
     return () => window.removeEventListener("print-note", handler);
   }, [handleDownloadPdf]);
 
+  const handlePublish = useCallback(async () => {
+    if (!editor || !currentNote) return;
+    try {
+      const url = await publishNote(
+        currentNote.id,
+        currentNote.title,
+        editor.getHTML(),
+      );
+      await invoke("copy_to_clipboard", { text: url });
+      toast.success("Published. Link copied — anyone with it can view this note.");
+    } catch (error) {
+      console.error("Failed to publish note:", error);
+      if (needsCloudSignIn(error)) {
+        toast.error(publishErrorMessage(error));
+        window.dispatchEvent(new CustomEvent("open-account-settings"));
+        return;
+      }
+      toast.error(publishErrorMessage(error));
+    }
+  }, [editor, currentNote]);
+
+  const handleCopyPublishedLink = useCallback(async () => {
+    if (!currentNote) return;
+    try {
+      const token = await getPublishedToken(currentNote.id);
+      if (!token) {
+        toast.error("This note isn't published");
+        return;
+      }
+      await invoke("copy_to_clipboard", { text: publishedNoteUrl(token) });
+      toast.success("Link copied");
+    } catch (error) {
+      console.error("Failed to copy published link:", error);
+      toast.error(publishErrorMessage(error));
+    }
+  }, [currentNote]);
+
+  const handleStopPublishing = useCallback(async () => {
+    if (!currentNote) return;
+    try {
+      await unpublishNote(currentNote.id);
+      toast.success("Note is no longer public");
+    } catch (error) {
+      console.error("Failed to stop publishing:", error);
+      toast.error(publishErrorMessage(error));
+    }
+  }, [currentNote]);
+
   const handleDownloadMarkdown = useCallback(async () => {
     if (!editor || !currentNote) return;
     try {
@@ -1731,6 +1860,9 @@ export function Editor({
       ["export-copy-html", () => void handleCopyHtml()],
       ["export-markdown", () => void handleDownloadMarkdown()],
       ["export-pdf", () => void handleDownloadPdf()],
+      ["note-publish", () => void handlePublish()],
+      ["note-copy-published-link", () => void handleCopyPublishedLink()],
+      ["note-stop-publishing", () => void handleStopPublishing()],
     ];
     for (const [name, action] of actions) window.addEventListener(name, action);
     return () => {
@@ -1742,6 +1874,9 @@ export function Editor({
     handleCopyPlainText,
     handleDownloadMarkdown,
     handleDownloadPdf,
+    handlePublish,
+    handleCopyPublishedLink,
+    handleStopPublishing,
   ]);
 
   // Toggle source mode — computes anchor data and toggles state;
@@ -1914,21 +2049,27 @@ export function Editor({
   const handleSourceChange = useCallback(
     (value: string) => {
       setSourceContent(value);
+      sourceContentRef.current = value;
+      sourceDirtyRef.current = true;
       if (sourceTimeoutRef.current) {
         clearTimeout(sourceTimeoutRef.current);
       }
       sourceTimeoutRef.current = window.setTimeout(async () => {
-        if (currentNote) {
-          setIsSaving(true);
-          try {
-            lastSaveRef.current = { noteId: currentNote.id, content: value };
-            await saveNote(value, currentNote.id);
-          } catch (error) {
-            console.error("Failed to save note:", error);
-            toast.error("Failed to save note");
-          } finally {
-            setIsSaving(false);
+        const noteId = loadedNoteIdRef.current ?? currentNote?.id;
+        if (!noteId) return;
+        try {
+          lastSaveRef.current = { noteId, content: value };
+          sourceDirtyRef.current = false;
+          const updated = await saveNote(value, noteId);
+          if (updated && lastSaveRef.current?.noteId === noteId) {
+            lastSaveRef.current = {
+              ...lastSaveRef.current,
+              resultId: updated.id,
+            };
           }
+        } catch (error) {
+          console.error("Failed to save note:", error);
+          toast.error("Failed to save note");
         }
       }, 300);
     },
@@ -1941,26 +2082,11 @@ export function Editor({
       focusMode={focusMode}
       onToggleSidebar={onToggleSidebar}
       onNewNote={onNewNote}
-      showCompose={(!sidebarVisible && !focusMode) || !currentNote}
+      showCompose={showCompose ?? ((!sidebarVisible && !focusMode) || !currentNote)}
+      composePlus={composePlus}
       showWindowControls={showWindowControls}
       editor={editor}
-      trailing={
-        currentNote && hasExternalChanges ? (
-          <button
-            type="button"
-            onClick={reloadCurrentNote}
-            aria-label="Reload note"
-            className="motion-interactive h-7 px-2 flex items-center gap-1 text-xs text-text-muted hover:bg-bg-hover rounded-md font-medium"
-          >
-            <RefreshCwIcon className="w-4 h-4 stroke-[1.6]" />
-            <span>Refresh</span>
-          </button>
-        ) : currentNote && isSaving ? (
-          <div className="h-7 w-7 flex items-center justify-center">
-            <SpinnerIcon className="w-4.5 h-4.5 text-text-muted/40 stroke-[1.5] animate-spin" />
-          </div>
-        ) : undefined
-      }
+      center={titlebarCenter}
     />
   ) : null;
 
@@ -1998,7 +2124,6 @@ export function Editor({
   return (
     <div className="flex-1 flex flex-col bg-bg overflow-hidden">
       {titlebar}
-      {header}
 
       {/* Editor content area with resize handles overlay */}
       <div data-editor-content-area className="relative min-h-0 flex-1 overflow-hidden">
@@ -2026,6 +2151,7 @@ export function Editor({
             }
           }}
         >
+          {header}
           {sourceMode ? (
             /* Markdown source textarea */
             <div className="flex h-full flex-col">
@@ -2114,11 +2240,12 @@ export function Editor({
                   <div
                     role="menu"
                     aria-label="Table actions"
-                    className="spell-menu fixed z-[1000] min-w-44"
+                    className="spell-menu spell-popover fixed z-[1000] min-w-44"
                     style={{
                       left: Math.min(tableContextMenu.x, window.innerWidth - 190),
                       top: Math.min(tableContextMenu.y, window.innerHeight - 250),
-                    }}
+                      "--transform-origin": "top left",
+                    } as CSSProperties}
                     onPointerDown={(event) => event.stopPropagation()}
                   >
                     {[

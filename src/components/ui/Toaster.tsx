@@ -1,27 +1,49 @@
-import { useTheme } from "../../context/ThemeContext";
+import { createPortal } from "react-dom";
 import { Toaster as Sonner } from "sonner";
+import { useTheme } from "../../context/ThemeContext";
+import { isMobileApp } from "../../lib/platform";
+import {
+  CheckIcon,
+  InfoIcon,
+  SpinnerIcon,
+  XIcon,
+} from "../icons/velocity";
+
+const toastIconClass = "ui-icon spell-toast-icon";
 
 export function Toaster() {
   const { resolvedTheme } = useTheme();
 
-  return (
+  const toaster = (
     <Sonner
       theme={resolvedTheme}
-      position="bottom-right"
-      offset={20}
-      toastOptions={{
-        classNames: {
-          toast:
-            "group toast !bg-bg/95 !backdrop-blur-xl !border-border !text-text shadow-[var(--shadow-surface)] rounded-xl w-full max-w-80",
-          description: "!text-text-muted",
-          actionButton: "!bg-accent !text-text-inverse",
-          cancelButton: "!bg-bg-muted !text-text",
-          error: "!bg-bg !text-text !border-border",
-          success: "!bg-bg !text-text !border-border",
-          warning: "!bg-bg !text-text !border-border",
-          info: "!bg-bg !text-text !border-border",
-        },
+      className="spell-toaster"
+      position={isMobileApp ? "top-center" : "bottom-right"}
+      offset={16}
+      mobileOffset={{
+        top: "calc(var(--safe-area-top) + 8px)",
+        bottom: "calc(var(--safe-area-bottom) + 8px)",
+        left: 12,
+        right: 12,
+      }}
+      duration={2800}
+      gap={10}
+      visibleToasts={3}
+      icons={{
+        success: <CheckIcon aria-hidden="true" className={toastIconClass} />,
+        error: <XIcon aria-hidden="true" className={toastIconClass} />,
+        info: <InfoIcon aria-hidden="true" className={toastIconClass} />,
+        warning: <InfoIcon aria-hidden="true" className={toastIconClass} />,
+        loading: (
+          <SpinnerIcon
+            aria-hidden="true"
+            className={`${toastIconClass} animate-spin`}
+          />
+        ),
       }}
     />
   );
+
+  if (typeof document === "undefined") return toaster;
+  return createPortal(toaster, document.body);
 }

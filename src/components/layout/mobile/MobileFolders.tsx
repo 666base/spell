@@ -1,13 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-  type PointerEvent as ReactPointerEvent,
-  type MouseEvent as ReactMouseEvent,
-} from "react";
+import { memo, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { toast } from "sonner";
 import { useNotes } from "../../../context/NotesContext";
@@ -16,7 +7,7 @@ import {
   countNotesInFolder,
 } from "../../../lib/folderTree";
 import { notesInScope } from "../../../lib/notesScope";
-import { cleanTitle } from "../../../lib/utils";
+import { cleanTitle, cn } from "../../../lib/utils";
 import * as notesService from "../../../services/notes";
 import type { FolderNode, NoteMetadata } from "../../../types/note";
 import {
@@ -24,6 +15,7 @@ import {
   loadSidebarLibrary,
   noteItemId,
   orderFolders,
+  revealFolder,
   saveSidebarLibrary,
   toggleListValue,
   type SidebarLibrary,
@@ -40,10 +32,14 @@ import {
   AlertDialogTitle,
 } from "../../ui";
 import {
+  AddNoteIcon,
   BookIcon,
-  NoteIcon,
+  CheckIcon,
+  CheckSquareIcon,
+  FolderPlusIcon,
   PinIcon,
   SettingsIcon,
+  TrashIcon,
 } from "../../icons/velocity";
 import { FolderNameDialog } from "../../notes/FolderNameDialog";
 import {
@@ -54,6 +50,8 @@ import {
   MobileScroll,
   MobileTintButton,
 } from "./MobileChrome";
+import { MobileJournalDrawer } from "./MobileJournalDrawer";
+import { useLongPress } from "./useLongPress";
 
 interface MobileFoldersProps {
   onOpenNote: () => void;
@@ -65,6 +63,8 @@ interface MobileFoldersProps {
 type SheetTarget =
   | { kind: "folder"; path: string; name: string }
   | { kind: "note"; id: string; name: string };
+
+type DeletingTarget = SheetTarget | { kind: "notes"; ids: string[] };
 
 function pinKey(target: SheetTarget) {
   return target.kind === "folder" ? folderItemId(target.path) : noteItemId(target.id);
@@ -78,73 +78,45 @@ function findFolder(folders: FolderNode[], path: string): FolderNode | undefined
   }
 }
 
-function useLongPress(onOpen: () => void, onClick: () => void) {
-  const timerRef = useRef(0);
-  const startRef = useRef<{ x: number; y: number } | null>(null);
-  const openedRef = useRef(false);
+function collectNoteIds(folder: FolderNode): string[] {
+  return [...folder.notes.map((note) => note.id), ...folder.children.flatMap(collectNoteIds)];
+}
 
-  const clear = () => {
-    window.clearTimeout(timerRef.current);
-    timerRef.current = 0;
-  };
-
-  return {
-    onPointerDown: (event: ReactPointerEvent) => {
-      if (event.pointerType === "mouse" && event.button !== 0) return;
-      openedRef.current = false;
-      startRef.current = { x: event.clientX, y: event.clientY };
-      clear();
-      timerRef.current = window.setTimeout(() => {
-        openedRef.current = true;
-        onOpen();
-      }, 420);
-    },
-    onPointerMove: (event: ReactPointerEvent) => {
-      const start = startRef.current;
-      if (!start) return;
-      if (Math.abs(event.clientX - start.x) > 8 || Math.abs(event.clientY - start.y) > 8) {
-        clear();
-        startRef.current = null;
-      }
-    },
-    onPointerUp: () => {
-      const start = startRef.current;
-      startRef.current = null;
-      clear();
-      if (start && !openedRef.current) onClick();
-    },
-    onPointerCancel: () => {
-      startRef.current = null;
-      clear();
-    },
-    onContextMenu: (event: ReactMouseEvent) => {
-      event.preventDefault();
-    },
-  };
+function collectFolderPaths(folder: FolderNode): string[] {
+  return [folder.path, ...folder.children.flatMap(collectFolderPaths)];
 }
 
 function FolderBlock({
   folder,
   depth,
-  expanded,
+  collapsed,
   pinnedNoteIds,
   pinnedFolderIds,
+  selecting,
+  selectedNoteIds,
   onToggle,
   onOpenNote,
   onOpenSheet,
+  onToggleSelect,
 }: {
   folder: FolderNode;
   depth: number;
-  expanded: Set<string>;
+  collapsed: Set<string>;
   pinnedNoteIds: Set<string>;
   pinnedFolderIds: Set<string>;
+  selecting: boolean;
+  selectedNoteIds: Set<string>;
   onToggle: (path: string) => void;
   onOpenNote: (id: string) => void;
   onOpenSheet: (target: SheetTarget) => void;
+  onToggleSelect: (id: string) => void;
 }) {
-  const open = expanded.has(folder.path);
+  const open = !collapsed.has(folder.path);
   const press = useLongPress(
-    () => onOpenSheet({ kind: "folder", path: folder.path, name: folder.name }),
+    () => {
+      if (selecting) onToggle(folder.path);
+      else onOpenSheet({ kind: "folder", path: folder.path, name: folder.name });
+    },
     () => onToggle(folder.path),
   );
 
@@ -171,12 +143,15 @@ function FolderBlock({
             key={child.path}
             folder={child}
             depth={depth + 1}
-            expanded={expanded}
+            collapsed={collapsed}
             pinnedNoteIds={pinnedNoteIds}
             pinnedFolderIds={pinnedFolderIds}
+            selecting={selecting}
+            selectedNoteIds={selectedNoteIds}
             onToggle={onToggle}
             onOpenNote={onOpenNote}
             onOpenSheet={onOpenSheet}
+            onToggleSelect={onToggleSelect}
           />
         ))}
       {open &&
@@ -186,8 +161,11 @@ function FolderBlock({
             note={note}
             depth={depth + 1}
             pinned={pinnedNoteIds.has(note.id)}
+            selecting={selecting}
+            selected={selectedNoteIds.has(note.id)}
             onOpenNote={onOpenNote}
             onOpenSheet={onOpenSheet}
+            onToggleSelect={onToggleSelect}
           />
         ))}
     </>
@@ -198,14 +176,20 @@ function NoteRow({
   note,
   depth,
   pinned,
+  selecting,
+  selected,
   onOpenNote,
   onOpenSheet,
+  onToggleSelect,
 }: {
   note: NoteMetadata;
   depth: number;
   pinned: boolean;
+  selecting: boolean;
+  selected: boolean;
   onOpenNote: (id: string) => void;
   onOpenSheet: (target: SheetTarget) => void;
+  onToggleSelect: (id: string) => void;
 }) {
   const press = useLongPress(
     () => onOpenSheet({ kind: "note", id: note.id, name: cleanTitle(note.title) }),
@@ -217,11 +201,14 @@ function NoteRow({
       type="button"
       className="mobile-folder-row"
       style={{ paddingLeft: `${16 + depth * 20}px` }}
-      {...press}
+      aria-pressed={selecting ? selected : undefined}
+      {...(selecting ? { onClick: () => onToggleSelect(note.id) } : press)}
     >
-      <span className="mobile-folder-icon">
-        <NoteIcon />
-      </span>
+      {selecting && (
+        <span className={cn("mobile-select-mark", selected && "is-on")} aria-hidden="true">
+          {selected && <CheckIcon />}
+        </span>
+      )}
       <span className="mobile-folder-label">{cleanTitle(note.title)}</span>
       {pinned && <PinIcon className="mobile-folder-pin" />}
     </button>
@@ -242,6 +229,8 @@ function ActionSheet({
   pinned,
   onClose,
   onPin,
+  onSelect,
+  onSelectNotes,
   onNewNote,
   onNewFolder,
   onDelete,
@@ -250,6 +239,8 @@ function ActionSheet({
   pinned: boolean;
   onClose: () => void;
   onPin: () => void;
+  onSelect?: () => void;
+  onSelectNotes?: () => void;
   onNewNote?: () => void;
   onNewFolder?: () => void;
   onDelete: () => void;
@@ -262,26 +253,38 @@ function ActionSheet({
         aria-label={target.name}
         onClick={(event) => event.stopPropagation()}
       >
-        <span className="mobile-drawer-handle" aria-hidden />
         <p className="mobile-action-title">{target.name}</p>
         <button type="button" className="mobile-action-item" onClick={onPin}>
-          {pinned ? "Unpin" : "Pin"}
+          <span>{pinned ? "Unpin" : "Pin"}</span>
+          <PinIcon aria-hidden="true" />
         </button>
+        {onSelect && (
+          <button type="button" className="mobile-action-item" onClick={onSelect}>
+            <span>Select</span>
+            <CheckSquareIcon aria-hidden="true" />
+          </button>
+        )}
+        {onSelectNotes && (
+          <button type="button" className="mobile-action-item" onClick={onSelectNotes}>
+            <span>Select Notes</span>
+            <CheckSquareIcon aria-hidden="true" />
+          </button>
+        )}
         {onNewNote && (
           <button type="button" className="mobile-action-item" onClick={onNewNote}>
-            New Note
+            <span>New Note</span>
+            <AddNoteIcon aria-hidden="true" />
           </button>
         )}
         {onNewFolder && (
           <button type="button" className="mobile-action-item" onClick={onNewFolder}>
-            New Folder
+            <span>New Folder</span>
+            <FolderPlusIcon aria-hidden="true" />
           </button>
         )}
         <button type="button" className="mobile-action-item is-danger" onClick={onDelete}>
-          Delete
-        </button>
-        <button type="button" className="mobile-action-cancel" onClick={onClose}>
-          Cancel
+          <span>Delete</span>
+          <TrashIcon aria-hidden="true" />
         </button>
       </div>
     </div>,
@@ -289,7 +292,7 @@ function ActionSheet({
   );
 }
 
-export function MobileFolders({
+export const MobileFolders = memo(function MobileFolders({
   onOpenNote,
   onOpenJournal,
   onOpenSettings,
@@ -303,6 +306,7 @@ export function MobileFolders({
     pinNote,
     unpinNote,
     deleteNote,
+    deleteNotes,
     deleteFolder,
   } = useNotes();
   const [knownFolders, setKnownFolders] = useState<string[]>([]);
@@ -310,11 +314,29 @@ export function MobileFolders({
   const [library, setLibrary] = useState<SidebarLibrary>(loadSidebarLibrary);
   const [pinnedNoteIds, setPinnedNoteIds] = useState<string[]>([]);
   const [sheet, setSheet] = useState<SheetTarget | null>(null);
-  const [deleting, setDeleting] = useState<SheetTarget | null>(null);
+  const [deleting, setDeleting] = useState<DeletingTarget | null>(null);
+  const [selecting, setSelecting] = useState(false);
+  const [selectedNoteIds, setSelectedNoteIds] = useState<Set<string>>(() => new Set());
+  const [journalDrawerOpen, setJournalDrawerOpen] = useState(false);
 
   const persistLibrary = useCallback((next: SidebarLibrary) => {
     setLibrary(next);
     saveSidebarLibrary(next);
+  }, []);
+
+  useEffect(() => {
+    const onExpandFolder = (event: Event) => {
+      const path = (event as CustomEvent<string>).detail;
+      if (!path) return;
+      setLibrary((current) => {
+        const next = revealFolder(current, path);
+        if (next === current) return current;
+        saveSidebarLibrary(next);
+        return next;
+      });
+    };
+    window.addEventListener("expand-folder", onExpandFolder);
+    return () => window.removeEventListener("expand-folder", onExpandFolder);
   }, []);
 
   const refreshFolders = useCallback(() => {
@@ -351,7 +373,7 @@ export function MobileFolders({
 
   const folders = tree.folders.filter((folder) => folder.path !== "journals");
   const journalCount = notesInScope(notes, { type: "journal" }).length;
-  const expanded = useMemo(() => new Set(library.expandedFolders), [library.expandedFolders]);
+  const collapsed = useMemo(() => new Set(library.collapsedFolders), [library.collapsedFolders]);
 
   const pinOrder = useMemo(() => {
     const fallback = [
@@ -406,14 +428,41 @@ export function MobileFolders({
     [onOpenNote, selectNote],
   );
 
+  const toggleSelect = useCallback((id: string) => {
+    setSelectedNoteIds((previous) => {
+      const next = new Set(previous);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const beginSelect = useCallback((ids: string[] = []) => {
+    setSelecting(true);
+    setSelectedNoteIds(new Set(ids));
+    setSheet(null);
+  }, []);
+
+  const exitSelect = useCallback(() => {
+    setSelecting(false);
+    setSelectedNoteIds(new Set());
+  }, []);
+
   const toggle = useCallback(
     (path: string) => {
       persistLibrary({
         ...library,
-        expandedFolders: toggleListValue(library.expandedFolders, path),
+        collapsedFolders: toggleListValue(library.collapsedFolders, path),
       });
     },
     [library, persistLibrary],
+  );
+
+  const journalPress = useLongPress(
+    () => setJournalDrawerOpen(true),
+    () => {
+      if (!selecting) onOpenJournal();
+    },
   );
 
   const handleCreateFolder = useCallback(
@@ -422,12 +471,7 @@ export function MobileFolders({
       try {
         await createFolder(parent, name);
         if (parent) {
-          persistLibrary({
-            ...library,
-            expandedFolders: library.expandedFolders.includes(parent)
-              ? library.expandedFolders
-              : [...library.expandedFolders, parent],
-          });
+          persistLibrary(revealFolder(library, parent));
         }
         setCreating(null);
         refreshFolders();
@@ -482,20 +526,43 @@ export function MobileFolders({
     if (!deleting) return;
     try {
       if (deleting.kind === "folder") await deleteFolder(deleting.path);
+      else if (deleting.kind === "notes") await deleteNotes(deleting.ids);
       else await deleteNote(deleting.id);
+      const removedKeys =
+        deleting.kind === "notes"
+          ? deleting.ids.map((id) => noteItemId(id))
+          : [pinKey(deleting)];
+      const removed = new Set(removedKeys);
       persistLibrary({
         ...library,
-        pinned: library.pinned.filter((id) => id !== pinKey(deleting)),
-        pinOrder: library.pinOrder.filter((id) => id !== pinKey(deleting)),
+        pinned: library.pinned.filter((id) => !removed.has(id)),
+        pinOrder: library.pinOrder.filter((id) => !removed.has(id)),
       });
       refreshFolders();
       refreshPins();
+      if (deleting.kind === "notes") exitSelect();
     } catch (error) {
       console.error(error);
-      toast.error(deleting.kind === "folder" ? "Failed to delete folder" : "Failed to delete note");
+      toast.error(
+        deleting.kind === "folder"
+          ? "Failed to delete folder"
+          : deleting.kind === "notes"
+            ? "Failed to delete notes"
+            : "Failed to delete note",
+      );
     }
     setDeleting(null);
-  }, [deleteFolder, deleteNote, deleting, library, persistLibrary, refreshFolders, refreshPins]);
+  }, [
+    deleteFolder,
+    deleteNote,
+    deleteNotes,
+    deleting,
+    exitSelect,
+    library,
+    persistLibrary,
+    refreshFolders,
+    refreshPins,
+  ]);
 
   const renderItem = (
     item: { kind: "folder"; folder: FolderNode } | { kind: "note"; note: NoteMetadata },
@@ -506,12 +573,15 @@ export function MobileFolders({
           key={item.folder.path}
           folder={item.folder}
           depth={0}
-          expanded={expanded}
+          collapsed={collapsed}
           pinnedNoteIds={pinnedNoteSet}
           pinnedFolderIds={pinnedFolderIds}
+          selecting={selecting}
+          selectedNoteIds={selectedNoteIds}
           onToggle={toggle}
           onOpenNote={handleOpenNote}
           onOpenSheet={setSheet}
+          onToggleSelect={toggleSelect}
         />
       );
     }
@@ -521,8 +591,11 @@ export function MobileFolders({
         note={item.note}
         depth={0}
         pinned={pinnedNoteSet.has(item.note.id)}
+        selecting={selecting}
+        selected={selectedNoteIds.has(item.note.id)}
         onOpenNote={handleOpenNote}
         onOpenSheet={setSheet}
+        onToggleSelect={toggleSelect}
       />
     );
   };
@@ -531,19 +604,43 @@ export function MobileFolders({
     <MobileScreen className="mobile-folders">
       <MobileNavBar
         leading={
-          <MobileTintButton title="Settings" onClick={onOpenSettings}>
-            <SettingsIcon />
-          </MobileTintButton>
+          selecting ? (
+            <button type="button" className="mobile-nav-action" onClick={exitSelect}>
+              Cancel
+            </button>
+          ) : (
+            <MobileTintButton title="Settings" onClick={onOpenSettings}>
+              <SettingsIcon />
+            </MobileTintButton>
+          )
+        }
+        title={
+          selecting
+            ? selectedNoteIds.size === 0
+              ? "Folders"
+              : `${selectedNoteIds.size} Selected`
+            : "Folders"
         }
         trailing={
-          <>
-            <MobileTintButton title="New Folder" onClick={() => setCreating("")}>
-              <FolderPlusGlyph />
-            </MobileTintButton>
-            <MobileTintButton title="New Note" onClick={onCompose}>
-              <ComposeIcon />
-            </MobileTintButton>
-          </>
+          selecting ? (
+            <button
+              type="button"
+              className="mobile-nav-action is-danger"
+              disabled={selectedNoteIds.size === 0}
+              onClick={() => setDeleting({ kind: "notes", ids: [...selectedNoteIds] })}
+            >
+              Delete
+            </button>
+          ) : (
+            <>
+              <MobileTintButton title="New Folder" onClick={() => setCreating("")}>
+                <FolderPlusGlyph />
+              </MobileTintButton>
+              <MobileTintButton title="New Note" onClick={onCompose}>
+                <ComposeIcon />
+              </MobileTintButton>
+            </>
+          )
         }
       />
       <MobileScroll edgeEnd>
@@ -551,7 +648,11 @@ export function MobileFolders({
           <Group>{pinnedItems.map((item) => renderItem(item))}</Group>
         )}
         <Group>
-          <button type="button" className="mobile-folder-row" onClick={onOpenJournal}>
+          <button
+            type="button"
+            className="mobile-folder-row"
+            {...(selecting ? {} : journalPress)}
+          >
             <span className="mobile-folder-icon">
               <BookIcon />
             </span>
@@ -563,6 +664,11 @@ export function MobileFolders({
           <Group>{restItems.map((item) => renderItem(item))}</Group>
         )}
       </MobileScroll>
+      <MobileJournalDrawer
+        open={journalDrawerOpen}
+        onClose={() => setJournalDrawerOpen(false)}
+        onOpenEntry={onOpenNote}
+      />
       <FolderNameDialog
         open={creating !== null}
         onOpenChange={(open) => {
@@ -582,12 +688,42 @@ export function MobileFolders({
           onPin={() => {
             void handlePin();
           }}
+          onSelect={
+            sheet.kind === "note"
+              ? () => beginSelect([sheet.id])
+              : undefined
+          }
+          onSelectNotes={
+            sheet.kind === "folder"
+              ? () => {
+                  const folder = findFolder(folders, sheet.path);
+                  if (!folder) {
+                    setSheet(null);
+                    return;
+                  }
+                  const ids = collectNoteIds(folder);
+                  if (ids.length === 0) {
+                    setSheet(null);
+                    return;
+                  }
+                  persistLibrary({
+                    ...library,
+                    collapsedFolders: library.collapsedFolders.filter(
+                      (path) => !collectFolderPaths(folder).includes(path),
+                    ),
+                  });
+                  beginSelect(ids);
+                }
+              : undefined
+          }
           onNewNote={
             sheet.kind === "folder"
               ? () => {
                   const path = sheet.path;
                   setSheet(null);
-                  void createNoteInFolder(path).then(() => onOpenNote());
+                  void createNoteInFolder(path).then((note) => {
+                    if (note) onOpenNote();
+                  });
                 }
               : undefined
           }
@@ -609,12 +745,18 @@ export function MobileFolders({
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              {deleting?.kind === "folder" ? "Delete folder?" : "Delete note?"}
+              {deleting?.kind === "folder"
+                ? "Delete folder?"
+                : deleting?.kind === "notes"
+                  ? `Delete ${deleting.ids.length} ${deleting.ids.length === 1 ? "note" : "notes"}?`
+                  : "Delete note?"}
             </AlertDialogTitle>
             <AlertDialogDescription>
               {deleting?.kind === "folder"
                 ? `“${deleting.name}” and all notes inside it will be deleted.`
-                : `“${deleting?.name}” will be moved to trash.`}
+                : deleting?.kind === "notes"
+                  ? `${deleting.ids.length} ${deleting.ids.length === 1 ? "note" : "notes"} will be moved to trash.`
+                  : `“${deleting?.name}” will be moved to trash.`}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -625,4 +767,4 @@ export function MobileFolders({
       </AlertDialog>
     </MobileScreen>
   );
-}
+});

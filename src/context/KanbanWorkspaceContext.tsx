@@ -71,7 +71,7 @@ function createInitialWorkspace(board?: KanbanBoard): KanbanWorkspace {
   if (!board || (board.columns.length === 0 && board.cards.length === 0)) {
     return emptyWorkspace();
   }
-  const project = makeProject({ name: "Client projects", template: "client" });
+  const project = makeProject({ name: "Projects", template: "week" });
   project.board = normalizeBoard(board);
   return { version: 2, activeProjectId: project.id, projects: [project] };
 }

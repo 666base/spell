@@ -6,12 +6,13 @@ export interface SidebarLibrary {
   hidden: string[];
   folderOrder: string[];
   itemOrder: string[];
-  expandedFolders: string[];
+  collapsedFolders: string[];
   collapsed: LibrarySectionId[];
   showHidden: LibrarySectionId[];
 }
 
 const STORAGE_KEY = "spell:sidebar-library";
+const LEGACY_COLLAPSED_KEY = "scratch:collapsedFolders";
 
 const EMPTY: SidebarLibrary = {
   pinned: [],
@@ -19,7 +20,7 @@ const EMPTY: SidebarLibrary = {
   hidden: [],
   folderOrder: [],
   itemOrder: [],
-  expandedFolders: [],
+  collapsedFolders: [],
   collapsed: [],
   showHidden: [],
 };
@@ -38,26 +39,35 @@ export function noteItemId(id: string) {
 
 export const MONEY_ITEM_ID = "money";
 
+function stringList(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((id): id is string => typeof id === "string") : [];
+}
+
+function loadLegacyCollapsedFolders(): string[] {
+  try {
+    const saved = window.localStorage.getItem(LEGACY_COLLAPSED_KEY);
+    return saved ? stringList(JSON.parse(saved)) : [];
+  } catch {
+    return [];
+  }
+}
+
 export function loadSidebarLibrary(): SidebarLibrary {
   try {
     const saved = window.localStorage.getItem(STORAGE_KEY);
-    if (!saved) return EMPTY;
+    if (!saved) {
+      return { ...EMPTY, collapsedFolders: loadLegacyCollapsedFolders() };
+    }
     const parsed = JSON.parse(saved) as Partial<SidebarLibrary>;
     return {
-      pinned: Array.isArray(parsed.pinned) ? parsed.pinned.filter((id) => typeof id === "string") : [],
-      pinOrder: Array.isArray(parsed.pinOrder)
-        ? parsed.pinOrder.filter((id) => typeof id === "string")
-        : [],
-      hidden: Array.isArray(parsed.hidden) ? parsed.hidden.filter((id) => typeof id === "string") : [],
-      folderOrder: Array.isArray(parsed.folderOrder)
-        ? parsed.folderOrder.filter((id) => typeof id === "string")
-        : [],
-      itemOrder: Array.isArray(parsed.itemOrder)
-        ? parsed.itemOrder.filter((id) => typeof id === "string")
-        : [],
-      expandedFolders: Array.isArray(parsed.expandedFolders)
-        ? parsed.expandedFolders.filter((id) => typeof id === "string")
-        : [],
+      pinned: stringList(parsed.pinned),
+      pinOrder: stringList(parsed.pinOrder),
+      hidden: stringList(parsed.hidden),
+      folderOrder: stringList(parsed.folderOrder),
+      itemOrder: stringList(parsed.itemOrder),
+      collapsedFolders: Array.isArray(parsed.collapsedFolders)
+        ? stringList(parsed.collapsedFolders)
+        : loadLegacyCollapsedFolders(),
       collapsed: Array.isArray(parsed.collapsed)
         ? parsed.collapsed.filter((id): id is LibrarySectionId =>
             id === "projects" || id === "folders" || id === "money",
@@ -84,6 +94,15 @@ export function saveSidebarLibrary(library: SidebarLibrary) {
 
 export function toggleListValue<T extends string>(list: T[], value: T) {
   return list.includes(value) ? list.filter((item) => item !== value) : [...list, value];
+}
+
+export function revealFolder(library: SidebarLibrary, path: string): SidebarLibrary {
+  if (!path) return library;
+  const parts = path.split("/").filter(Boolean);
+  const chain = new Set(parts.map((_, index) => parts.slice(0, index + 1).join("/")));
+  const collapsedFolders = library.collapsedFolders.filter((item) => !chain.has(item));
+  if (collapsedFolders.length === library.collapsedFolders.length) return library;
+  return { ...library, collapsedFolders };
 }
 
 export function orderFolders(paths: string[], order: string[]) {

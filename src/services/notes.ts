@@ -45,8 +45,11 @@ export async function deleteNote(id: string): Promise<void> {
   return invoke("delete_note", { id });
 }
 
-export async function createNote(targetFolder?: string): Promise<Note> {
-  return invoke("create_note", { targetFolder: targetFolder ?? null });
+export async function createNote(targetFolder?: string, content?: string): Promise<Note> {
+  return invoke("create_note", {
+    targetFolder: targetFolder ?? null,
+    content: content ?? null,
+  });
 }
 
 export async function listFolders(): Promise<string[]> {
@@ -112,6 +115,22 @@ export interface SearchResult {
 
 export async function searchNotes(query: string): Promise<SearchResult[]> {
   return invoke("search_notes", { query });
+}
+
+export interface ImportReport {
+  imported: number;
+  skipped: number;
+  lastId: string | null;
+}
+
+export async function importNotes(
+  paths: string[],
+  targetFolder?: string,
+): Promise<ImportReport> {
+  return invoke("import_notes", {
+    paths,
+    targetFolder: targetFolder ?? null,
+  });
 }
 
 export async function startFileWatcher(): Promise<void> {

@@ -3,6 +3,7 @@ import {
   AccountIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
+  DownloadIcon,
   IntegrationsIcon,
   SettingsIcon,
   SwatchIcon,
@@ -10,6 +11,7 @@ import {
 import { IconButton } from "../ui";
 import { cn } from "../../lib/utils";
 import { AccountSettingsSection } from "./AccountSettingsSection";
+import { AppUpdateSection } from "./AppUpdateSection";
 import { GeneralSettingsSection } from "./GeneralSettingsSection";
 import { AppearanceSettingsSection } from "./AppearanceSettingsSection";
 import { ToolsSettingsSection } from "./ToolsSettingsSection";
@@ -22,6 +24,7 @@ interface SettingsPageProps {
 }
 
 type SettingsTab = "account" | "general" | "appearance" | "plugins";
+type MobileSection = SettingsTab | "update";
 
 const tabs: {
   id: SettingsTab;
@@ -34,9 +37,18 @@ const tabs: {
   { id: "plugins", label: "Plugins", icon: IntegrationsIcon },
 ];
 
+const mobileRows: {
+  id: MobileSection;
+  label: string;
+  icon: typeof AccountIcon;
+}[] = [
+  { id: "update", label: "App Update", icon: DownloadIcon },
+  ...tabs,
+];
+
 export function SettingsPage({ onBack, compact = false }: SettingsPageProps) {
   const [activeTab, setActiveTab] = useState<SettingsTab>("account");
-  const [section, setSection] = useState<SettingsTab | null>(null);
+  const [section, setSection] = useState<MobileSection | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -60,8 +72,9 @@ export function SettingsPage({ onBack, compact = false }: SettingsPageProps) {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
-  const body = (tab: SettingsTab) => (
+  const body = (tab: MobileSection) => (
     <>
+      {tab === "update" && <AppUpdateSection />}
       {tab === "account" && <AccountSettingsSection />}
       {tab === "general" && <GeneralSettingsSection />}
       {tab === "appearance" && <AppearanceSettingsSection />}
@@ -70,7 +83,7 @@ export function SettingsPage({ onBack, compact = false }: SettingsPageProps) {
   );
 
   if (compact) {
-    const open = section ? tabs.find((tab) => tab.id === section) : null;
+    const open = section ? mobileRows.find((tab) => tab.id === section) : null;
     return (
       <div className="mobile-settings">
         <header className="mobile-nav">
@@ -81,7 +94,7 @@ export function SettingsPage({ onBack, compact = false }: SettingsPageProps) {
               onClick={open ? () => setSection(null) : onBack}
             >
               <ChevronLeftIcon className="mobile-nav-back-icon" />
-              <span>{open ? "Settings" : "Folders"}</span>
+              <span className="min-w-0 truncate pb-[0.2em] pe-[0.25em] leading-6">{open ? "Settings" : "Folders"}</span>
             </button>
           </div>
           <div className="mobile-nav-title">{open ? open.label : "Settings"}</div>
@@ -93,7 +106,7 @@ export function SettingsPage({ onBack, compact = false }: SettingsPageProps) {
           ) : (
             <section className="mobile-group">
               <div className="mobile-group-card">
-                {tabs.map((tab) => {
+                {mobileRows.map((tab) => {
                   const Icon = tab.icon;
                   return (
                     <button

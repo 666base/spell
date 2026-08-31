@@ -1,5 +1,6 @@
-import { useCallback, useMemo, memo, useEffect, useRef, useState } from "react";
+import { useCallback, useMemo, memo, useEffect, useRef, useState, type ReactNode } from "react";
 import * as ContextMenu from "@radix-ui/react-context-menu";
+import { useDraggable, useDroppable } from "@dnd-kit/core";
 import { useNotes } from "../../context/NotesContext";
 import {
   ListItem,
@@ -12,9 +13,12 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "../ui";
-import { cleanTitle } from "../../lib/utils";
+import { cleanTitle, cn } from "../../lib/utils";
 import * as notesService from "../../services/notes";
 import { notesInScope } from "../../lib/notesScope";
+import { applyNoteListDrag, sortNotesForList } from "../../lib/noteListOrder";
+import { noteItemId } from "../../lib/sidebarLibrary";
+import { LIBRARY_NOTE_REORDER } from "../../lib/libraryDnd";
 import { VirtualizedNoteList } from "./VirtualizedNoteList";
 import { NoNotesEmpty } from "./NoNotesEmpty";
 import type { NoteMetadata, Settings } from "../../types/note";
@@ -225,6 +229,53 @@ export const NoteItemWithMenu = memo(function NoteItemWithMenu({
 
 type JournalListItem = NoteMetadata & { isPlaceholder?: boolean };
 
+function DraggableNoteRow({
+  id,
+  title,
+  preview,
+  meta,
+  disabled,
+  children,
+}: {
+  id: string;
+  title: string;
+  preview?: string;
+  meta?: string;
+  disabled?: boolean;
+  children: ReactNode;
+}) {
+  const itemId = noteItemId(id);
+  const data = {
+    type: "note" as const,
+    id,
+    label: cleanTitle(title),
+    preview,
+    meta,
+  };
+  const { attributes, listeners, setNodeRef: setDragRef, isDragging } = useDraggable({
+    id: itemId,
+    disabled,
+    data,
+  });
+  const { setNodeRef: setDropRef } = useDroppable({ id: itemId, data });
+  const setRef = (node: HTMLDivElement | null) => {
+    setDragRef(node);
+    setDropRef(node);
+  };
+  return (
+    <div
+      ref={setRef}
+      data-library-id={itemId}
+      data-dragging={isDragging ? "true" : undefined}
+      className={cn("library-hit", isDragging && "is-dragging")}
+      {...attributes}
+      {...listeners}
+    >
+      {children}
+    </div>
+  );
+}
+
 function journalListItems(notes: NoteMetadata[]): JournalListItem[] {
   const today = startOfLocalDay();
   const todayId = journalIdForDate(today);
@@ -281,6 +332,7 @@ export function NoteList({
     duplicateNote,
     pinNote,
     unpinNote,
+    reorderNotes,
     isLoading,
   } = useNotes();
 
@@ -327,6 +379,8 @@ export function NoteList({
     notesService.getSettings().then(setSettings);
   }, []);
 
+  const canReorder = filter !== "journal" && !query.trim();
+
   // Memoize display items to prevent recalculation on every render
   const displayItems = useMemo(() => {
     const scope =
@@ -336,7 +390,10 @@ export function NoteList({
           ? { type: "folder" as const, path: folderPath }
           : { type: "all" as const };
     const scoped = notesInScope(notes, scope);
-    const items = filter === "journal" ? journalListItems(scoped) : scoped;
+    const items =
+      filter === "journal"
+        ? journalListItems(scoped)
+        : sortNotesForList(scoped, settings?.pinnedNoteIds || [], settings?.noteOrder || []);
     const needle = query.trim().toLowerCase();
     if (!needle) return items;
     return items.filter((item) => {
@@ -344,7 +401,35 @@ export function NoteList({
       const preview = (item.preview ?? "").toLowerCase();
       return title.includes(needle) || preview.includes(needle);
     });
-  }, [filter, folderPath, notes, query]);
+  }, [filter, folderPath, notes, query, settings]);
+
+  useEffect(() => {
+    const onReorder = (event: Event) => {
+      const detail = (event as CustomEvent<{ fromId: string; toId: string }>).detail;
+      if (!detail) return;
+      const visibleIds = displayItems.map((item) => item.id);
+      if (!visibleIds.includes(detail.fromId) || !visibleIds.includes(detail.toId)) return;
+      void (async () => {
+        const next = applyNoteListDrag({
+          visibleIds,
+          fromId: detail.fromId,
+          toId: detail.toId,
+          pinnedIds: settings?.pinnedNoteIds || [],
+          noteOrder: settings?.noteOrder || [],
+        });
+        const current = settings ?? (await notesService.getSettings());
+        const updated = {
+          ...current,
+          pinnedNoteIds: next.pinnedNoteIds,
+          noteOrder: next.noteOrder,
+        };
+        setSettings(updated);
+        await reorderNotes(next.pinnedNoteIds, next.noteOrder);
+      })();
+    };
+    window.addEventListener(LIBRARY_NOTE_REORDER, onReorder);
+    return () => window.removeEventListener(LIBRARY_NOTE_REORDER, onReorder);
+  }, [displayItems, reorderNotes, settings]);
 
   const placeholderIds = useMemo(
     () =>
@@ -471,57 +556,78 @@ export function NoteList({
         count={displayItems.length}
         scrollRef={containerRef}
         renderRow={(index) => {
-          const item = displayItems[index] as JournalListItem;
-          const isJournal = filter === "journal";
-          const isPlaceholder = item.isPlaceholder === true;
-          const journalDate = parseJournalDate(item.id);
-          const isTodayJournal =
-            isJournal &&
-            journalDate != null &&
-            journalDate.getTime() === startOfLocalDay().getTime();
-          const isSelected =
-            selectedNoteId === item.id ||
-            (isPlaceholder &&
-              (!selectedNoteId || !selectedNoteId.startsWith("journals/")));
+              const item = displayItems[index] as JournalListItem;
+              const isJournal = filter === "journal";
+              const isPlaceholder = item.isPlaceholder === true;
+              const journalDate = parseJournalDate(item.id);
+              const isTodayJournal =
+                isJournal &&
+                journalDate != null &&
+                journalDate.getTime() === startOfLocalDay().getTime();
+              const folder =
+                !isJournal && item.id.includes("/")
+                  ? item.id.substring(0, item.id.lastIndexOf("/"))
+                  : null;
+              const displayPreview = folder
+                ? item.preview
+                  ? `${folder}/ · ${item.preview}`
+                  : `${folder}/`
+                : item.preview;
+              const metaLabel = isTodayJournal ? "Today" : formatDate(item.modified);
+              const isSelected = selectedNoteId === item.id;
+              const isMultiSelected =
+                multiSelectedNoteIds.size > 1 &&
+                multiSelectedNoteIds.has(item.id);
 
-          if (isPlaceholder) {
-            return (
-              <NoteItem
-                id={item.id}
-                title={item.title}
-                preview=""
-                modified={item.modified}
-                isSelected={isSelected}
-                isPinned={false}
-                onSelect={handleNoteSelect}
-                showFolderPrefix={false}
-                metaLabel="Today"
-              />
-            );
-          }
+              if (isPlaceholder) {
+                return (
+                  <NoteItem
+                    id={item.id}
+                    title={item.title}
+                    preview=""
+                    modified={item.modified}
+                    isSelected={isSelected}
+                    isPinned={false}
+                    onSelect={handleNoteSelect}
+                    showFolderPrefix={false}
+                    metaLabel="Today"
+                  />
+                );
+              }
 
-          return (
-            <NoteItemWithMenu
-              key={item.id}
-              id={item.id}
-              title={item.title}
-              preview={item.preview}
-              modified={item.modified}
-              isSelected={isSelected}
-              isMultiSelected={multiSelectedNoteIds.has(item.id)}
-              isPinned={pinnedIds.has(item.id)}
-              onSelect={handleNoteSelect}
-              onPin={pinNote}
-              onUnpin={unpinNote}
-              onDuplicate={duplicateNote}
-              onDelete={openDeleteDialogForNote}
-              onRefreshSettings={refreshSettings}
-              showFolderPrefix={!isJournal}
-              metaLabel={isTodayJournal ? "Today" : undefined}
-            />
-          );
-        }}
-      />
+              const row = (
+                <NoteItemWithMenu
+                  id={item.id}
+                  title={item.title}
+                  preview={item.preview}
+                  modified={item.modified}
+                  isSelected={isSelected}
+                  isMultiSelected={isMultiSelected}
+                  isPinned={pinnedIds.has(item.id)}
+                  onSelect={handleNoteSelect}
+                  onPin={pinNote}
+                  onUnpin={unpinNote}
+                  onDuplicate={duplicateNote}
+                  onDelete={openDeleteDialogForNote}
+                  onRefreshSettings={refreshSettings}
+                  showFolderPrefix={!isJournal}
+                  metaLabel={isTodayJournal ? "Today" : undefined}
+                />
+              );
+
+              return (
+                <DraggableNoteRow
+                  id={item.id}
+                  title={item.title}
+                  preview={displayPreview}
+                  meta={metaLabel}
+                  disabled={!canReorder}
+                >
+                  {row}
+                </DraggableNoteRow>
+              );
+            }}
+          />
 
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <AlertDialogContent>

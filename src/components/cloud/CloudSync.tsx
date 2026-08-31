@@ -7,10 +7,19 @@ import {
   subscribeToCloudNotes,
   syncCloudNotes,
 } from "../../services/cloudSync";
-import { getCloudSession, isSupabaseConfigured } from "../../services/supabase";
+import {
+  getCloudSession,
+  isSupabaseConfigured,
+  startCloudAuthListener,
+} from "../../services/supabase";
 
 export function CloudSync() {
   const { refreshNotes } = useNotes();
+
+  useEffect(() => {
+    if (!isSupabaseConfigured()) return;
+    return startCloudAuthListener();
+  }, []);
 
   useEffect(() => {
     if (!isSupabaseConfigured()) return;

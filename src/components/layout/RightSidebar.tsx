@@ -33,9 +33,11 @@ import {
   ExportIcon,
   OutlineIcon,
   SettingsIcon,
+  ShareIcon,
 } from "../icons/velocity";
 import { RightSidebarResizeHandle } from "./RightSidebarResizeHandle";
 import { WindowControls } from "./WindowControls";
+import { usePublishedNote } from "../../hooks/usePublishedNote";
 
 
 export type RightPanelId = "outline" | "calendar" | "export" | "settings";
@@ -286,7 +288,9 @@ export function RightSidebar({
           {shownPanel === "calendar" && (
             <CalendarPanel notes={notes} onSelectNote={onSelectNote} />
           )}
-          {shownPanel === "export" && <ExportPanel disabled={!currentNote} />}
+          {shownPanel === "export" && (
+            <ExportPanel disabled={!currentNote} noteId={currentNote?.id} />
+          )}
         </div>
       </div>
     </aside>
@@ -506,7 +510,20 @@ function CalendarPanel({
   );
 }
 
-function ExportPanel({ disabled }: { disabled: boolean }) {
+function ExportPanel({
+  disabled,
+  noteId,
+}: {
+  disabled: boolean;
+  noteId?: string;
+}) {
+  const { published } = usePublishedNote(noteId);
+  const publishActions = published
+    ? [
+        { label: "Copy Link", event: "note-copy-published-link" },
+        { label: "Stop Publishing", event: "note-stop-publishing" },
+      ]
+    : [{ label: "Publish", event: "note-publish" }];
   const actions = [
     { label: "Copy Markdown", icon: CopyIcon, event: "export-copy-markdown" },
     { label: "Copy Plain Text", icon: CopyIcon, event: "export-copy-text" },
@@ -517,6 +534,19 @@ function ExportPanel({ disabled }: { disabled: boolean }) {
   return (
     <PanelSection>
       <div className="space-y-0.5">
+        {publishActions.map((action) => (
+          <button
+            key={action.event}
+            type="button"
+            disabled={disabled}
+            className="motion-interactive flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[11px] hover:bg-bg-muted disabled:cursor-not-allowed disabled:opacity-40"
+            onClick={() => window.dispatchEvent(new CustomEvent(action.event))}
+          >
+            <ShareIcon className="h-3.5 w-3.5 stroke-[1.6] text-text-muted" />
+            {action.label}
+          </button>
+        ))}
+        <div className="my-1.5 h-px bg-border" />
         {actions.map((action) => {
           const Icon = action.icon;
           return (

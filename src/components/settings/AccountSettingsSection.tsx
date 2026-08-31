@@ -1,11 +1,29 @@
 import { useCallback, useEffect, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, isTauri } from "@tauri-apps/api/core";
+import { open } from "@tauri-apps/plugin-dialog";
 import { toast } from "sonner";
 import type { Session } from "@supabase/supabase-js";
 import { useNotes } from "../../context/NotesContext";
+import { useGit } from "../../context/GitContext";
 import { useTheme } from "../../context/ThemeContext";
 import { isAndroid } from "../../lib/platform";
+import {
+  CLOUD_PASSWORD_RECOVERY_EVENT,
+  isPasswordRecoveryPending,
+} from "../../lib/cloudAuth";
+import {
+  FOLDER_SYNC_OPTIONS,
+  activeSyncDestination,
+  folderSyncOption,
+  githubRepoLabel,
+  isGitHubRemote,
+  parseFolderSyncKind,
+  type FolderSyncKind,
+  type SyncDestination,
+} from "../../lib/folderSync";
+import { cn } from "../../lib/utils";
 import * as notesService from "../../services/notes";
+import * as gitService from "../../services/git";
 import {
   activateCloudVault,
   getCloudSyncStatus,
@@ -30,12 +48,15 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
   Button,
+  Input,
 } from "../ui";
 import {
+  CheckIcon,
   CloudCheckIcon,
   CloudPlusIcon,
   FolderIcon,
   FoldersIcon,
+  GitBranchIcon,
   LogOutIcon,
   SpinnerIcon,
 } from "../icons/velocity";
@@ -83,6 +104,14 @@ function syncStatusLabel(
 export function AccountSettingsSection() {
   const { notesFolder, setNotesFolder, syncNotesFolder, refreshNotes } = useNotes();
   const { reloadSettings } = useTheme();
+  const {
+    status: gitStatus,
+    gitAvailable,
+    addRemote,
+    isAddingRemote,
+    sync: gitSync,
+    isSyncing: isGitSyncing,
+  } = useGit();
   const cloudAvailable = isSupabaseConfigured();
 
   const [session, setSession] = useState<Session | null>(null);
@@ -96,6 +125,13 @@ export function AccountSettingsSection() {
   const [isEnablingSync, setIsEnablingSync] = useState(false);
   const [isSyncingNow, setIsSyncingNow] = useState(false);
   const [confirmEnableSync, setConfirmEnableSync] = useState(false);
+  const [pendingFolderKind, setPendingFolderKind] = useState<FolderSyncKind | null>(
+    null,
+  );
+  const [isPickingFolder, setIsPickingFolder] = useState(false);
+  const [needsNewPassword, setNeedsNewPassword] = useState(isPasswordRecoveryPending);
+  const [preferredKind, setPreferredKind] = useState<FolderSyncKind | null>(null);
+  const [githubRemote, setGithubRemote] = useState("");
 
   const reloadAccount = useCallback(async () => {
     const [userId, nextSession] = await Promise.all([
@@ -121,11 +157,32 @@ export function AccountSettingsSection() {
     };
     load();
     window.addEventListener("spell-cloud-session-ready", load);
+    const onRecovery = () => setNeedsNewPassword(true);
+    const onReady = () => setNeedsNewPassword(isPasswordRecoveryPending());
+    window.addEventListener(CLOUD_PASSWORD_RECOVERY_EVENT, onRecovery);
+    window.addEventListener("spell-cloud-session-ready", onReady);
     return () => {
       cancelled = true;
       window.removeEventListener("spell-cloud-session-ready", load);
+      window.removeEventListener(CLOUD_PASSWORD_RECOVERY_EVENT, onRecovery);
+      window.removeEventListener("spell-cloud-session-ready", onReady);
     };
   }, [reloadAccount, notesFolder]);
+
+  useEffect(() => {
+    let cancelled = false;
+    notesService
+      .getSettings()
+      .then((settings) => {
+        if (!cancelled) setPreferredKind(parseFolderSyncKind(settings.folderSyncKind));
+      })
+      .catch(() => {
+        if (!cancelled) setPreferredKind(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [notesFolder]);
 
   useEffect(() => subscribeCloudSyncStatus(setSyncStatus), []);
 
@@ -150,8 +207,17 @@ export function AccountSettingsSection() {
   const email = session?.user.email ?? "";
   const syncEnabled = Boolean(cloudUserId);
   const signedIn = Boolean(session);
+  const destination = activeSyncDestination(syncEnabled, notesFolder, {
+    preferredKind,
+    remoteUrl: gitStatus?.remoteUrl,
+  });
+  const activeFolderKind = destination === "cloud" ? "folder" : destination;
+  const folderOptions = isAndroid
+    ? FOLDER_SYNC_OPTIONS.filter((option) => option.id === "folder")
+    : FOLDER_SYNC_OPTIONS;
 
   const handleSignedIn = async (userId: string) => {
+    setNeedsNewPassword(false);
     const currentCloudId = await notesService.getCloudUserId();
     if (currentCloudId === userId) {
       await reloadAccount();
@@ -220,26 +286,128 @@ export function AccountSettingsSection() {
     }
   };
 
-  const handleChangeFolder = async () => {
+  const applyFolder = async (path: string, kind: FolderSyncKind) => {
+    await setNotesFolder(path);
+    setActiveCloudUser(null);
+    setPreferredKind(kind);
+    try {
+      const settings = await notesService.getSettings();
+      if (settings.folderSyncKind !== kind) {
+        await notesService.updateSettings({ ...settings, folderSyncKind: kind });
+      }
+    } catch (error) {
+      console.error("Failed to save folder sync kind:", error);
+    }
+    if (kind === "github") {
+      if (!gitAvailable) {
+        toast.error("Install Git to sync this folder with GitHub.");
+      } else {
+        try {
+          await notesService.updateGitEnabled(true, path);
+          await gitService.initGitRepo();
+          window.dispatchEvent(new CustomEvent("spell-git-settings-changed"));
+        } catch (error) {
+          console.error("Failed to enable GitHub sync:", error);
+          toast.error("Folder is ready. Connect the GitHub repository below.");
+        }
+      }
+    }
+    await reloadSettings();
+    await reloadAccount();
+  };
+
+  const pickFolderKind = async (kind: FolderSyncKind) => {
+    if (isPickingFolder) return;
+    const option = folderSyncOption(kind);
+    setIsPickingFolder(true);
     try {
       if (isAndroid) {
-        await setNotesFolder("");
-        await reloadSettings();
-        await reloadAccount();
+        await applyFolder("", "folder");
         return;
       }
-
-      const selected = await invoke<string | null>("open_folder_dialog", {
-        defaultPath: notesFolder || null,
+      if (!isTauri()) {
+        toast.error("Folder sync is available in the Spell desktop app.");
+        return;
+      }
+      toast.message(option.hint);
+      const selected = await open({
+        directory: true,
+        multiple: false,
+        title: option.dialogTitle,
+        defaultPath: notesFolder || undefined,
       });
-      if (selected) {
-        await setNotesFolder(selected);
-        await reloadSettings();
-        await reloadAccount();
+      if (selected && typeof selected === "string") {
+        await applyFolder(selected, kind);
+        toast.success(
+          kind === "github"
+            ? "This folder will sync with GitHub"
+            : `Saving notes in ${option.label}`,
+        );
       }
     } catch (error) {
       console.error("Failed to select folder:", error);
       toast.error("Failed to select folder");
+    } finally {
+      setIsPickingFolder(false);
+      setPendingFolderKind(null);
+    }
+  };
+
+  const handleSelectDestination = (destination: SyncDestination) => {
+    if (destination === "cloud") {
+      if (syncEnabled) return;
+      if (!signedIn) {
+        toast.message("Sign in above to use Spell Cloud.");
+        return;
+      }
+      setConfirmEnableSync(true);
+      return;
+    }
+    if (syncEnabled) {
+      setPendingFolderKind(destination);
+      return;
+    }
+    void pickFolderKind(destination);
+  };
+
+  const handleLeaveCloudForFolder = async () => {
+    if (!pendingFolderKind) return;
+    const kind = pendingFolderKind;
+    setPendingFolderKind(null);
+    await pickFolderKind(kind);
+  };
+
+  const handleChangeFolder = () => {
+    if (isAndroid) {
+      void pickFolderKind("folder");
+      return;
+    }
+    handleSelectDestination(syncEnabled ? "folder" : activeFolderKind);
+  };
+
+  const handleConnectGithub = async () => {
+    const url = githubRemote.trim();
+    if (!url || isAddingRemote) return;
+    if (!isGitHubRemote(url)) {
+      toast.error("Use a GitHub repository URL.");
+      return;
+    }
+    const ok = await addRemote(url);
+    if (ok) {
+      setGithubRemote("");
+      toast.success("GitHub repository connected");
+    } else {
+      toast.error("Could not add that GitHub repository");
+    }
+  };
+
+  const handleGitSyncNow = async () => {
+    const result = await gitSync();
+    if (result.ok) {
+      await refreshNotes();
+      toast.success(result.message || "Vault is up to date");
+    } else {
+      toast.error(result.error);
     }
   };
 
@@ -260,7 +428,9 @@ export function AccountSettingsSection() {
       <section className="pb-2">
         <h2 className="text-xl font-medium mb-0.5">Account</h2>
         <p className="text-sm text-text-muted mb-4">
-          Sign in to sync notes across your devices
+          {isAndroid
+            ? "Sign in with email for Spell Cloud. Drive and Dropbox folders are on the desktop app, not a phone login."
+            : "Sign in with email for Spell Cloud. GitHub, Drive, and Dropbox sync a folder of files — they are not a login."}
         </p>
 
         {loadingAccount ? (
@@ -273,7 +443,7 @@ export function AccountSettingsSection() {
               Spell Cloud is not configured in this build.
             </p>
           </div>
-        ) : signedIn ? (
+        ) : signedIn && !needsNewPassword ? (
           <div className="rounded-[10px] border border-border p-4 space-y-3">
             <div className="flex items-center gap-3">
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-bg-muted text-sm font-semibold text-text">
@@ -307,127 +477,175 @@ export function AccountSettingsSection() {
       <section className="pb-2">
         <h2 className="text-xl font-medium mb-0.5">Sync</h2>
         <p className="text-sm text-text-muted mb-4">
-          Keep a live copy of this vault in Spell Cloud
+          {isAndroid
+            ? "Sign in with email to keep notes in sync on this phone. Google Drive, Dropbox, and GitHub folders live on the desktop app."
+            : "Spell Cloud is a live vault. GitHub, Drive, and Dropbox keep markdown files in a folder."}
         </p>
 
-        <div className="rounded-[10px] border border-border p-4 space-y-3">
-          <div className="flex items-center gap-2.5">
-            <div className="p-2 rounded-md bg-bg-muted">
-              {syncEnabled ? (
-                <CloudCheckIcon className="w-4.5 h-4.5 stroke-[1.5] text-text-muted" />
-              ) : (
-                <CloudPlusIcon className="w-4.5 h-4.5 stroke-[1.5] text-text-muted" />
-              )}
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-medium text-text">Spell Cloud</p>
-              <p className="text-xs text-text-muted">{statusText}</p>
-            </div>
-          </div>
-
-          {syncEnabled && (
-            <div className="flex items-center justify-between pt-1 border-t border-border border-dashed">
-              <span className="text-sm text-text font-medium">Last sync</span>
-              <span className="text-sm text-text-muted">
-                {formatRelativeTime(syncStatus.lastSyncedAt)}
-              </span>
-            </div>
-          )}
-
-          <div className="flex flex-wrap items-center gap-2 pt-1">
-            {signedIn && !syncEnabled && (
-              <Button
-                onClick={() => setConfirmEnableSync(true)}
-                variant="primary"
-                size="md"
-                disabled={isEnablingSync}
-              >
-                {isEnablingSync ? "Switching…" : "Enable Spell Cloud"}
-              </Button>
-            )}
-            {syncEnabled && signedIn && (
-              <Button
-                onClick={handleSyncNow}
-                variant="outline"
-                size="md"
-                disabled={isSyncingNow || syncStatus.isSyncing}
-              >
-                {isSyncingNow || syncStatus.isSyncing ? (
-                  <>
-                    <SpinnerIcon className="w-3.25 h-3.25 mr-2 animate-spin" />
-                    Syncing…
-                  </>
-                ) : (
-                  "Sync now"
-                )}
-              </Button>
-            )}
-            {!signedIn && cloudAvailable && (
-              <p className="text-sm text-text-muted">
-                Sign in above to turn on sync.
-              </p>
-            )}
-          </div>
-        </div>
-      </section>
-
-      <div className="border-t border-border border-dashed" />
-
-      <section className="pb-2">
-        <h2 className="text-xl font-medium mb-0.5">Vault</h2>
-        <p className="text-sm text-text-muted mb-4">
-          {syncEnabled
-            ? "This vault is managed by Spell Cloud and stays available offline"
-            : "Your notes are stored as markdown files in this folder"}
-        </p>
-
-        <div className="flex items-center gap-2.5 p-2.5 rounded-[10px] border border-border mb-2.5">
-          <div className="p-2 rounded-md bg-bg-muted">
-            {syncEnabled ? (
-              <CloudCheckIcon className="w-4.5 h-4.5 stroke-[1.5] text-text-muted" />
-            ) : (
-              <FolderIcon className="w-4.5 h-4.5 stroke-[1.5] text-text-muted" />
-            )}
-          </div>
-          <p
-            className="text-sm text-text-muted truncate"
-            title={notesFolder || undefined}
-          >
-            {syncEnabled
-              ? "Cloud vault on this device"
-              : isAndroid
-                ? "Offline notes on this device"
-                : formatPath(notesFolder)}
-          </p>
-        </div>
-
-        {(!isAndroid || syncEnabled) && (
-          <div className="flex items-center gap-1">
-            <Button
-              onClick={handleChangeFolder}
-              variant="outline"
-              size="md"
-              className="gap-1.25"
+        <div className="rounded-[10px] border border-border divide-y divide-dashed divide-border">
+          <div className={cn("p-4 space-y-3", destination === "cloud" && "bg-bg-selected/40")}>
+            <button
+              type="button"
+              className="flex w-full items-start gap-2.5 text-left"
+              onClick={() => handleSelectDestination("cloud")}
+              disabled={isEnablingSync || isPickingFolder}
             >
-              <FoldersIcon className="w-4.5 h-4.5 stroke-[1.5]" />
-              {isAndroid
-                ? "Use offline storage"
-                : syncEnabled
-                  ? "Use a local folder"
-                  : "Change folder"}
-            </Button>
-            {notesFolder && !isAndroid && (
-              <Button
-                onClick={handleOpenFolder}
-                variant="ghost"
-                size="md"
-                className="gap-1.25 text-text"
-              >
-                Open folder
-              </Button>
+              <div className="p-2 rounded-md bg-bg-muted">
+                {destination === "cloud" ? (
+                  <CloudCheckIcon className="w-4.5 h-4.5 stroke-[1.5] text-text-muted" />
+                ) : (
+                  <CloudPlusIcon className="w-4.5 h-4.5 stroke-[1.5] text-text-muted" />
+                )}
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium text-text">Spell Cloud</p>
+                <p className="text-xs text-text-muted">
+                  {cloudAvailable ? statusText : "Not configured in this build"}
+                </p>
+              </div>
+              {destination === "cloud" && (
+                <CheckIcon className="mt-1 h-4 w-4 shrink-0 stroke-[1.7] text-text" />
+              )}
+            </button>
+
+            {destination === "cloud" && (
+              <>
+                <div className="flex items-center justify-between pt-1 border-t border-border border-dashed">
+                  <span className="text-sm text-text font-medium">Last sync</span>
+                  <span className="text-sm text-text-muted tabular-nums">
+                    {formatRelativeTime(syncStatus.lastSyncedAt)}
+                  </span>
+                </div>
+                {signedIn && (
+                  <Button
+                    onClick={handleSyncNow}
+                    variant="outline"
+                    size="md"
+                    disabled={isSyncingNow || syncStatus.isSyncing}
+                  >
+                    {isSyncingNow || syncStatus.isSyncing ? (
+                      <>
+                        <SpinnerIcon className="w-3.25 h-3.25 mr-2 animate-spin" />
+                        Syncing…
+                      </>
+                    ) : (
+                      "Sync now"
+                    )}
+                  </Button>
+                )}
+              </>
             )}
           </div>
-        )}
+
+          {folderOptions.map((option) => {
+            const selected = destination === option.id;
+            const Icon = option.id === "github" ? GitBranchIcon : FolderIcon;
+            return (
+              <div
+                key={option.id}
+                className={cn("p-4 space-y-3", selected && "bg-bg-selected/40")}
+              >
+                <button
+                  type="button"
+                  className="flex w-full items-start gap-2.5 text-left"
+                  onClick={() => {
+                    if (!selected) handleSelectDestination(option.id);
+                  }}
+                  disabled={isPickingFolder || isEnablingSync}
+                >
+                  <div className="p-2 rounded-md bg-bg-muted">
+                    <Icon className="w-4.5 h-4.5 stroke-[1.5] text-text-muted" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium text-text">{option.label}</p>
+                    <p className="text-xs text-text-muted">
+                      {selected && option.id === "github" && gitStatus?.remoteUrl
+                        ? githubRepoLabel(gitStatus.remoteUrl)
+                        : selected && notesFolder && !isAndroid
+                          ? formatPath(notesFolder)
+                          : option.description}
+                    </p>
+                  </div>
+                  {selected && (
+                    <CheckIcon className="mt-1 h-4 w-4 shrink-0 stroke-[1.7] text-text" />
+                  )}
+                </button>
+
+                {selected && !isAndroid && (
+                  <>
+                    <div className="flex items-center gap-1 pt-1 border-t border-border border-dashed">
+                      <Button
+                        onClick={handleChangeFolder}
+                        variant="outline"
+                        size="md"
+                        className="gap-1.25"
+                        disabled={isPickingFolder}
+                      >
+                        <FoldersIcon className="w-4.5 h-4.5 stroke-[1.5]" />
+                        Change folder
+                      </Button>
+                      {notesFolder && (
+                        <Button
+                          onClick={handleOpenFolder}
+                          variant="ghost"
+                          size="md"
+                          className="gap-1.25 text-text"
+                        >
+                          Open folder
+                        </Button>
+                      )}
+                    </div>
+                    {option.id === "github" &&
+                      (gitStatus?.hasRemote ? (
+                        <Button
+                          onClick={() => void handleGitSyncNow()}
+                          variant="outline"
+                          size="md"
+                          disabled={isGitSyncing}
+                        >
+                          {isGitSyncing ? (
+                            <>
+                              <SpinnerIcon className="w-3.25 h-3.25 mr-2 animate-spin" />
+                              Syncing…
+                            </>
+                          ) : (
+                            "Sync now"
+                          )}
+                        </Button>
+                      ) : (
+                        <div className="space-y-2">
+                          <p className="text-xs leading-5 text-text-muted">
+                            Paste the GitHub repository URL. Spell will commit and push this folder.
+                          </p>
+                          <Input
+                            type="url"
+                            value={githubRemote}
+                            onChange={(event) => setGithubRemote(event.target.value)}
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter") {
+                                event.preventDefault();
+                                void handleConnectGithub();
+                              }
+                            }}
+                            placeholder="https://github.com/you/notes.git"
+                            autoComplete="off"
+                          />
+                          <Button
+                            onClick={() => void handleConnectGithub()}
+                            variant="outline"
+                            size="md"
+                            disabled={isAddingRemote || !githubRemote.trim()}
+                          >
+                            {isAddingRemote ? "Connecting…" : "Connect GitHub"}
+                          </Button>
+                        </div>
+                      ))}
+                  </>
+                )}
+              </div>
+            );
+          })}
+        </div>
       </section>
 
       <AlertDialog open={confirmEnableSync} onOpenChange={setConfirmEnableSync}>
@@ -443,6 +661,34 @@ export function AccountSettingsSection() {
             <AlertDialogCancel>Stay here</AlertDialogCancel>
             <AlertDialogAction onClick={handleEnableSync} disabled={isEnablingSync}>
               Switch
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={pendingFolderKind !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingFolderKind(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Use {pendingFolderKind ? folderSyncOption(pendingFolderKind).label : "a folder"}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Spell Cloud stays on this device. Notes will be saved as files in the
+              folder you pick.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Stay on Spell Cloud</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => void handleLeaveCloudForFolder()}
+              disabled={isPickingFolder}
+            >
+              Choose folder
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

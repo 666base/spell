@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
+import { MOTION_PANEL_MS } from "./motion";
 
 /** Keep in sync with `--motion-panel` in App.css. */
-export const PANEL_TRANSITION_MS = 220;
+export const PANEL_TRANSITION_MS = MOTION_PANEL_MS;
 
 /**
  * Transitions a persistent rail open/closed without animating resize or

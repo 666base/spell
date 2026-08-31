@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { isTauri } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { toast } from "sonner";
@@ -6,7 +6,15 @@ import { useNotes } from "../../context/NotesContext";
 import { useTheme } from "../../context/ThemeContext";
 import { Button } from "../ui";
 import { isAndroid, isMac } from "../../lib/platform";
-import { isSupabaseConfigured } from "../../services/supabase";
+import {
+  ONBOARDING_FOLDER_SYNC_IDS,
+  folderSyncOption,
+  type FolderSyncKind,
+} from "../../lib/folderSync";
+import { getCloudSession, isSupabaseConfigured } from "../../services/supabase";
+import * as notesService from "../../services/notes";
+import * as gitService from "../../services/git";
+import { CloudAuthListener } from "../cloud/CloudAuthListener";
 import { BookIcon } from "../icons/velocity";
 import { WindowControls } from "./WindowControls";
 import { cn } from "../../lib/utils";
@@ -19,7 +27,17 @@ export function FolderPicker() {
   const [showCloudSetup, setShowCloudSetup] = useState(false);
   const [isSettingOffline, setIsSettingOffline] = useState(false);
 
-  const handleSelectFolder = async () => {
+  useEffect(() => {
+    if (!isSupabaseConfigured()) return;
+    void getCloudSession()
+      .then((session) => {
+        if (session) setShowCloudSetup(true);
+      })
+      .catch(() => {});
+  }, []);
+
+  const pickLocalFolder = async (kind: FolderSyncKind = "folder") => {
+    const option = folderSyncOption(kind);
     setIsSettingOffline(true);
     try {
       if (isAndroid) {
@@ -33,15 +51,33 @@ export function FolderPicker() {
         return;
       }
 
+      toast.message(option.hint);
+
       const selected = await open({
         directory: true,
         multiple: false,
-        title: "Choose Notes Folder",
+        title: option.dialogTitle,
       });
 
       if (selected && typeof selected === "string") {
         await setNotesFolder(selected);
-        // Reload theme/font settings from the new folder's .scratch/settings.json
+        try {
+          const settings = await notesService.getSettings();
+          await notesService.updateSettings({
+            ...settings,
+            folderSyncKind: kind,
+            gitEnabled: kind === "github" ? true : settings.gitEnabled,
+          });
+          if (kind === "github") {
+            await gitService.initGitRepo();
+            window.dispatchEvent(new CustomEvent("spell-git-settings-changed"));
+          }
+        } catch (error) {
+          console.error("Failed to prepare folder sync:", error);
+          if (kind === "github") {
+            toast.error("Folder is ready. Add a GitHub URL in Settings → Account to finish sync.");
+          }
+        }
         await reloadSettings();
       }
     } catch (error) {
@@ -54,6 +90,10 @@ export function FolderPicker() {
     } finally {
       setIsSettingOffline(false);
     }
+  };
+
+  const handleSelectFolder = () => {
+    void pickLocalFolder("folder");
   };
 
   const handleUseCloud = () => {
@@ -70,6 +110,7 @@ export function FolderPicker() {
 
   return (
     <div className="h-full flex flex-col bg-bg-secondary">
+      <CloudAuthListener />
       {/* Draggable title bar area */}
       <div
         className={cn(
@@ -98,20 +139,32 @@ export function FolderPicker() {
                 <h1 className="text-xl font-semibold tracking-[-0.03em] text-text">Make space for your thoughts</h1>
                 <p className="mt-1.5 text-sm leading-5 text-text-muted">
                   {isAndroid
-                    ? "Keep offline notes privately on this device."
-                    : "Choose where Spell should keep your notes."}
+                    ? "Keep notes on this device, or sign in with email to sync across devices. Drive and Dropbox are folders, not a login."
+                    : "Spell Cloud is an email account. GitHub, Google Drive, Dropbox, and OneDrive keep files in a folder."}
                 </p>
               </div>
             </div>
             <Button onClick={handleUseCloud} variant="primary" size="xl">
-              Use cloud
+              Use Spell Cloud
             </Button>
+            {!isAndroid &&
+              ONBOARDING_FOLDER_SYNC_IDS.map((id) => (
+                <Button
+                  key={id}
+                  onClick={() => void pickLocalFolder(id)}
+                  disabled={isSettingOffline}
+                  variant="outline"
+                  size="xl"
+                >
+                  {folderSyncOption(id).label}
+                </Button>
+              ))}
             <Button onClick={handleSelectFolder} disabled={isSettingOffline} variant="link" size="md">
               {isSettingOffline
                 ? "Setting up offline storage…"
                 : isAndroid
                   ? "Use offline on this device"
-                  : "Choose an offline folder"}
+                  : "Choose another folder"}
             </Button>
           </div>
         )}

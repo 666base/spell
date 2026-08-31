@@ -27,12 +27,13 @@ class MainActivity : TauriActivity() {
   private var lastSafeBottom = -1
   private var lastSafeLeft = -1
   private var lastSafeRight = -1
+  private var statusBarHeightPx = 0
 
   override fun onCreate(savedInstanceState: Bundle?) {
     enableEdgeToEdge()
     super.onCreate(savedInstanceState)
     WindowCompat.setDecorFitsSystemWindows(window, false)
-    window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+    window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING)
     configureSystemBars()
     listenForInsets(window.decorView)
     window.decorView.viewTreeObserver.addOnGlobalLayoutListener {
@@ -45,6 +46,7 @@ class MainActivity : TauriActivity() {
     resetInsetCache()
     webView.addJavascriptInterface(imeBridge, "SpellIme")
     webView.addJavascriptInterface(updateBridge, "SpellUpdate")
+    webView.addJavascriptInterface(SpellLinksBridge(this), "SpellLinks")
     listenForInsets(webView)
     ViewCompat.getRootWindowInsets(window.decorView)?.let(::pushInsets)
     webView.addOnAttachStateChangeListener(
@@ -60,6 +62,11 @@ class MainActivity : TauriActivity() {
         override fun onViewDetachedFromWindow(v: View) {}
       },
     )
+  }
+
+  override fun onResume() {
+    super.onResume()
+    configureSystemBars()
   }
 
   override fun onWindowFocusChanged(hasFocus: Boolean) {
@@ -94,31 +101,41 @@ class MainActivity : TauriActivity() {
 
   private fun pushInsets(insets: WindowInsetsCompat) {
     val imePx = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom
-    val safe =
-      insets.getInsets(
-        WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout(),
+    val status =
+      insets.getInsetsIgnoringVisibility(
+        WindowInsetsCompat.Type.statusBars() or WindowInsetsCompat.Type.displayCutout(),
       )
+    val navigation = insets.getInsets(WindowInsetsCompat.Type.navigationBars())
+    val cutoutTop = insets.displayCutout?.safeInsetTop ?: 0
+    val resourceTop = statusBarResourceHeight()
+    if (status.top > 0) statusBarHeightPx = status.top
+    else if (cutoutTop > 0) statusBarHeightPx = cutoutTop
+    else if (statusBarHeightPx == 0 && resourceTop > 0) statusBarHeightPx = resourceTop
+    val safeTop = maxOf(status.top, cutoutTop, statusBarHeightPx, resourceTop)
+    val safeBottom = navigation.bottom
+    val safeLeft = maxOf(status.left, navigation.left)
+    val safeRight = maxOf(status.right, navigation.right)
     if (
       imePx == lastImePx &&
-        safe.top == lastSafeTop &&
-        safe.bottom == lastSafeBottom &&
-        safe.left == lastSafeLeft &&
-        safe.right == lastSafeRight
+        safeTop == lastSafeTop &&
+        safeBottom == lastSafeBottom &&
+        safeLeft == lastSafeLeft &&
+        safeRight == lastSafeRight
     ) {
       return
     }
     lastImePx = imePx
-    lastSafeTop = safe.top
-    lastSafeBottom = safe.bottom
-    lastSafeLeft = safe.left
-    lastSafeRight = safe.right
+    lastSafeTop = safeTop
+    lastSafeBottom = safeBottom
+    lastSafeLeft = safeLeft
+    lastSafeRight = safeRight
 
     val density = resources.displayMetrics.density
     val imeCss = imePx / density
-    val topCss = safe.top / density
-    val bottomCss = safe.bottom / density
-    val leftCss = safe.left / density
-    val rightCss = safe.right / density
+    val topCss = safeTop / density
+    val bottomCss = safeBottom / density
+    val leftCss = safeLeft / density
+    val rightCss = safeRight / density
     imeBridge.cssPx = imeCss
     val js =
       "window.__SPELL_IME__=$imeCss;" +
@@ -139,12 +156,18 @@ class MainActivity : TauriActivity() {
     lastSafeRight = -1
   }
 
+  private fun statusBarResourceHeight(): Int {
+    val resId = resources.getIdentifier("status_bar_height", "dimen", "android")
+    return if (resId > 0) resources.getDimensionPixelSize(resId) else 0
+  }
+
   private fun configureSystemBars() {
     WindowCompat.getInsetsController(window, window.decorView).apply {
       isAppearanceLightStatusBars = false
       isAppearanceLightNavigationBars = false
-      systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_DEFAULT
-      show(WindowInsetsCompat.Type.statusBars())
+      systemBarsBehavior =
+        WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+      hide(WindowInsetsCompat.Type.statusBars())
       show(WindowInsetsCompat.Type.navigationBars())
     }
   }
@@ -198,6 +221,18 @@ class SpellUpdateBridge(private val activity: MainActivity) {
           addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
       activity.startActivity(intent)
+    }
+  }
+}
+
+class SpellLinksBridge(private val activity: MainActivity) {
+  @JavascriptInterface
+  fun open(url: String) {
+    activity.runOnUiThread {
+      try {
+        activity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+      } catch (_: Exception) {
+      }
     }
   }
 }

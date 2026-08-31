@@ -10,3 +10,11 @@ interface ImportMetaEnv {
 interface ImportMeta {
   readonly env: ImportMetaEnv;
 }
+
+interface SpellLinks {
+  open: (url: string) => void;
+}
+
+interface Window {
+  SpellLinks?: SpellLinks;
+}

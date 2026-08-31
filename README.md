@@ -26,13 +26,12 @@ The vault is treated as Markdown-first. `vaultsync init` adds this to the **vaul
 .trash/
 .scratch/
 .vaultsync/
+Spell Library/settings.json
 ```
 
 The first two entries are the requested device-local Obsidian state and trash. `.vaultsync/` holds this tool’s local logs, state, lock, and optional token file.
 
-`.scratch/` is also ignored on purpose. Today it mixes Spell device preferences with the Kanban and Money workspace in one JSON file. Syncing that mixed file would make an interface tweak on one device collide with project or finance data on another. The correct future solution is to store shareable projects and money records as individual portable Markdown or data files; that is a separate data-model change, not something to hide inside a file-sync watcher.
-
-As a result, this release syncs notes and normal vault files, not the current Kanban/Money workspace. Do not remove `.scratch/` from `.gitignore` unless that storage has first been split into safe, syncable records.
+`Spell Library/settings.json` is device preference (theme, layout) and stays local so an appearance tweak on one computer does not overwrite another. Boards and Money inside `Spell Library`, plus `Attachments`, are part of the vault and do sync. `.scratch/` remains ignored for older vaults that have not been opened in a current Spell release yet.
 
 Also, let `vaultsync` own commit/pull/push for this vault. Do not use Spell’s existing manual Git controls at the same time: they do not use this conflict-file convention.
 

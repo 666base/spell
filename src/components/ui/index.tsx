@@ -12,10 +12,13 @@ export {
   TooltipTrigger,
   TooltipContent,
 } from "./Tooltip";
+export { AppPopover } from "./AppPopover";
+export { AnchoredPopover } from "./AnchoredPopover";
 export { Button } from "./Button";
 export { CodeCopyButton } from "./CodeCopyButton";
 export { CheckmarkIcon, DisclosureIcon, FolderGlyph, PanelToggleIcon } from "./StateIcon";
 export { Input } from "./Input";
+export { SpellDateField, SpellMonthPicker } from "./SpellCalendar";
 export { InlineNameInput } from "./InlineNameInput";
 export { Select } from "./Select";
 export { Toaster } from "./Toaster";
@@ -123,6 +126,7 @@ export const IconButton = React.forwardRef<HTMLButtonElement, IconButtonProps>(
         )}
         data-size={size}
         data-active={active ? "true" : "false"}
+        title={title}
         aria-label={title ?? props["aria-label"]}
         aria-pressed={pressed || props["aria-pressed"] != null ? active : undefined}
       >

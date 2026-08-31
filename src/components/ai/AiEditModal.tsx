@@ -161,7 +161,7 @@ export function AiEditModal({
         role="dialog"
         aria-modal="true"
         aria-label={`${providerName} edit instruction`}
-        className="relative w-full max-w-2xl overflow-hidden rounded-xl border border-border bg-bg/95 shadow-[var(--shadow-surface)] backdrop-blur-xl pointer-events-auto"
+        className="relative w-full max-w-2xl overflow-hidden rounded-xl border border-border bg-bg shadow-[var(--shadow-surface)] pointer-events-auto"
       >
         {/* Input */}
         <div className="border-b border-border">

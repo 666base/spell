@@ -22,7 +22,7 @@ Runs on every push to `main` and on PRs. Validates the frontend and Linux Rust b
 
 - All backend operations go through Tauri commands in `src-tauri/src/lib.rs`. Frontend calls them via `invoke()` from `@tauri-apps/api/core`.
 - `NotesContext` uses a dual context pattern (data/actions separated) for performance.
-- Settings live in two places: app config at `{APP_DATA}/config.json`, per-folder settings at `{NOTES_FOLDER}/.scratch/settings.json`.
+- Settings live in two places: app config at `{APP_DATA}/config.json`, per-folder settings at `{NOTES_FOLDER}/Spell Library/settings.json`.
 - Tauri v2 permissions go in `src-tauri/capabilities/default.json`.
 
 ## Coding Conventions

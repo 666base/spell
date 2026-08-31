@@ -23,7 +23,7 @@ import {
   DisclosureIcon,
   InlineNameInput,
 } from "../ui";
-import { NoteIcon, PinIcon } from "../icons/velocity";
+import { PinIcon } from "../icons/velocity";
 import * as notesService from "../../services/notes";
 import type { FolderNode, NoteMetadata } from "../../types/note";
 
@@ -154,9 +154,7 @@ const FileItem = memo(function FileItem({
         >
           {isPinned ? (
             <PinIcon className="w-4 h-4 stroke-[1.6] fill-current text-text-muted shrink-0" />
-          ) : (
-            <NoteIcon className="w-4 h-4 stroke-[1.6] opacity-50 shrink-0" />
-          )}
+          ) : null}
           <span className="truncate text-xs text-text">
             {cleanTitle(note.title)}
           </span>
@@ -351,7 +349,10 @@ const FolderItemComponent = memo(function FolderItem({
                   note={note}
                   depth={depth + 1}
                   isSelected={selectedNoteId === note.id}
-                  isMultiSelected={multiSelectedNoteIds.has(note.id)}
+                  isMultiSelected={
+                    multiSelectedNoteIds.size > 1 &&
+                    multiSelectedNoteIds.has(note.id)
+                  }
                   isPinned={pinnedIds.has(note.id)}
                   onNoteClick={onNoteClick}
                   onPin={onPinNote}
@@ -881,7 +882,10 @@ export function FolderTreeView({
             note={note}
             depth={0}
             isSelected={selectedNoteId === note.id}
-            isMultiSelected={multiSelectedNoteIds.has(note.id)}
+            isMultiSelected={
+              multiSelectedNoteIds.size > 1 &&
+              multiSelectedNoteIds.has(note.id)
+            }
             isPinned={pinnedIds.has(note.id)}
             onNoteClick={handleNoteClick}
             onPin={pinNote}

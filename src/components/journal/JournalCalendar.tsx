@@ -1,17 +1,23 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from "react";
 import { addDays, addMonths, addWeeks, format, startOfMonth, startOfWeek } from "date-fns";
 import { bg } from "date-fns/locale";
 import { cn } from "../../lib/utils";
+import { MOTION_PANEL_MS } from "../../lib/motion";
 import { isSameLocalDay, startOfLocalDay } from "../../lib/journal";
-import { isMobileApp } from "../../lib/platform";
+
+export type JournalCalendarMode = "week" | "month";
 
 interface JournalCalendarProps {
   selected: Date;
   journalDates: Set<string>;
   onSelectDate: (date: Date) => void;
+  defaultMode?: JournalCalendarMode;
+  mode?: JournalCalendarMode;
+  onModeChange?: (mode: JournalCalendarMode) => void;
 }
 
 const WEEK_STARTS_ON = 1 as const;
+const SETTLE_MS = MOTION_PANEL_MS;
 
 function dateKey(date: Date): string {
   return format(date, "yyyy-MM-dd");
@@ -33,6 +39,18 @@ function monthWeeks(month: Date): Date[][] {
   );
 }
 
+function selectedWeekIndex(selected: Date, month: Date): number {
+  const weeks = monthWeeks(month);
+  const index = weeks.findIndex((row) => row.some((date) => isSameLocalDay(date, selected)));
+  return index < 0 ? 0 : index;
+}
+
+function reducedMotion() {
+  return (
+    typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  );
+}
+
 function DayCell({
   date,
   selected,
@@ -40,6 +58,7 @@ function DayCell({
   outside,
   journalDates,
   onSelectDate,
+  skipClick,
 }: {
   date: Date;
   selected: Date;
@@ -47,6 +66,7 @@ function DayCell({
   outside?: boolean;
   journalDates: Set<string>;
   onSelectDate: (date: Date) => void;
+  skipClick: RefObject<boolean>;
 }) {
   const key = dateKey(date);
   const isToday = isSameLocalDay(date, today);
@@ -64,7 +84,10 @@ function DayCell({
         outside && "is-outside",
         journalDates.has(key) && "has-journal",
       )}
-      onClick={() => onSelectDate(date)}
+      onClick={() => {
+        if (skipClick.current) return;
+        onSelectDate(date);
+      }}
     >
       <span>{date.getDate()}</span>
       {journalDates.has(key) && <i />}
@@ -72,27 +95,121 @@ function DayCell({
   );
 }
 
+function DateGrid({
+  mode,
+  cursor,
+  selected,
+  today,
+  journalDates,
+  onSelectDate,
+  skipClick,
+}: {
+  mode: "week" | "month";
+  cursor: Date;
+  selected: Date;
+  today: Date;
+  journalDates: Set<string>;
+  onSelectDate: (date: Date) => void;
+  skipClick: RefObject<boolean>;
+}) {
+  if (mode === "week") {
+    return (
+      <div className="journal-calendar-week">
+        {daysOfWeek(cursor).map((date) => (
+          <DayCell
+            key={dateKey(date)}
+            date={date}
+            selected={selected}
+            today={today}
+            journalDates={journalDates}
+            onSelectDate={onSelectDate}
+            skipClick={skipClick}
+          />
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div className="journal-calendar-month-grid">
+      {monthWeeks(cursor).map((row) => (
+        <div key={dateKey(row[0])} className="journal-calendar-week">
+          {row.map((date) => (
+            <DayCell
+              key={dateKey(date)}
+              date={date}
+              selected={selected}
+              today={today}
+              outside={date.getMonth() !== cursor.getMonth()}
+              journalDates={journalDates}
+              onSelectDate={onSelectDate}
+              skipClick={skipClick}
+            />
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function JournalCalendar({
   selected,
   journalDates,
   onSelectDate,
+  defaultMode = "week",
+  mode: modeProp,
+  onModeChange,
 }: JournalCalendarProps) {
-  const rootRef = useRef<HTMLDivElement>(null);
-  const swipeRef = useRef<{ x: number; y: number } | null>(null);
+  const viewportRef = useRef<HTMLDivElement>(null);
+  const stripRef = useRef<HTMLDivElement>(null);
+  const skipClick = useRef(false);
+  const widthRef = useRef(0);
+  const modeRef = useRef<JournalCalendarMode>("week");
+  const selectedRef = useRef(selected);
+  const onSelectDateRef = useRef(onSelectDate);
+  const setModeRef = useRef<(next: JournalCalendarMode) => void>(() => {});
+  const dragRef = useRef<{
+    id: number;
+    x: number;
+    y: number;
+    dx: number;
+    dy: number;
+    t: number;
+    axis: "h" | "v" | null;
+  } | null>(null);
   const today = startOfLocalDay();
-  const [mode, setMode] = useState<"week" | "month">("week");
-  const [cursor, setCursor] = useState(selected);
+  const [internalMode, setInternalMode] = useState<JournalCalendarMode>(defaultMode);
+  const mode = modeProp ?? internalMode;
+  const [fill, setFill] = useState<JournalCalendarMode>(mode);
+  const setMode = (next: JournalCalendarMode) => {
+    if (modeProp === undefined) setInternalMode(next);
+    onModeChange?.(next);
+  };
+  modeRef.current = mode;
+  selectedRef.current = selected;
+  onSelectDateRef.current = onSelectDate;
+  setModeRef.current = setMode;
 
   useEffect(() => {
-    setCursor(selected);
-  }, [selected]);
+    if (mode === "month") {
+      setFill("month");
+      return;
+    }
+    const timeout = window.setTimeout(
+      () => setFill("week"),
+      reducedMotion() ? 0 : SETTLE_MS,
+    );
+    return () => window.clearTimeout(timeout);
+  }, [mode]);
 
   useEffect(() => {
     if (mode !== "month") return;
-    const root = rootRef.current;
+    const root = viewportRef.current;
     if (!root) return;
-    const host = root.closest(".flex-1") ?? document;
-    const scroller = host.querySelector("[data-editor-scroll], .journal-empty");
+    const page = root.closest("[data-journal-page]");
+    const scroller =
+      (page?.querySelector("[data-editor-scroll]") as HTMLElement | null) ??
+      root.closest("[data-editor-scroll], .journal-empty");
     if (!scroller) return;
 
     let origin = scroller.scrollTop;
@@ -104,7 +221,7 @@ export function JournalCalendar({
 
     const onScroll = () => {
       if (!armed) return;
-      if (scroller.scrollTop - origin >= 30) setMode("week");
+      if (scroller.scrollTop - origin >= 30) setModeRef.current("week");
     };
     scroller.addEventListener("scroll", onScroll, { passive: true });
     return () => {
@@ -113,54 +230,137 @@ export function JournalCalendar({
     };
   }, [mode]);
 
+  const setX = (x: number, animate: boolean) => {
+    const strip = stripRef.current;
+    if (!strip) return;
+    strip.style.transition =
+      animate && !reducedMotion() ? `transform ${SETTLE_MS}ms var(--ease-drawer)` : "none";
+    strip.style.transform = `translate3d(${x}px, 0, 0)`;
+  };
+
+  useLayoutEffect(() => {
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+    const sync = () => {
+      const width = viewport.clientWidth;
+      widthRef.current = width;
+      stripRef.current?.style.setProperty("--journal-cal-width", `${width}px`);
+      if (!dragRef.current) setX(-width, false);
+    };
+    sync();
+    const observer = new ResizeObserver(sync);
+    observer.observe(viewport);
+    return () => observer.disconnect();
+  }, [selected, mode]);
+
+  useEffect(() => {
+    const onMove = (event: PointerEvent) => {
+      const drag = dragRef.current;
+      if (!drag || event.pointerId !== drag.id) return;
+      const dx = event.clientX - drag.x;
+      const dy = event.clientY - drag.y;
+      if (!drag.axis) {
+        if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
+        drag.axis = Math.abs(dx) > Math.abs(dy) ? "h" : "v";
+      }
+      if (drag.axis === "h") {
+        drag.dx = dx;
+        skipClick.current = true;
+        if (event.cancelable) event.preventDefault();
+        setX(-widthRef.current + dx, false);
+        return;
+      }
+      drag.dy = dy;
+    };
+
+    const onUp = (event: PointerEvent) => {
+      const drag = dragRef.current;
+      if (!drag || event.pointerId !== drag.id) return;
+      dragRef.current = null;
+      const width = widthRef.current;
+
+      if (drag.axis === "v") {
+        if (Math.abs(drag.dy) > 36) setModeRef.current(drag.dy > 0 ? "month" : "week");
+        skipClick.current = false;
+        return;
+      }
+
+      if (drag.axis !== "h") {
+        skipClick.current = false;
+        return;
+      }
+
+      const velocity = drag.dx / Math.max(16, event.timeStamp - drag.t);
+      const go = Math.abs(drag.dx) > width * 0.18 || Math.abs(velocity) > 0.45;
+      if (!go) {
+        setX(-width, true);
+        window.setTimeout(() => {
+          skipClick.current = false;
+        }, 0);
+        return;
+      }
+
+      const dir = drag.dx < 0 ? 1 : -1;
+      const target = dir === 1 ? -2 * width : 0;
+      const strip = stripRef.current;
+      let done = false;
+      const finish = () => {
+        if (done) return;
+        done = true;
+        strip?.removeEventListener("transitionend", onEnd);
+        const current = selectedRef.current;
+        const next =
+          modeRef.current === "week" ? addWeeks(current, dir) : addMonths(current, dir);
+        onSelectDateRef.current(startOfLocalDay(next));
+        skipClick.current = false;
+      };
+      const onEnd = (endEvent: TransitionEvent) => {
+        if (endEvent.propertyName !== "transform") return;
+        finish();
+      };
+
+      if (reducedMotion()) {
+        finish();
+        return;
+      }
+      strip?.addEventListener("transitionend", onEnd);
+      setX(target, true);
+      window.setTimeout(finish, SETTLE_MS + 60);
+    };
+
+    window.addEventListener("pointermove", onMove, { passive: false });
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+    };
+  }, []);
+
   const weekdays = useMemo(
     () => daysOfWeek(new Date(2024, 0, 1)).map((day) => format(day, "EEEEE", { locale: bg })),
     [],
   );
-  const week = useMemo(() => daysOfWeek(cursor), [cursor]);
-  const weeks = useMemo(() => monthWeeks(cursor), [cursor]);
-  const showingCurrent =
-    mode === "week"
-      ? week.some((day) => isSameLocalDay(day, today))
-      : cursor.getFullYear() === today.getFullYear() && cursor.getMonth() === today.getMonth();
+  const shiftSelected = (dir: -1 | 0 | 1) =>
+    dir === 0
+      ? selected
+      : mode === "week"
+        ? addWeeks(selected, dir)
+        : addMonths(selected, dir);
 
-  const goPrev = () => {
-    const next = mode === "week" ? addWeeks(selected, -1) : addMonths(selected, -1);
-    onSelectDate(startOfLocalDay(next));
-  };
-
-  const goNext = () => {
-    const next = mode === "week" ? addWeeks(selected, 1) : addMonths(selected, 1);
-    onSelectDate(startOfLocalDay(next));
-  };
-
-  const toggleMode = () => {
-    setMode((current) => (current === "week" ? "month" : "week"));
-  };
+  const pinRow =
+    mode === "week" && fill === "month"
+      ? selectedWeekIndex(selected, startOfMonth(selected))
+      : 0;
 
   return (
-    <div ref={rootRef} className="journal-calendar" data-mode={mode}>
-      {!isMobileApp && (
-        <div className="journal-calendar-toolbar">
-          <button
-            type="button"
-            className="journal-calendar-month-label"
-            onClick={toggleMode}
-          >
-            {format(cursor, "LLLL yyyy", { locale: bg })}
-          </button>
-          {!showingCurrent && (
-            <button
-              type="button"
-              className="journal-calendar-today"
-              onClick={() => onSelectDate(today)}
-            >
-              Today
-            </button>
-          )}
-        </div>
-      )}
-
+    <div
+      className="journal-calendar"
+      data-mode={mode}
+      data-pager-ignore
+      style={{ "--pin-row": pinRow } as CSSProperties}
+    >
       <div className="journal-calendar-weekdays">
         {weekdays.map((label, index) => (
           <div key={`${label}-${index}`} className="journal-calendar-weekday">
@@ -170,72 +370,39 @@ export function JournalCalendar({
       </div>
 
       <div
+        ref={viewportRef}
         className="journal-calendar-viewport"
         onPointerDown={(event) => {
+          if (event.button !== 0) return;
           event.stopPropagation();
-          swipeRef.current = { x: event.clientX, y: event.clientY };
-        }}
-        onPointerUp={(event) => {
-          const start = swipeRef.current;
-          swipeRef.current = null;
-          if (!start) return;
-          const dx = event.clientX - start.x;
-          const dy = event.clientY - start.y;
-          if (Math.abs(dy) > 36 && Math.abs(dy) > Math.abs(dx)) {
-            setMode(dy > 0 ? "month" : "week");
-            return;
-          }
-          if (Math.abs(dx) < 48 || Math.abs(dx) < Math.abs(dy)) return;
-          if (dx < 0) goNext();
-          else goPrev();
+          dragRef.current = {
+            id: event.pointerId,
+            x: event.clientX,
+            y: event.clientY,
+            dx: 0,
+            dy: 0,
+            t: event.timeStamp,
+            axis: null,
+          };
         }}
       >
-        {mode === "week" ? (
-          <div className="journal-calendar-week">
-            {week.map((date) => (
-              <DayCell
-                key={dateKey(date)}
-                date={date}
+        <div ref={stripRef} className="journal-calendar-strip">
+          {([-1, 0, 1] as const).map((dir) => (
+            <div key={dir} className="journal-calendar-panel">
+              <DateGrid
+                mode={fill}
+                cursor={shiftSelected(dir)}
                 selected={selected}
                 today={today}
                 journalDates={journalDates}
                 onSelectDate={onSelectDate}
+                skipClick={skipClick}
               />
-            ))}
-          </div>
-        ) : (
-          <div className="journal-calendar-month-grid">
-            {weeks.map((row) => (
-              <div key={dateKey(row[0])} className="journal-calendar-week">
-                {row.map((date) => (
-                  <DayCell
-                    key={dateKey(date)}
-                    date={date}
-                    selected={selected}
-                    today={today}
-                    outside={date.getMonth() !== cursor.getMonth()}
-                    journalDates={journalDates}
-                    onSelectDate={onSelectDate}
-                  />
-                ))}
-              </div>
-            ))}
-          </div>
-        )}
+            </div>
+          ))}
+        </div>
       </div>
 
-      {!isMobileApp && (
-        <button
-          type="button"
-          className="journal-calendar-handle"
-          aria-expanded={mode === "month"}
-          aria-label={mode === "month" ? "Show week" : "Show month"}
-          onPointerDown={(event) => event.stopPropagation()}
-          onClick={toggleMode}
-        >
-          <span />
-        </button>
-      )}
     </div>
   );
 }

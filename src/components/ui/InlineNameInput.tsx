@@ -22,26 +22,59 @@ export function InlineNameInput({
   const [isSaving, setIsSaving] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const inputId = useId();
+  const doneRef = useRef(false);
 
   useEffect(() => {
-    inputRef.current?.focus();
+    const input = inputRef.current;
+    if (!input) return;
+    input.focus();
+    input.select();
   }, []);
 
-  const handleSubmit = useCallback(async (event: FormEvent) => {
-    event.preventDefault();
-    const trimmed = name.trim();
-    if (!trimmed || isSaving) return;
+  const finish = useCallback(() => {
+    doneRef.current = true;
+  }, []);
 
+  const submit = useCallback(async () => {
+    if (doneRef.current || isSaving) return;
+
+    const trimmed = name.trim();
+    if (!trimmed || trimmed === initialValue.trim()) {
+      finish();
+      onCancel();
+      return;
+    }
+
+    finish();
     setIsSaving(true);
     try {
       await onConfirm(trimmed);
     } catch {
+      doneRef.current = false;
       setIsSaving(false);
     }
-  }, [isSaving, name, onConfirm]);
+  }, [finish, initialValue, isSaving, name, onCancel, onConfirm]);
+
+  const cancel = useCallback(() => {
+    if (doneRef.current) return;
+    finish();
+    onCancel();
+  }, [finish, onCancel]);
+
+  const handleSubmit = useCallback(
+    (event: FormEvent) => {
+      event.preventDefault();
+      void submit();
+    },
+    [submit],
+  );
 
   return (
-    <form className={className} onSubmit={handleSubmit}>
+    <form
+      className={className}
+      onSubmit={handleSubmit}
+      onPointerDown={(event) => event.stopPropagation()}
+    >
       <label htmlFor={inputId} className="sr-only">{label}</label>
       <Input
         ref={inputRef}
@@ -49,10 +82,14 @@ export function InlineNameInput({
         name={inputId}
         value={name}
         onChange={(event) => setName(event.target.value)}
+        onBlur={() => {
+          void submit();
+        }}
         onKeyDown={(event) => {
           if (event.key === "Escape") {
             event.preventDefault();
-            onCancel();
+            event.stopPropagation();
+            cancel();
           }
         }}
         placeholder={placeholder}

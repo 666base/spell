@@ -1,15 +1,22 @@
-import { useEffect, useRef, useState, type MouseEvent } from "react";
-import type { Editor } from "@tiptap/react";
+import { useRef, useState, type MouseEvent } from "react";
+import { type Editor, useEditorState } from "@tiptap/react";
 import { useNotes } from "../../context/NotesContext";
-import { IconButton } from "../ui";
+import { NOTE_HIGHLIGHTS } from "../../lib/noteColors";
+import { AnchoredPopover, IconButton } from "../ui";
 import {
   NotesAaIcon,
+  NotesBoldIcon,
   NotesChecklistIcon,
+  NotesHighlightIcon,
+  NotesItalicIcon,
   NotesPhotoIcon,
+  NotesUnderlineIcon,
   NotesShareIcon,
   NotesTableIcon,
 } from "../icons/notesToolbar";
 import { FormatToolbar } from "../editor/FormatToolbar";
+import { usePublishedNote } from "../../hooks/usePublishedNote";
+import { mod, shift } from "../../lib/platform";
 
 const SHARE_ACTIONS = [
   { label: "Copy Markdown", event: "export-copy-markdown" },
@@ -27,24 +34,19 @@ function stopEditorBlur(event: MouseEvent) {
 export function TitlebarTools({ editor = null }: { editor?: Editor | null }) {
   const { currentNote } = useNotes();
   const [open, setOpen] = useState<OpenMenu>(null);
-  const rootRef = useRef<HTMLDivElement>(null);
+  const formatRef = useRef<HTMLButtonElement>(null);
+  const shareRef = useRef<HTMLButtonElement>(null);
   const hasNote = Boolean(currentNote && editor);
-
-  useEffect(() => {
-    if (!open) return;
-    const close = (event: PointerEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) setOpen(null);
-    };
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setOpen(null);
-    };
-    document.addEventListener("pointerdown", close);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("pointerdown", close);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
+  const { published } = usePublishedNote(currentNote?.id);
+  const formatting = useEditorState({
+    editor,
+    selector: ({ editor: current }) => ({
+      bold: current?.isActive("bold") ?? false,
+      italic: current?.isActive("italic") ?? false,
+      underline: current?.isActive("underline") ?? false,
+      highlight: current?.isActive("highlight") ?? false,
+    }),
+  });
 
   const insert = (eventName: string) => {
     if (!hasNote) return;
@@ -53,14 +55,61 @@ export function TitlebarTools({ editor = null }: { editor?: Editor | null }) {
 
   return (
     <div
-      ref={rootRef}
       className="notes-toolbar relative flex items-center"
       role="toolbar"
       aria-label="Note"
     >
       <div className="notes-toolbar-group">
+        <IconButton
+          size="sm"
+          title={`Bold (${mod}+B)`}
+          disabled={!hasNote}
+          pressed={formatting?.bold ?? false}
+          onMouseDown={stopEditorBlur}
+          onClick={() => editor?.chain().focus().toggleBold().run()}
+        >
+          <NotesBoldIcon />
+        </IconButton>
+        <IconButton
+          size="sm"
+          title={`Italic (${mod}+I)`}
+          disabled={!hasNote}
+          pressed={formatting?.italic ?? false}
+          onMouseDown={stopEditorBlur}
+          onClick={() => editor?.chain().focus().toggleItalic().run()}
+        >
+          <NotesItalicIcon />
+        </IconButton>
+        <IconButton
+          size="sm"
+          title={`Underline (${mod}+U)`}
+          disabled={!hasNote}
+          pressed={formatting?.underline ?? false}
+          onMouseDown={stopEditorBlur}
+          onClick={() => editor?.chain().focus().toggleUnderline().run()}
+        >
+          <NotesUnderlineIcon />
+        </IconButton>
+        <IconButton
+          size="sm"
+          title={`Highlight (${mod}+${shift}+H)`}
+          disabled={!hasNote}
+          pressed={formatting?.highlight ?? false}
+          onMouseDown={stopEditorBlur}
+          onClick={() => {
+            if (!editor) return;
+            if (editor.isActive("highlight")) {
+              editor.chain().focus().unsetHighlight().run();
+              return;
+            }
+            editor.chain().focus().setHighlight({ color: NOTE_HIGHLIGHTS[0].value }).run();
+          }}
+        >
+          <NotesHighlightIcon />
+        </IconButton>
         <div className="relative">
           <IconButton
+            ref={formatRef}
             size="sm"
             title="Format"
             disabled={!hasNote}
@@ -70,15 +119,23 @@ export function TitlebarTools({ editor = null }: { editor?: Editor | null }) {
           >
             <NotesAaIcon />
           </IconButton>
-          {open === "format" && editor && (
-            <div className="absolute left-1/2 top-full z-50 mt-1.5 -translate-x-1/2">
+          {editor && (
+            <AnchoredPopover
+              open={open === "format"}
+              onClose={() => setOpen(null)}
+              anchorRef={formatRef}
+              align="center"
+            >
               <FormatToolbar editor={editor} />
-            </div>
+            </AnchoredPopover>
           )}
         </div>
+      </div>
+
+      <div className="notes-toolbar-group">
         <IconButton
           size="sm"
-          title="Checklist"
+          title={`Checklist (${mod}+${shift}+9)`}
           disabled={!hasNote}
           onMouseDown={stopEditorBlur}
           onClick={() => insert("toolbar-checklist")}
@@ -107,6 +164,7 @@ export function TitlebarTools({ editor = null }: { editor?: Editor | null }) {
 
       <div className="notes-toolbar-group relative">
         <IconButton
+          ref={shareRef}
           size="sm"
           title="Share"
           disabled={!hasNote}
@@ -116,29 +174,72 @@ export function TitlebarTools({ editor = null }: { editor?: Editor | null }) {
         >
           <NotesShareIcon />
         </IconButton>
-        {open === "share" && (
-          <div
-            role="menu"
-            aria-label="Share"
-            className="spell-menu spell-popover absolute right-0 top-full z-50 mt-1 min-w-44 origin-top-right"
-          >
-            {SHARE_ACTIONS.map((action) => (
+        <AnchoredPopover
+          open={open === "share"}
+          onClose={() => setOpen(null)}
+          anchorRef={shareRef}
+              align="end"
+              origin="top right"
+              className="spell-menu min-w-44"
+        >
+          {published ? (
+            <>
               <button
-                key={action.event}
                 type="button"
                 role="menuitem"
                 className="spell-menu-item cursor-pointer"
                 onMouseDown={stopEditorBlur}
                 onClick={() => {
-                  window.dispatchEvent(new CustomEvent(action.event));
+                  window.dispatchEvent(new CustomEvent("note-copy-published-link"));
                   setOpen(null);
                 }}
               >
-                {action.label}
+                Copy Link
               </button>
-            ))}
-          </div>
-        )}
+              <button
+                type="button"
+                role="menuitem"
+                className="spell-menu-item spell-menu-item-danger cursor-pointer"
+                onMouseDown={stopEditorBlur}
+                onClick={() => {
+                  window.dispatchEvent(new CustomEvent("note-stop-publishing"));
+                  setOpen(null);
+                }}
+              >
+                Stop Publishing
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              role="menuitem"
+              className="spell-menu-item cursor-pointer"
+              onMouseDown={stopEditorBlur}
+              onClick={() => {
+                window.dispatchEvent(new CustomEvent("note-publish"));
+                setOpen(null);
+              }}
+            >
+              Publish
+            </button>
+          )}
+          <div className="spell-menu-separator" />
+          {SHARE_ACTIONS.map((action) => (
+            <button
+              key={action.event}
+              type="button"
+              role="menuitem"
+              className="spell-menu-item cursor-pointer"
+              onMouseDown={stopEditorBlur}
+              onClick={() => {
+                window.dispatchEvent(new CustomEvent(action.event));
+                setOpen(null);
+              }}
+            >
+              {action.label}
+            </button>
+          ))}
+        </AnchoredPopover>
       </div>
     </div>
   );

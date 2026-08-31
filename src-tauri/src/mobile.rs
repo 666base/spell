@@ -6,7 +6,8 @@ use std::sync::Mutex;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Manager, State};
 
-const EXCLUDED_DIRECTORIES: &[&str] = &[".git", ".obsidian", ".scratch", ".trash"];
+use crate::library;
+
 const MAX_NOTE_DEPTH: usize = 10;
 
 #[derive(Debug, Clone, Serialize)]
@@ -111,12 +112,10 @@ fn save_config(app: &AppHandle, config: &AppConfig) -> Result<(), String> {
     write_atomic(&path, &contents)
 }
 
-fn settings_path(vault: &Path) -> PathBuf {
-    vault.join(".scratch").join("settings.json")
-}
-
 fn load_settings(vault: &Path) -> Value {
-    let path = settings_path(vault);
+    let current = library::settings_path(vault);
+    let legacy = vault.join(".scratch").join("settings.json");
+    let path = if current.exists() { current } else { legacy };
     let mut settings = fs::read_to_string(path)
         .ok()
         .and_then(|contents| serde_json::from_str::<Value>(&contents).ok())
@@ -137,7 +136,7 @@ fn save_settings(vault: &Path, settings: &Value) -> Result<(), String> {
         return Err("Invalid settings payload".to_string());
     }
     let contents = serde_json::to_vec_pretty(settings).map_err(|error| error.to_string())?;
-    write_atomic(&settings_path(vault), &contents)
+    write_atomic(&library::settings_path(vault), &contents)
 }
 
 fn validate_relative_path(path: &str, label: &str) -> Result<PathBuf, String> {
@@ -181,7 +180,15 @@ fn note_path(vault: &Path, id: &str) -> Result<PathBuf, String> {
 }
 
 fn folder_path(vault: &Path, relative: &str) -> Result<PathBuf, String> {
-    let path = vault.join(validate_relative_path(relative, "folder path")?);
+    let relative = validate_relative_path(relative, "folder path")?;
+    for component in relative.components() {
+        if let Component::Normal(name) = component {
+            if library::is_excluded_dir_name(&name.to_string_lossy()) {
+                return Err("Spell already uses that name.".to_string());
+            }
+        }
+    }
+    let path = vault.join(relative);
     if !path.starts_with(vault) {
         return Err("Invalid folder path".to_string());
     }
@@ -240,10 +247,7 @@ fn collect_notes(vault: &Path, directory: &Path, depth: usize, notes: &mut Vec<N
         }
         if file_type.is_dir() {
             let name = entry.file_name();
-            if !EXCLUDED_DIRECTORIES
-                .iter()
-                .any(|excluded| name == *excluded)
-            {
+            if !library::is_excluded_dir_name(&name.to_string_lossy()) {
                 collect_notes(vault, &path, depth + 1, notes);
             }
             continue;
@@ -268,6 +272,7 @@ fn collect_notes(vault: &Path, directory: &Path, depth: usize, notes: &mut Vec<N
 
 fn note_from_path(id: String, path: PathBuf) -> Result<Note, String> {
     let content = fs::read_to_string(&path).map_err(|error| error.to_string())?;
+    let content = library::rewrite_legacy_attachment_links(&content);
     Ok(Note {
         id,
         title: extract_title(&content),
@@ -278,12 +283,8 @@ fn note_from_path(id: String, path: PathBuf) -> Result<Note, String> {
 }
 
 fn ensure_vault(app: &AppHandle, state: &State<AppState>, path: PathBuf) -> Result<String, String> {
-    fs::create_dir_all(path.join("assets")).map_err(|error| error.to_string())?;
-    fs::create_dir_all(path.join(".scratch")).map_err(|error| error.to_string())?;
-    let write_test = path.join(".scratch").join(".spell-write-test");
-    fs::write(&write_test, b"ok")
-        .map_err(|error| format!("Notes folder is not writable: {}", error))?;
-    let _ = fs::remove_file(write_test);
+    library::verify_writable(&path)?;
+    library::migrate_legacy_library(&path);
 
     let normalized = path.to_string_lossy().into_owned();
     let config = {
@@ -477,9 +478,61 @@ fn delete_note(id: String, state: State<AppState>) -> Result<(), String> {
     Ok(())
 }
 
+fn sanitize_note_name(title: &str) -> String {
+    let cleaned: String = title
+        .chars()
+        .map(|character| match character {
+            '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '-',
+            _ => character,
+        })
+        .collect::<String>()
+        .trim()
+        .trim_matches('.')
+        .to_string();
+    if cleaned.is_empty() {
+        "Untitled".to_string()
+    } else {
+        cleaned
+    }
+}
+
 #[tauri::command]
-fn create_note(target_folder: Option<String>, state: State<AppState>) -> Result<Note, String> {
+fn create_note(
+    target_folder: Option<String>,
+    content: Option<String>,
+    state: State<AppState>,
+) -> Result<Note, String> {
     let vault = vault_path_from_config(&state)?;
+    let body = content
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    if let Some(body) = body {
+        let title = extract_title(&body);
+        let name = sanitize_note_name(&title);
+        let prefix = match &target_folder {
+            Some(folder) if !folder.trim().is_empty() => {
+                format!("{}/", folder.trim().trim_end_matches('/'))
+            }
+            _ => String::new(),
+        };
+        let mut number = 1;
+        loop {
+            let id = if number == 1 {
+                format!("{}{}", prefix, name)
+            } else {
+                format!("{}{}-{}", prefix, name, number)
+            };
+            let path = note_path(&vault, &id)?;
+            if !path.exists() {
+                if let Some(parent) = path.parent() {
+                    fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+                }
+                write_atomic(&path, body.as_bytes())?;
+                return note_from_path(id, path);
+            }
+            number += 1;
+        }
+    }
     create_unique_note(&vault, target_folder)
 }
 
@@ -508,10 +561,7 @@ fn collect_folders(vault: &Path, directory: &Path, depth: usize, folders: &mut V
             continue;
         }
         let name = entry.file_name();
-        if EXCLUDED_DIRECTORIES
-            .iter()
-            .any(|excluded| name == *excluded)
-        {
+        if library::is_excluded_dir_name(&name.to_string_lossy()) {
             continue;
         }
         if let Ok(relative) = path.strip_prefix(vault) {
@@ -676,6 +726,7 @@ fn git_is_available() -> bool {
 #[tauri::mobile_entry_point]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_deep_link::init())
         .setup(|app| {
             let config = load_config(app.handle());
             app.manage(AppState {

@@ -24,7 +24,7 @@ type ThemeMode = "light" | "dark" | "system";
 // Font family CSS values
 const fontFamilyMap: Record<FontFamily, string> = {
   "system-sans":
-    '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+    '"SN Pro Variable", "SN Pro", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
   serif: 'ui-serif, Georgia, Cambria, "Times New Roman", Times, serif',
   monospace:
     "ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Monaco, 'Courier New', monospace",
@@ -149,6 +149,7 @@ function applyFontCSSVariables(fonts: Required<EditorFontSettings>) {
   root.style.setProperty("--editor-font-family", fontFamily);
   root.style.setProperty("--editor-base-font-size", `${baseSize}px`);
   root.style.setProperty("--editor-bold-weight", String(boldWeight));
+  root.style.setProperty("--editor-regular-weight", "350");
   root.style.setProperty("--editor-line-height", String(lineHeight));
 
   // Computed header sizes (based on base)
@@ -159,8 +160,8 @@ function applyFontCSSVariables(fonts: Required<EditorFontSettings>) {
   root.style.setProperty("--editor-h5-size", `${baseSize}px`);
   root.style.setProperty("--editor-h6-size", `${baseSize}px`);
 
-  // Fixed value for paragraph spacing
-  root.style.setProperty("--editor-paragraph-spacing", "0.875em");
+  // Consecutive paragraphs should read as a line break, not a blank line.
+  root.style.setProperty("--editor-paragraph-spacing", "0.28em");
 }
 
 // Apply editor layout width CSS variables

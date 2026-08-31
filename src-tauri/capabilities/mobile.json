@@ -4,5 +4,5 @@
   "description": "Minimal Android shell capability",
   "windows": ["main"],
   "platforms": ["android"],
-  "permissions": ["core:default"]
+  "permissions": ["core:default", "deep-link:default"]
 }

@@ -1,3 +1,5 @@
+import type { FolderSyncKind } from "../lib/folderSync";
+
 export interface NoteMetadata {
   id: string;
   title: string;
@@ -76,10 +78,23 @@ export interface KanbanCard {
   updatedAt: number;
 }
 
+export type ColumnColorId =
+  | "default"
+  | "gray"
+  | "brown"
+  | "orange"
+  | "yellow"
+  | "green"
+  | "blue"
+  | "purple"
+  | "pink"
+  | "red";
+
 export interface KanbanColumn {
   id: string;
   title: string;
   cardIds: string[];
+  color?: ColumnColorId;
 }
 
 export interface KanbanBoard {
@@ -147,13 +162,15 @@ export interface FinanceWorkspace {
   months?: string[];
 }
 
-// Per-folder settings (stored in .scratch/settings.json)
+// Per-folder settings (stored in Spell Library/settings.json)
 export interface Settings {
   theme: ThemeSettings;
   editorFont?: EditorFontSettings;
   gitEnabled?: boolean;
+  folderSyncKind?: FolderSyncKind;
   foldersEnabled?: boolean;
   pinnedNoteIds?: string[];
+  noteOrder?: string[];
   textDirection?: TextDirection;
   editorWidth?: EditorWidth;
   customEditorWidthPx?: number;

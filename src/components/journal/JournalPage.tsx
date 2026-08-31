@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { Editor as TiptapEditor } from "@tiptap/react";
 import { useNotes } from "../../context/NotesContext";
+import { CalendarIcon } from "../icons/velocity";
 import { Editor } from "../editor/Editor";
 import { NoteTitlebar } from "../layout/NoteTitlebar";
+import { IconButton } from "../ui";
 import { JournalCalendar } from "./JournalCalendar";
 import { useOpenJournal } from "./useOpenJournal";
 import {
@@ -31,7 +34,6 @@ export function JournalPage({
   hideEditorTitleBar = false,
   onDateChange,
   onToggleSidebar,
-  onNewNote,
   showWindowControls = false,
 }: JournalPageProps) {
   const { notes, currentNote, clearSelection } = useNotes();
@@ -40,6 +42,8 @@ export function JournalPage({
   const hasOpenedInitialJournalRef = useRef(false);
   const [isOpeningJournal, setIsOpeningJournal] = useState(false);
   const [selectedDate, setSelectedDate] = useState(() => startOfLocalDay());
+  const [journalEditor, setJournalEditor] = useState<TiptapEditor | null>(null);
+  const [calendarMode, setCalendarMode] = useState<"week" | "month">("week");
 
   const today = useMemo(() => startOfLocalDay(), []);
   const journalDates = useMemo(() => journalDatesFromNotes(notes), [notes]);
@@ -97,18 +101,49 @@ export function JournalPage({
     }
   }, [currentNote?.id, openDateJournal, today, todayId, todayNote]);
 
+  const handleEditorReady = useCallback(
+    (editor: TiptapEditor | null) => {
+      setJournalEditor(editor);
+      onEditorReady(editor);
+    },
+    [onEditorReady],
+  );
+
+  useEffect(() => {
+    if (!isJournalOpen) setJournalEditor(null);
+  }, [isJournalOpen]);
+
   const chrome = {
     sidebarVisible,
     focusMode,
     onToggleSidebar,
-    onNewNote,
+    onNewNote: () => void openDateJournal(selectedDate),
     showWindowControls,
   };
-  const emptyTitlebar = !hideEditorTitleBar ? (
+  const dateTitle = (
+    <span className="journal-titlebar-date">{selectedTitle}</span>
+  );
+  const titlebar = !hideEditorTitleBar ? (
     <NoteTitlebar
       {...chrome}
-      showTools={false}
-      onNewNote={() => openDateJournal(selectedDate)}
+      showCompose={!isJournalOpen}
+      composePlus
+      showTools={isJournalOpen}
+      editor={journalEditor}
+      leading={
+        !focusMode ? (
+          <IconButton
+            size="sm"
+            title={calendarMode === "month" ? "Collapse calendar" : "Expand calendar"}
+            pressed={calendarMode === "month"}
+            aria-expanded={calendarMode === "month"}
+            onClick={() => setCalendarMode((current) => (current === "week" ? "month" : "week"))}
+          >
+            <CalendarIcon />
+          </IconButton>
+        ) : null
+      }
+      center={dateTitle}
     />
   ) : null;
   const calendar = !focusMode ? (
@@ -117,47 +152,46 @@ export function JournalPage({
         selected={selectedDate}
         journalDates={journalDates}
         onSelectDate={selectDate}
+        mode={calendarMode}
+        onModeChange={setCalendarMode}
       />
     </div>
   ) : null;
 
   return (
     <div
+      data-journal-page=""
       data-journal-editor={hideEditorTitleBar ? "" : undefined}
       className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-bg"
     >
+      {titlebar}
+      {calendar}
       {isJournalOpen ? (
         <Editor
-          hideTitleBar={hideEditorTitleBar}
-          onEditorReady={onEditorReady}
-          header={calendar}
+          hideTitleBar
+          onEditorReady={handleEditorReady}
+          showCompose={false}
           {...chrome}
         />
       ) : (
-        <>
-          {emptyTitlebar}
-          {calendar}
-          <div className="journal-empty">
-            {isOpeningJournal ? (
-              <div className="flex flex-1 items-center justify-center text-sm text-text-muted">
-                Opening {selectedTitle}…
-              </div>
-            ) : (
-              <div className="journal-empty-page">
-                {!hideEditorTitleBar && (
-                  <h1 className="journal-empty-title">{selectedTitle}</h1>
-                )}
-                <button
-                  type="button"
-                  className="journal-empty-create"
-                  onClick={() => openDateJournal(selectedDate)}
-                >
-                  Create daily note
-                </button>
-              </div>
-            )}
-          </div>
-        </>
+        <div className="journal-empty">
+          {isOpeningJournal ? (
+            <div className="flex flex-1 items-center justify-center text-sm text-text-muted">
+              Opening {selectedTitle}…
+            </div>
+          ) : hideEditorTitleBar ? (
+            <div className="journal-empty-page">
+              <h1 className="journal-empty-title">{selectedTitle}</h1>
+              <button
+                type="button"
+                className="journal-empty-create"
+                onClick={() => openDateJournal(selectedDate)}
+              >
+                Create daily note
+              </button>
+            </div>
+          ) : null}
+        </div>
       )}
     </div>
   );

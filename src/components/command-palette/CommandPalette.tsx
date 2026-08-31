@@ -30,6 +30,7 @@ import {
   AlertDialogTitle,
 } from "../ui";
 import { cleanTitle } from "../../lib/utils";
+import { noteTemplates } from "../../lib/noteTemplates";
 import { plainTextFromMarkdown } from "../../lib/plainText";
 import { duplicateNote } from "../../services/notes";
 import {
@@ -51,8 +52,10 @@ import {
   FolderIcon,
   FolderPlusIcon,
   KanbanIcon,
+  CalendarIcon,
+  ShareIcon,
 } from "../icons/velocity";
-import { mod, shift } from "../../lib/platform";
+import { mod, shift, isMobileApp } from "../../lib/platform";
 import type { AiProvider } from "../../services/ai";
 
 interface Command {
@@ -175,6 +178,49 @@ export function CommandPalette({
           window.dispatchEvent(new CustomEvent("create-new-project"));
         },
       },
+      {
+        id: "add-month",
+        label: "Add Month",
+        shortcut: undefined,
+        icon: <CalendarIcon className="w-4.5 h-4.5 stroke-[1.5]" />,
+        action: () => {
+          onClose();
+          window.dispatchEvent(new CustomEvent("open-add-month"));
+        },
+      },
+      ...noteTemplates().map((template) => ({
+        id: `template-${template.id}`,
+        label: `New ${template.name}`,
+        icon: <AddNoteIcon className="w-4.5 h-4.5 stroke-[1.5]" />,
+        action: () => {
+          onClose();
+          window.dispatchEvent(
+            new CustomEvent("create-from-template", { detail: template.id }),
+          );
+        },
+      })),
+      ...(!isMobileApp
+        ? [
+            {
+              id: "import-notes",
+              label: "Import Notes…",
+              icon: <MarkdownIcon className="w-4.5 h-4.5 stroke-[1.5]" />,
+              action: () => {
+                onClose();
+                window.dispatchEvent(new CustomEvent("import-notes"));
+              },
+            },
+            {
+              id: "import-folder",
+              label: "Import Folder…",
+              icon: <FolderIcon className="w-4.5 h-4.5 stroke-[1.5]" />,
+              action: () => {
+                onClose();
+                window.dispatchEvent(new CustomEvent("import-notes-folder"));
+              },
+            },
+          ]
+        : []),
     ];
 
     // Add note-specific commands if a note is selected
@@ -319,6 +365,33 @@ export function CommandPalette({
               console.error("Failed to copy HTML:", error);
               toast.error("Failed to copy");
             }
+          },
+        },
+        {
+          id: "publish-note",
+          label: "Publish Note",
+          icon: <ShareIcon className="w-4.5 h-4.5 stroke-[1.5]" />,
+          action: () => {
+            window.dispatchEvent(new CustomEvent("note-publish"));
+            onClose();
+          },
+        },
+        {
+          id: "copy-published-link",
+          label: "Copy Published Link",
+          icon: <ShareIcon className="w-4.5 h-4.5 stroke-[1.5]" />,
+          action: () => {
+            window.dispatchEvent(new CustomEvent("note-copy-published-link"));
+            onClose();
+          },
+        },
+        {
+          id: "stop-publishing",
+          label: "Stop Publishing",
+          icon: <ShareIcon className="w-4.5 h-4.5 stroke-[1.5]" />,
+          action: () => {
+            window.dispatchEvent(new CustomEvent("note-stop-publishing"));
+            onClose();
           },
         },
         {

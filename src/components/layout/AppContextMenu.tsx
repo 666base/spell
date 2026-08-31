@@ -1,6 +1,9 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type CSSProperties } from "react";
 import type { Editor } from "@tiptap/react";
 import { toast } from "sonner";
+import { SpellMonthPicker } from "../ui/SpellCalendar";
+import { parseTableGrid, tableContentFromGrid } from "../../lib/tablePaste";
+import { isMobileApp } from "../../lib/platform";
 
 interface MenuState {
   x: number;
@@ -14,6 +17,7 @@ interface AppContextMenuProps {
   onCreateNote: () => void;
   onCreateFolder?: () => void;
   onOpenSettings: () => void;
+  allowImport?: boolean;
 }
 
 export function AppContextMenu({
@@ -21,8 +25,11 @@ export function AppContextMenu({
   onCreateNote,
   onCreateFolder,
   onOpenSettings,
+  allowImport = !isMobileApp,
 }: AppContextMenuProps) {
   const [menu, setMenu] = useState<MenuState | null>(null);
+  const [monthPickerOpen, setMonthPickerOpen] = useState(false);
+  const [monthAnchor, setMonthAnchor] = useState<{ getBoundingClientRect: () => DOMRect } | null>(null);
 
   const handleCreateFolder = useCallback(() => {
     if (onCreateFolder) {
@@ -31,6 +38,24 @@ export function AppContextMenu({
       window.dispatchEvent(new CustomEvent("create-new-folder"));
     }
   }, [onCreateFolder]);
+
+  const openMonthPicker = useCallback(() => {
+    const x = menu?.x ?? 0;
+    const y = menu?.y ?? 0;
+    setMonthAnchor({
+      getBoundingClientRect: () => new DOMRect(x, y, 0, 0),
+    });
+    setMonthPickerOpen(true);
+  }, [menu]);
+
+  useEffect(() => {
+    const onOpenMonthPicker = () => {
+      setMonthAnchor(null);
+      setMonthPickerOpen(true);
+    };
+    window.addEventListener("open-add-month", onOpenMonthPicker);
+    return () => window.removeEventListener("open-add-month", onOpenMonthPicker);
+  }, []);
 
   useEffect(() => {
     const openMenu = (event: MouseEvent) => {
@@ -99,7 +124,12 @@ export function AppContextMenu({
       if (command === "paste") {
         const text = await navigator.clipboard.readText();
         if (editor) {
-          editor.chain().focus().insertContent(text).run();
+          const grid = !editor.isActive("table") ? parseTableGrid(text) : null;
+          if (grid) {
+            editor.chain().focus().insertContent(tableContentFromGrid(grid)).run();
+          } else {
+            editor.chain().focus().insertContent(text).run();
+          }
         } else if (
           target instanceof HTMLInputElement ||
           target instanceof HTMLTextAreaElement
@@ -129,46 +159,80 @@ export function AppContextMenu({
     [getEditor, menu],
   );
 
-  if (!menu) return null;
-
-  const x = Math.min(menu.x, window.innerWidth - 176);
-  const y = Math.min(menu.y, window.innerHeight - (menu.editable ? 196 : 150));
+  const extraItems = Number(allowImport) * 2 + 1;
+  const x = menu ? Math.min(menu.x, window.innerWidth - 176) : 0;
+  const y = menu
+    ? Math.min(menu.y, window.innerHeight - (menu.editable ? 196 : 148 + extraItems * 28))
+    : 0;
 
   return (
-    <div
-      role="menu"
-      aria-label="Spell actions"
-      data-spell-context-menu
-      className="spell-menu fixed z-[2000] min-w-40"
-      style={{ left: Math.max(6, x), top: Math.max(6, y) }}
-      onPointerDown={(event) => event.stopPropagation()}
-    >
-      {menu.editable ? (
-        <>
-          <MenuItem label="Undo" onSelect={() => finish(() => runEdit("undo"))} />
-          <MenuItem label="Redo" onSelect={() => finish(() => runEdit("redo"))} />
-          <Separator />
-          <MenuItem label="Cut" onSelect={() => finish(() => runEdit("cut"))} />
-          <MenuItem label="Copy" onSelect={() => finish(() => runEdit("copy"))} />
-          <MenuItem label="Paste" onSelect={() => finish(() => runEdit("paste"))} />
-          <Separator />
-          <MenuItem label="Select All" onSelect={() => finish(() => runEdit("selectAll"))} />
-        </>
-      ) : (
-        <>
-          <MenuItem label="New Note" onSelect={() => finish(onCreateNote)} />
-          <MenuItem label="New Folder" onSelect={() => finish(handleCreateFolder)} />
-          <MenuItem
-            label="New Project"
-            onSelect={() => finish(() => {
-              window.dispatchEvent(new CustomEvent("create-new-project"));
-            })}
-          />
-          <Separator />
-          <MenuItem label="Settings" onSelect={() => finish(onOpenSettings)} />
-        </>
+    <>
+      <SpellMonthPicker
+        open={monthPickerOpen}
+        anchor={monthAnchor}
+        onClose={() => setMonthPickerOpen(false)}
+        onSelect={(month) => {
+          window.dispatchEvent(new CustomEvent("create-new-month", { detail: month }));
+        }}
+      />
+      {menu && (
+        <div
+          role="menu"
+          aria-label="Spell actions"
+          data-spell-context-menu
+          className="spell-menu spell-popover fixed z-[2000] min-w-40"
+          style={{
+            left: Math.max(6, x),
+            top: Math.max(6, y),
+            "--transform-origin": "top left",
+          } as CSSProperties}
+          onPointerDown={(event) => event.stopPropagation()}
+        >
+          {menu.editable ? (
+            <>
+              <MenuItem label="Undo" onSelect={() => finish(() => runEdit("undo"))} />
+              <MenuItem label="Redo" onSelect={() => finish(() => runEdit("redo"))} />
+              <Separator />
+              <MenuItem label="Cut" onSelect={() => finish(() => runEdit("cut"))} />
+              <MenuItem label="Copy" onSelect={() => finish(() => runEdit("copy"))} />
+              <MenuItem label="Paste" onSelect={() => finish(() => runEdit("paste"))} />
+              <Separator />
+              <MenuItem label="Select All" onSelect={() => finish(() => runEdit("selectAll"))} />
+            </>
+          ) : (
+            <>
+              <MenuItem label="New Note" onSelect={() => finish(onCreateNote)} />
+              <MenuItem label="New Folder" onSelect={() => finish(handleCreateFolder)} />
+              <MenuItem
+                label="New Project"
+                onSelect={() => finish(() => {
+                  window.dispatchEvent(new CustomEvent("create-new-project"));
+                })}
+              />
+              {allowImport && (
+                <>
+                  <MenuItem
+                    label="Import Notes…"
+                    onSelect={() => finish(() => {
+                      window.dispatchEvent(new CustomEvent("import-notes"));
+                    })}
+                  />
+                  <MenuItem
+                    label="Import Folder…"
+                    onSelect={() => finish(() => {
+                      window.dispatchEvent(new CustomEvent("import-notes-folder"));
+                    })}
+                  />
+                </>
+              )}
+              <MenuItem label="Add month" onSelect={() => finish(openMonthPicker)} />
+              <Separator />
+              <MenuItem label="Settings" onSelect={() => finish(onOpenSettings)} />
+            </>
+          )}
+        </div>
       )}
-    </div>
+    </>
   );
 }
 

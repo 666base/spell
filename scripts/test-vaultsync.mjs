@@ -54,7 +54,7 @@ try {
   await writeFile(path.join(mine, "note.md"), "initial\n", "utf8");
   await run(process.execPath, [script, "init", "--vault", mine, "--remote", remote]);
   const gitignore = await readFile(path.join(mine, ".gitignore"), "utf8");
-  for (const entry of [".obsidian/workspace*", ".trash/", ".scratch/", ".vaultsync/"]) {
+  for (const entry of [".obsidian/workspace*", ".trash/", ".scratch/", ".vaultsync/", "Spell Library/settings.json"]) {
     assert.match(gitignore, new RegExp(`^${entry.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "m"));
   }
 

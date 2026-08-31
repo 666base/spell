@@ -15,7 +15,7 @@ export function WindowControls({ className }: { className?: string }) {
   const appWindow = getCurrentWindow();
 
   return (
-    <div className={cn("titlebar-no-drag flex h-11 items-center gap-px pl-1", className)}>
+    <div className={cn("titlebar-no-drag flex items-center gap-px", className)}>
       <IconButton
         size="sm"
         title="Minimize"

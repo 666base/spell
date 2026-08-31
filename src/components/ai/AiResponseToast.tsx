@@ -51,7 +51,7 @@ function parseMarkdown(text: string): React.ReactNode {
             <div className="absolute top-1.5 right-1.5 z-10">
               <CodeCopyButton
                 text={codeText}
-                className="bg-bg/80 backdrop-blur-sm"
+                className="bg-bg"
               />
             </div>
             <pre className="bg-bg-secondary rounded px-2 pt-8 pb-1 my-1 overflow-x-auto">
@@ -128,7 +128,7 @@ function parseMarkdown(text: string): React.ReactNode {
         <div className="absolute top-1.5 right-1.5 z-10">
           <CodeCopyButton
             text={codeText}
-            className="bg-bg/80 backdrop-blur-sm"
+            className="bg-bg"
           />
         </div>
         <pre className="bg-bg-secondary rounded px-2 pt-8 pb-1 my-1 overflow-x-auto">

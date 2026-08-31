@@ -27,6 +27,59 @@ export function NotesAaIcon({ className }: { className?: string }) {
   );
 }
 
+/** Bold mark — same letterform language as `NotesAaIcon`. */
+export function NotesBoldIcon({ className }: { className?: string }) {
+  return (
+    <span className={cn("notes-mark", className)} aria-hidden="true">
+      B
+    </span>
+  );
+}
+
+/** Italic mark — same letterform language as `NotesAaIcon`. */
+export function NotesItalicIcon({ className }: { className?: string }) {
+  return (
+    <span className={cn("notes-mark notes-mark-italic", className)} aria-hidden="true">
+      I
+    </span>
+  );
+}
+
+/** Underline mark — same letterform language as `NotesAaIcon`. */
+export function NotesUnderlineIcon({ className }: { className?: string }) {
+  return (
+    <span className={cn("notes-mark notes-mark-underline", className)} aria-hidden="true">
+      U
+    </span>
+  );
+}
+
+/** SF Symbol `highlighter` — marker nib over a stroke of ink. */
+export function NotesHighlightIcon(props: GlyphProps) {
+  return (
+    <Glyph className="notes-glyph" {...props}>
+      <path
+        d="M7.15 16.55 15.4 8.3l2.35 2.35-8.25 8.25H7.15v-2.35Z"
+        stroke="currentColor"
+        strokeWidth="1.75"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M14.55 7.45 16.9 5.1a1.7 1.7 0 0 1 2.4 0l1.65 1.65a1.7 1.7 0 0 1 0 2.4l-2.35 2.35"
+        stroke="currentColor"
+        strokeWidth="1.75"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M5.2 20.15h7.6"
+        stroke="currentColor"
+        strokeWidth="1.85"
+        strokeLinecap="round"
+      />
+    </Glyph>
+  );
+}
+
 /** SF Symbol `checklist` — ticks beside three lines. */
 export function NotesChecklistIcon(props: GlyphProps) {
   return (

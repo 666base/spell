@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type MouseEvent } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type MouseEvent } from "react";
 import { type Editor, useEditorState } from "@tiptap/react";
 import { cn } from "../../lib/utils";
 import { CheckmarkIcon, ToolbarButton } from "../ui";
@@ -65,8 +65,7 @@ export function TextStyleMenu({ editor, placement = "below" }: TextStyleMenuProp
     };
   }, [open]);
 
-  const menuPosition =
-    placement === "above" ? "bottom-full mb-1 origin-bottom" : "top-full mt-1 origin-top";
+  const menuPosition = placement === "above" ? "bottom-full mb-1" : "top-full mt-1";
 
   return (
     <div ref={rootRef} className="relative">
@@ -83,7 +82,12 @@ export function TextStyleMenu({ editor, placement = "below" }: TextStyleMenuProp
         <div
           role="menu"
           aria-label="Text style"
-          className={cn("spell-menu absolute left-0 z-50 min-w-36", menuPosition)}
+          className={cn("spell-menu spell-popover absolute left-0 z-50 min-w-36", menuPosition)}
+          style={
+            {
+              "--transform-origin": placement === "above" ? "bottom center" : "top center",
+            } as CSSProperties
+          }
         >
           {NOTE_STYLES.map((style) => {
             const selected = active === style.id;

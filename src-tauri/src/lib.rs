@@ -1,3 +1,4 @@
+mod library;
 mod updater;
 
 #[cfg(desktop)]
@@ -9,11 +10,12 @@ mod mobile;
 #[cfg(desktop)]
 mod desktop {
     use super::git;
+    use super::library;
     use anyhow::Result;
     use base64::Engine;
     use notify::{Config, RecommendedWatcher, RecursiveMode, Watcher};
     use serde::{Deserialize, Serialize};
-    use std::collections::{HashMap, HashSet};
+    use std::collections::HashMap;
     use std::path::{Path, PathBuf};
     use std::sync::{Arc, Mutex, RwLock};
     use std::time::{Duration, Instant};
@@ -112,7 +114,7 @@ mod desktop {
         pub cloud_user_id: Option<String>,
     }
 
-    // Per-folder settings (stored in .scratch/settings.json within notes folder)
+    // Per-folder settings (stored in Spell Library/settings.json)
     #[derive(Debug, Clone, Serialize, Deserialize, Default)]
     pub struct Settings {
         pub theme: ThemeSettings,
@@ -120,8 +122,12 @@ mod desktop {
         pub editor_font: Option<EditorFontSettings>,
         #[serde(rename = "gitEnabled")]
         pub git_enabled: Option<bool>,
+        #[serde(rename = "folderSyncKind", default)]
+        pub folder_sync_kind: Option<String>,
         #[serde(rename = "pinnedNoteIds")]
         pub pinned_note_ids: Option<Vec<String>>,
+        #[serde(rename = "noteOrder", default)]
+        pub note_order: Option<Vec<String>>,
         #[serde(rename = "textDirection")]
         pub text_direction: Option<TextDirection>,
         #[serde(rename = "editorWidth")]
@@ -345,7 +351,7 @@ mod desktop {
     // App state with improved structure
     pub struct AppState {
         pub app_config: RwLock<AppConfig>, // notes_folder path (stored in app data)
-        pub settings: RwLock<Settings>,    // per-folder settings (stored in .scratch/)
+        pub settings: RwLock<Settings>,    // per-folder settings (stored in Spell Library/)
         pub notes_cache: RwLock<HashMap<String, NoteMetadata>>,
         pub file_watcher: Mutex<Option<FileWatcherState>>,
         pub search_index: Mutex<Option<SearchIndex>>,
@@ -640,7 +646,7 @@ mod desktop {
     }
 
     /// Directories to exclude from note discovery and ID resolution (app-internal, always excluded).
-    const EXCLUDED_DIRS: &[&str] = &[".git", ".scratch", ".obsidian", ".trash", "assets"];
+    const EXCLUDED_DIRS: &[&str] = library::EXCLUDED_DIR_NAMES;
 
     /// Default user-configurable directories to ignore (common build/dependency folders).
     const DEFAULT_IGNORED_DIRS: &[&str] = &[
@@ -762,6 +768,29 @@ mod desktop {
         Ok(file_path)
     }
 
+    fn abs_rel_path(notes_root: &Path, relative: &str) -> Result<PathBuf, String> {
+        if relative.contains('\\') {
+            return Err("Invalid path: backslashes not allowed".to_string());
+        }
+        let rel = Path::new(relative);
+        for component in rel.components() {
+            match component {
+                std::path::Component::ParentDir | std::path::Component::CurDir => {
+                    return Err("Invalid path".to_string());
+                }
+                std::path::Component::RootDir | std::path::Component::Prefix(_) => {
+                    return Err("Invalid path".to_string());
+                }
+                _ => {}
+            }
+        }
+        let file_path = notes_root.join(rel);
+        if !file_path.starts_with(notes_root) {
+            return Err("Invalid path".to_string());
+        }
+        Ok(file_path)
+    }
+
     // Get app config file path (in app data directory)
     fn get_app_config_path(app: &AppHandle) -> Result<PathBuf> {
         let app_data = app.path().app_data_dir()?;
@@ -769,11 +798,8 @@ mod desktop {
         Ok(app_data.join("config.json"))
     }
 
-    // Get per-folder settings file path (in .scratch/ within notes folder)
     fn get_settings_path(notes_folder: &str) -> PathBuf {
-        let scratch_dir = PathBuf::from(notes_folder).join(".scratch");
-        std::fs::create_dir_all(&scratch_dir).ok();
-        scratch_dir.join("settings.json")
+        library::settings_path(Path::new(notes_folder))
     }
 
     // Get search index path
@@ -808,12 +834,15 @@ mod desktop {
         Ok(())
     }
 
-    // Load per-folder settings from disk
     fn load_settings(notes_folder: &str) -> Settings {
         let path = get_settings_path(notes_folder);
+        let legacy = PathBuf::from(notes_folder)
+            .join(".scratch")
+            .join("settings.json");
+        let read_path = if path.exists() { path } else { legacy };
 
-        if path.exists() {
-            std::fs::read_to_string(&path)
+        if read_path.exists() {
+            std::fs::read_to_string(&read_path)
                 .ok()
                 .and_then(|content| serde_json::from_str(&content).ok())
                 .unwrap_or_default()
@@ -822,12 +851,34 @@ mod desktop {
         }
     }
 
-    // Save per-folder settings to disk
     fn save_settings(notes_folder: &str, settings: &Settings) -> Result<()> {
+        library::ensure_library_dir(Path::new(notes_folder))?;
         let path = get_settings_path(notes_folder);
         let content = serde_json::to_string_pretty(settings)?;
         std::fs::write(path, content)?;
         Ok(())
+    }
+
+    fn retain_note_id_lists(settings: &mut Settings, keep: impl Fn(&str) -> bool) {
+        if let Some(ids) = &mut settings.pinned_note_ids {
+            ids.retain(|id| keep(id));
+        }
+        if let Some(ids) = &mut settings.note_order {
+            ids.retain(|id| keep(id));
+        }
+    }
+
+    fn rewrite_note_id_lists(settings: &mut Settings, mut rewrite: impl FnMut(&str) -> String) {
+        if let Some(ids) = &mut settings.pinned_note_ids {
+            for id in ids.iter_mut() {
+                *id = rewrite(id);
+            }
+        }
+        if let Some(ids) = &mut settings.note_order {
+            for id in ids.iter_mut() {
+                *id = rewrite(id);
+            }
+        }
     }
 
     // Clean up old entries from debounce map (entries older than 5 seconds)
@@ -865,24 +916,12 @@ mod desktop {
     ) -> Result<String, String> {
         let normalized_path = path_buf.to_string_lossy().into_owned();
 
-        // Verify it's a valid directory
         if !path_buf.exists() {
             std::fs::create_dir_all(path_buf).map_err(|e| e.to_string())?;
         }
 
-        // Create assets folder
-        let assets = path_buf.join("assets");
-        std::fs::create_dir_all(&assets).map_err(|e| e.to_string())?;
-
-        // Create .scratch config folder
-        let scratch_dir = path_buf.join(".scratch");
-        std::fs::create_dir_all(&scratch_dir).map_err(|e| e.to_string())?;
-
-        // Verify write access early to avoid later silent failures
-        let write_test_path = scratch_dir.join(".write-test");
-        std::fs::write(&write_test_path, b"ok")
-            .map_err(|e| format!("Notes folder is not writable: {}", e))?;
-        let _ = std::fs::remove_file(&write_test_path);
+        library::verify_writable(path_buf)?;
+        library::migrate_legacy_library(path_buf);
 
         // Load per-folder settings (starts fresh with defaults if none exist)
         let settings = load_settings(&normalized_path);
@@ -1111,25 +1150,35 @@ mod desktop {
             })
             .collect();
 
-        // Load pinned note IDs from settings
-        let pinned_ids: HashSet<String> = {
+        let (pinned_ids, note_order) = {
             let settings = state.settings.read().expect("settings read lock");
-            settings
-                .pinned_note_ids
-                .as_ref()
-                .map(|ids| ids.iter().cloned().collect())
-                .unwrap_or_default()
+            (
+                settings.pinned_note_ids.clone().unwrap_or_default(),
+                settings.note_order.clone().unwrap_or_default(),
+            )
         };
+        let pinned_rank: HashMap<String, usize> = pinned_ids
+            .iter()
+            .enumerate()
+            .map(|(index, id)| (id.clone(), index))
+            .collect();
+        let order_rank: HashMap<String, usize> = note_order
+            .iter()
+            .enumerate()
+            .map(|(index, id)| (id.clone(), index))
+            .collect();
 
-        // Sort: pinned notes first (by date), then unpinned notes (by date)
         notes.sort_by(|a, b| {
-            let a_pinned = pinned_ids.contains(&a.id);
-            let b_pinned = pinned_ids.contains(&b.id);
-
-            match (a_pinned, b_pinned) {
-                (true, false) => std::cmp::Ordering::Less, // a pinned, b not -> a first
-                (false, true) => std::cmp::Ordering::Greater, // b pinned, a not -> b first
-                _ => b.modified.cmp(&a.modified), // both same status -> sort by date (newest first)
+            match (pinned_rank.get(&a.id), pinned_rank.get(&b.id)) {
+                (Some(left), Some(right)) => left.cmp(right),
+                (Some(_), None) => std::cmp::Ordering::Less,
+                (None, Some(_)) => std::cmp::Ordering::Greater,
+                (None, None) => match (order_rank.get(&a.id), order_rank.get(&b.id)) {
+                    (Some(left), Some(right)) => left.cmp(right),
+                    (Some(_), None) => std::cmp::Ordering::Less,
+                    (None, Some(_)) => std::cmp::Ordering::Greater,
+                    (None, None) => b.modified.cmp(&a.modified),
+                },
             }
         });
 
@@ -1164,6 +1213,7 @@ mod desktop {
         let content = fs::read_to_string(&file_path)
             .await
             .map_err(|e| e.to_string())?;
+        let content = library::rewrite_legacy_attachment_links(&content);
         let metadata = fs::metadata(&file_path).await.map_err(|e| e.to_string())?;
 
         let modified = metadata
@@ -1339,9 +1389,186 @@ mod desktop {
         Ok(())
     }
 
+    fn unique_note_id(notes_root: &Path, base_id: &str) -> Result<String, String> {
+        let mut final_id = base_id.to_string();
+        let mut counter = 2;
+        while abs_path_from_id(notes_root, &final_id)
+            .map(|path| path.exists())
+            .unwrap_or(false)
+        {
+            final_id = format!("{}-{}", base_id, counter);
+            counter += 1;
+        }
+        Ok(final_id)
+    }
+
+    fn with_folder_prefix(target_folder: Option<&str>, name: &str) -> String {
+        match target_folder {
+            Some(folder) if !folder.is_empty() => {
+                format!("{}/{}", folder.trim_end_matches('/'), name)
+            }
+            _ => name.to_string(),
+        }
+    }
+
+    async fn write_new_note(
+        notes_root: &Path,
+        base_id: &str,
+        content: String,
+        state: &AppState,
+    ) -> Result<Note, String> {
+        let final_id = unique_note_id(notes_root, base_id)?;
+        let file_path = abs_path_from_id(notes_root, &final_id)?;
+        if let Some(parent) = file_path.parent() {
+            fs::create_dir_all(parent)
+                .await
+                .map_err(|error| error.to_string())?;
+        }
+        fs::write(&file_path, &content)
+            .await
+            .map_err(|error| error.to_string())?;
+
+        let title = extract_title(&content);
+        let modified = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_secs() as i64)
+            .unwrap_or(0);
+        {
+            let index = state.search_index.lock().expect("search index mutex");
+            if let Some(ref search_index) = *index {
+                let _ = search_index.index_note(&final_id, &title, &content, modified);
+            }
+        }
+        {
+            let mut cache = state.notes_cache.write().expect("cache write lock");
+            cache.insert(
+                final_id.clone(),
+                NoteMetadata {
+                    id: final_id.clone(),
+                    title: title.clone(),
+                    preview: generate_preview(&content),
+                    modified,
+                },
+            );
+        }
+        Ok(Note {
+            id: final_id,
+            title,
+            content,
+            path: file_path.to_string_lossy().into_owned(),
+            modified,
+        })
+    }
+
+    fn csv_to_markdown(title: &str, csv: &str) -> String {
+        let rows: Vec<Vec<String>> = csv
+            .lines()
+            .filter(|line| !line.trim().is_empty())
+            .map(parse_csv_row)
+            .collect();
+        if rows.is_empty() {
+            return format!("# {}\n\n", title);
+        }
+        let width = rows.iter().map(|row| row.len()).max().unwrap_or(0);
+        let render = |row: &[String]| {
+            let mut cells = row.to_vec();
+            cells.resize(width, String::new());
+            format!("| {} |", cells.join(" | "))
+        };
+        let separator = format!("| {} |", vec!["---"; width].join(" | "));
+        let mut body = render(&rows[0]);
+        body.push('\n');
+        body.push_str(&separator);
+        for row in rows.iter().skip(1) {
+            body.push('\n');
+            body.push_str(&render(row));
+        }
+        format!("# {}\n\n{}\n", title, body)
+    }
+
+    fn parse_csv_row(line: &str) -> Vec<String> {
+        let mut cells = Vec::new();
+        let mut current = String::new();
+        let mut quoted = false;
+        let mut chars = line.chars().peekable();
+        while let Some(character) = chars.next() {
+            if character == '"' {
+                if quoted && chars.peek() == Some(&'"') {
+                    current.push('"');
+                    chars.next();
+                } else {
+                    quoted = !quoted;
+                }
+            } else if character == ',' && !quoted {
+                cells.push(current.trim().to_string());
+                current.clear();
+            } else {
+                current.push(character);
+            }
+        }
+        cells.push(current.trim().to_string());
+        cells
+    }
+
+    fn clean_imported_markdown(input: &str) -> String {
+        let without_comments = regex::Regex::new(r"(?s)<!--.*?-->")
+            .ok()
+            .map(|pattern| pattern.replace_all(input, "").into_owned())
+            .unwrap_or_else(|| input.to_string());
+        let without_ids = regex::Regex::new(r"[ \t]+\^[A-Za-z0-9-]{4,}\s*$")
+            .ok()
+            .map(|pattern| {
+                without_comments
+                    .lines()
+                    .map(|line| pattern.replace(line, "").into_owned())
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            })
+            .unwrap_or(without_comments);
+        without_ids.trim_start_matches('\u{feff}').to_string()
+    }
+
+    fn import_extension(path: &Path) -> Option<String> {
+        path.extension()
+            .and_then(|value| value.to_str())
+            .map(|value| value.to_ascii_lowercase())
+    }
+
+    fn is_importable_note(path: &Path) -> bool {
+        matches!(
+            import_extension(path).as_deref(),
+            Some("md" | "markdown" | "txt")
+        )
+    }
+
+    fn is_importable_table(path: &Path) -> bool {
+        import_extension(path).as_deref() == Some("csv")
+    }
+
+    fn is_importable_sidecar(path: &Path) -> bool {
+        matches!(
+            import_extension(path).as_deref(),
+            Some("png" | "jpg" | "jpeg" | "gif" | "webp" | "svg" | "pdf")
+        )
+    }
+
+    fn import_relative_id(relative: &Path) -> String {
+        let without_ext = relative.with_extension("");
+        without_ext.to_string_lossy().replace('\\', "/")
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct ImportReport {
+        pub imported: u32,
+        pub skipped: u32,
+        pub last_id: Option<String>,
+    }
+
     #[tauri::command]
     async fn create_note(
         target_folder: Option<String>,
+        content: Option<String>,
         state: State<'_, AppState>,
     ) -> Result<Note, String> {
         let folder = {
@@ -1352,8 +1579,16 @@ mod desktop {
                 .ok_or("Notes folder not set")?
         };
         let folder_path = PathBuf::from(&folder);
+        let provided = content
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
 
-        // Get template from settings (default "Untitled")
+        if let Some(body) = provided {
+            let title = extract_title(&body);
+            let base_id = with_folder_prefix(target_folder.as_deref(), &sanitize_filename(&title));
+            return write_new_note(&folder_path, &base_id, body, &state).await;
+        }
+
         let template = {
             let settings = state.settings.read().expect("settings read lock");
             settings
@@ -1361,38 +1596,19 @@ mod desktop {
                 .clone()
                 .unwrap_or_else(|| "Untitled".to_string())
         };
-
-        // Expand template tags
         let expanded = expand_note_name_template(&template);
-
-        // Sanitize filename
         let sanitized = sanitize_filename(&expanded);
-
-        // Prepend folder prefix if specified
-        let sanitized = if let Some(ref folder_prefix) = target_folder {
-            if folder_prefix.is_empty() {
-                sanitized
-            } else {
-                format!("{}/{}", folder_prefix.trim_end_matches('/'), sanitized)
-            }
-        } else {
-            sanitized
-        };
-
-        // Handle {counter} tag
+        let sanitized = with_folder_prefix(target_folder.as_deref(), &sanitized);
         let has_counter = template.contains("{counter}");
         let base_id = if has_counter {
             sanitized.replace("{counter}", "1")
         } else {
             sanitized.clone()
         };
-
         let mut final_id = base_id.clone();
         let mut counter = if has_counter { 2 } else { 1 };
-
-        // Ensure filename uniqueness
         while abs_path_from_id(&folder_path, &final_id)
-            .map(|p| p.exists())
+            .map(|path| path.exists())
             .unwrap_or(false)
         {
             if has_counter {
@@ -1402,48 +1618,151 @@ mod desktop {
             }
             counter += 1;
         }
-
-        // Extract display title from filename
         let display_title = extract_title_from_id(&final_id);
+        write_new_note(
+            &folder_path,
+            &final_id,
+            format!("# {}\n\n", display_title),
+            &state,
+        )
+        .await
+    }
 
-        let content = format!("# {}\n\n", display_title);
-        let file_path = abs_path_from_id(&folder_path, &final_id)?;
+    enum ImportKind {
+        Note(String),
+        Asset,
+        Skip,
+    }
 
-        // Create parent directories (for templates like {year}/{month}/{day})
-        if let Some(parent) = file_path.parent() {
-            fs::create_dir_all(parent)
+    async fn import_one_note(
+        source: &Path,
+        relative: &Path,
+        notes_root: &Path,
+        target_folder: Option<&str>,
+        state: &AppState,
+    ) -> Result<ImportKind, String> {
+        if is_importable_sidecar(source) {
+            let relative_id = relative.to_string_lossy().replace('\\', "/");
+            let destination_id = with_folder_prefix(target_folder, &relative_id);
+            let destination = abs_rel_path(notes_root, &destination_id)?;
+            if destination.exists() {
+                return Ok(ImportKind::Skip);
+            }
+            if let Some(parent) = destination.parent() {
+                fs::create_dir_all(parent)
+                    .await
+                    .map_err(|error| error.to_string())?;
+            }
+            fs::copy(source, destination)
                 .await
-                .map_err(|e| e.to_string())?;
+                .map_err(|error| error.to_string())?;
+            return Ok(ImportKind::Asset);
         }
 
-        fs::write(&file_path, &content)
+        if is_importable_table(source) {
+            let raw = fs::read_to_string(source)
+                .await
+                .map_err(|_| "Could not read spreadsheet".to_string())?;
+            let title = source
+                .file_stem()
+                .and_then(|value| value.to_str())
+                .unwrap_or("Table");
+            let body = csv_to_markdown(title, &raw);
+            let base_id = with_folder_prefix(target_folder, &import_relative_id(relative));
+            let note = write_new_note(notes_root, &base_id, body, state).await?;
+            return Ok(ImportKind::Note(note.id));
+        }
+
+        if !is_importable_note(source) {
+            return Ok(ImportKind::Skip);
+        }
+
+        let raw = fs::read_to_string(source)
             .await
-            .map_err(|e| e.to_string())?;
+            .map_err(|_| "Could not read note".to_string())?;
+        let body = clean_imported_markdown(&raw);
+        if body.trim().is_empty() {
+            return Ok(ImportKind::Skip);
+        }
+        let base_id = with_folder_prefix(target_folder, &import_relative_id(relative));
+        let note = write_new_note(notes_root, &base_id, body, state).await?;
+        Ok(ImportKind::Note(note.id))
+    }
 
-        let modified = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs() as i64)
-            .unwrap_or(0);
+    #[tauri::command]
+    async fn import_notes(
+        paths: Vec<String>,
+        target_folder: Option<String>,
+        state: State<'_, AppState>,
+    ) -> Result<ImportReport, String> {
+        let folder = {
+            let app_config = state.app_config.read().expect("app_config read lock");
+            app_config
+                .notes_folder
+                .clone()
+                .ok_or("Notes folder not set")?
+        };
+        let notes_root = PathBuf::from(&folder);
+        let mut imported = 0;
+        let mut skipped = 0;
+        let mut last_id = None;
+        let target = target_folder.as_deref();
 
-        // Update search index
-        {
-            let index = state.search_index.lock().expect("search index mutex");
-            if let Some(ref search_index) = *index {
-                let _ = search_index.index_note(&final_id, &display_title, &content, modified);
+        for path in paths {
+            let source = PathBuf::from(&path);
+            if source.is_dir() {
+                use walkdir::WalkDir;
+                for entry in WalkDir::new(&source)
+                    .into_iter()
+                    .filter_entry(|entry| {
+                        let name = entry.file_name().to_string_lossy();
+                        !name.starts_with('.') && name != "__MACOSX"
+                    })
+                    .flatten()
+                {
+                    if !entry.file_type().is_file() {
+                        continue;
+                    }
+                    let relative = entry
+                        .path()
+                        .strip_prefix(&source)
+                        .unwrap_or_else(|_| entry.path());
+                    match import_one_note(entry.path(), relative, &notes_root, target, &state).await
+                    {
+                        Ok(ImportKind::Note(id)) => {
+                            imported += 1;
+                            last_id = Some(id);
+                        }
+                        Ok(ImportKind::Asset) => {}
+                        Ok(ImportKind::Skip) | Err(_) => skipped += 1,
+                    }
+                }
+                continue;
+            }
+
+            if !source.is_file() {
+                skipped += 1;
+                continue;
+            }
+            let relative = Path::new(source.file_name().unwrap_or_default());
+            match import_one_note(&source, relative, &notes_root, target, &state).await {
+                Ok(ImportKind::Note(id)) => {
+                    imported += 1;
+                    last_id = Some(id);
+                }
+                Ok(ImportKind::Asset) => {}
+                Ok(ImportKind::Skip) | Err(_) => skipped += 1,
             }
         }
 
-        Ok(Note {
-            id: final_id,
-            title: display_title,
-            content,
-            path: file_path.to_string_lossy().into_owned(),
-            modified,
+        Ok(ImportReport {
+            imported,
+            skipped,
+            last_id,
         })
     }
 
-    /// Validate a relative folder path against traversal attacks
-    const RESERVED_FOLDER_NAMES: &[&str] = &[".git", ".scratch", ".obsidian", ".trash", "assets"];
+    const RESERVED_FOLDER_NAMES: &[&str] = library::EXCLUDED_DIR_NAMES;
 
     fn validate_folder_path(path: &str) -> Result<(), String> {
         if path.contains('\\') {
@@ -1469,7 +1788,7 @@ mod desktop {
                 std::path::Component::Normal(name) => {
                     if let Some(name_str) = name.to_str() {
                         if RESERVED_FOLDER_NAMES.contains(&name_str) {
-                            return Err(format!("'{}' is a reserved folder name", name_str));
+                            return Err("Spell already uses that name.".to_string());
                         }
                     }
                 }
@@ -1592,13 +1911,11 @@ mod desktop {
             .await
             .map_err(|e| e.to_string())?;
 
-        // Remove stale pins for the deleted folder and its notes.
+        // Remove stale pins and custom order for the deleted folder and its notes.
         {
             let prefix = format!("{}/", path);
             let mut settings = state.settings.write().expect("settings write lock");
-            if let Some(ref mut pinned) = settings.pinned_note_ids {
-                pinned.retain(|id| id != &path && !id.starts_with(&prefix));
-            }
+            retain_note_id_lists(&mut settings, |id| id != path && !id.starts_with(&prefix));
             let _ = save_settings(&folder, &settings);
         }
 
@@ -1665,19 +1982,17 @@ mod desktop {
             .await
             .map_err(|e| e.to_string())?;
 
-        // Update pinned note IDs in settings
         {
             let mut settings = state.settings.write().expect("settings write lock");
-            if let Some(ref mut pinned) = settings.pinned_note_ids {
-                for id in pinned.iter_mut() {
-                    if id.starts_with(&old_prefix) {
-                        *id = format!("{}{}", new_prefix, &id[old_prefix.len()..]);
-                    } else if *id == old_path {
-                        *id = new_path.clone();
-                    }
+            rewrite_note_id_lists(&mut settings, |id| {
+                if id.starts_with(&old_prefix) {
+                    format!("{}{}", new_prefix, &id[old_prefix.len()..])
+                } else if id == old_path {
+                    new_path.clone()
+                } else {
+                    id.to_string()
                 }
-            }
-            // Save settings
+            });
             let _ = save_settings(&folder, &settings);
         }
 
@@ -1768,16 +2083,15 @@ mod desktop {
             .await
             .map_err(|e| e.to_string())?;
 
-        // Update pinned note IDs
         {
             let mut settings = state.settings.write().expect("settings write lock");
-            if let Some(ref mut pinned) = settings.pinned_note_ids {
-                for pin_id in pinned.iter_mut() {
-                    if *pin_id == id {
-                        *pin_id = new_id.clone();
-                    }
+            rewrite_note_id_lists(&mut settings, |pin_id| {
+                if pin_id == id {
+                    new_id.clone()
+                } else {
+                    pin_id.to_string()
                 }
-            }
+            });
             let _ = save_settings(&folder, &settings);
         }
 
@@ -1875,18 +2189,17 @@ mod desktop {
             .await
             .map_err(|e| e.to_string())?;
 
-        // Update pinned note IDs
         {
             let mut settings = state.settings.write().expect("settings write lock");
-            if let Some(ref mut pinned) = settings.pinned_note_ids {
-                for pin_id in pinned.iter_mut() {
-                    if pin_id.starts_with(&old_prefix) {
-                        *pin_id = format!("{}{}", new_prefix, &pin_id[old_prefix.len()..]);
-                    } else if *pin_id == path {
-                        *pin_id = new_path.clone();
-                    }
+            rewrite_note_id_lists(&mut settings, |pin_id| {
+                if pin_id.starts_with(&old_prefix) {
+                    format!("{}{}", new_prefix, &pin_id[old_prefix.len()..])
+                } else if pin_id == path {
+                    new_path.clone()
+                } else {
+                    pin_id.to_string()
                 }
-            }
+            });
             let _ = save_settings(&folder, &settings);
         }
 
@@ -1950,63 +2263,82 @@ mod desktop {
         Ok(())
     }
 
-
-    #[tauri::command]
-    fn get_kanban_data(state: State<AppState>) -> Result<serde_json::Value, String> {
-        let folder = {
-            let app_config = state.app_config.read().expect("app_config read lock");
-            app_config.notes_folder.clone().ok_or("Notes folder not set")?
-        };
-        let path = std::path::PathBuf::from(folder).join(".spell").join("kanban.json");
+    fn read_library_json(primary: PathBuf, legacy: PathBuf) -> Result<serde_json::Value, String> {
+        let path = if primary.exists() { primary } else { legacy };
         if path.exists() {
             let data = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
             serde_json::from_str(&data).map_err(|e| e.to_string())
         } else {
             Ok(serde_json::Value::Null)
         }
+    }
+
+    fn write_library_json(
+        notes_folder: &Path,
+        path: PathBuf,
+        data: &serde_json::Value,
+    ) -> Result<(), String> {
+        library::ensure_library_dir(notes_folder).map_err(|e| e.to_string())?;
+        let content = serde_json::to_string_pretty(data).map_err(|e| e.to_string())?;
+        std::fs::write(&path, content).map_err(|e| e.to_string())
+    }
+
+    #[tauri::command]
+    fn get_kanban_data(state: State<AppState>) -> Result<serde_json::Value, String> {
+        let folder = {
+            let app_config = state.app_config.read().expect("app_config read lock");
+            app_config
+                .notes_folder
+                .clone()
+                .ok_or("Notes folder not set")?
+        };
+        let root = PathBuf::from(&folder);
+        read_library_json(
+            library::boards_path(&root),
+            root.join(".spell").join("kanban.json"),
+        )
     }
 
     #[tauri::command]
     fn update_kanban_data(data: serde_json::Value, state: State<AppState>) -> Result<(), String> {
         let folder = {
             let app_config = state.app_config.read().expect("app_config read lock");
-            app_config.notes_folder.clone().ok_or("Notes folder not set")?
+            app_config
+                .notes_folder
+                .clone()
+                .ok_or("Notes folder not set")?
         };
-        let dir = std::path::PathBuf::from(&folder).join(".spell");
-        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-        let path = dir.join("kanban.json");
-        let content = serde_json::to_string_pretty(&data).map_err(|e| e.to_string())?;
-        std::fs::write(&path, content).map_err(|e| e.to_string())?;
-        Ok(())
+        let root = PathBuf::from(&folder);
+        write_library_json(&root, library::boards_path(&root), &data)
     }
 
     #[tauri::command]
     fn get_finance_data(state: State<AppState>) -> Result<serde_json::Value, String> {
         let folder = {
             let app_config = state.app_config.read().expect("app_config read lock");
-            app_config.notes_folder.clone().ok_or("Notes folder not set")?
+            app_config
+                .notes_folder
+                .clone()
+                .ok_or("Notes folder not set")?
         };
-        let path = std::path::PathBuf::from(folder).join(".spell").join("finance.json");
-        if path.exists() {
-            let data = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
-            serde_json::from_str(&data).map_err(|e| e.to_string())
-        } else {
-            Ok(serde_json::Value::Null)
-        }
+        let root = PathBuf::from(&folder);
+        read_library_json(
+            library::money_path(&root),
+            root.join(".spell").join("finance.json"),
+        )
     }
 
     #[tauri::command]
     fn update_finance_data(data: serde_json::Value, state: State<AppState>) -> Result<(), String> {
         let folder = {
             let app_config = state.app_config.read().expect("app_config read lock");
-            app_config.notes_folder.clone().ok_or("Notes folder not set")?
+            app_config
+                .notes_folder
+                .clone()
+                .ok_or("Notes folder not set")?
         };
-        let dir = std::path::PathBuf::from(&folder).join(".spell");
-        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-        let path = dir.join("finance.json");
-        let content = serde_json::to_string_pretty(&data).map_err(|e| e.to_string())?;
-        std::fs::write(&path, content).map_err(|e| e.to_string())?;
-        Ok(())
+        let root = PathBuf::from(&folder);
+        write_library_json(&root, library::money_path(&root), &data)
     }
 
     #[tauri::command]
@@ -2571,11 +2903,8 @@ mod desktop {
             return Err("Decoded image data is empty".to_string());
         }
 
-        // Create assets folder path
-        let assets_dir = PathBuf::from(&folder).join("assets");
-        fs::create_dir_all(&assets_dir)
-            .await
-            .map_err(|e| e.to_string())?;
+        let attachments_dir =
+            library::ensure_attachments_dir(Path::new(&folder)).map_err(|e| e.to_string())?;
 
         // Generate unique filename with timestamp
         let timestamp = std::time::SystemTime::now()
@@ -2585,21 +2914,19 @@ mod desktop {
 
         let mut target_name = format!("screenshot-{}.png", timestamp);
         let mut counter = 1;
-        let mut target_path = assets_dir.join(&target_name);
+        let mut target_path = attachments_dir.join(&target_name);
 
         while target_path.exists() {
             target_name = format!("screenshot-{}-{}.png", timestamp, counter);
-            target_path = assets_dir.join(&target_name);
+            target_path = attachments_dir.join(&target_name);
             counter += 1;
         }
 
-        // Write the file
         fs::write(&target_path, &image_data)
             .await
             .map_err(|_| "Failed to write image".to_string())?;
 
-        // Return relative path
-        Ok(format!("assets/{}", target_name))
+        Ok(library::attachments_relative_path(&target_name))
     }
 
     #[tauri::command]
@@ -2631,42 +2958,32 @@ mod desktop {
         ];
         let ext_lower = extension.to_lowercase();
         if !ALLOWED_IMAGE_EXTENSIONS.contains(&ext_lower.as_str()) {
-            return Err("Only image files can be copied to assets".to_string());
+            return Err("Only images can be attached.".to_string());
         }
 
-        // Get original filename (without extension)
         let original_name = source
             .file_stem()
             .and_then(|n| n.to_str())
             .unwrap_or("image");
-
-        // Sanitize the filename
         let sanitized_name = sanitize_filename(original_name);
+        let attachments_dir =
+            library::ensure_attachments_dir(Path::new(&folder)).map_err(|e| e.to_string())?;
 
-        // Create assets folder path
-        let assets_dir = PathBuf::from(&folder).join("assets");
-        fs::create_dir_all(&assets_dir)
-            .await
-            .map_err(|e| e.to_string())?;
-
-        // Generate unique filename
         let mut target_name = format!("{}.{}", sanitized_name, extension);
         let mut counter = 1;
-        let mut target_path = assets_dir.join(&target_name);
+        let mut target_path = attachments_dir.join(&target_name);
 
         while target_path.exists() {
             target_name = format!("{}-{}.{}", sanitized_name, counter, extension);
-            target_path = assets_dir.join(&target_name);
+            target_path = attachments_dir.join(&target_name);
             counter += 1;
         }
 
-        // Copy the file
         fs::copy(&source, &target_path)
             .await
             .map_err(|_| "Failed to copy image".to_string())?;
 
-        // Return both relative path and filename for frontend to construct the URL
-        Ok(format!("assets/{}", target_name))
+        Ok(library::attachments_relative_path(&target_name))
     }
 
     #[tauri::command]
@@ -3902,8 +4219,8 @@ mod desktop {
         let mut opened_preview = false;
 
         for arg in args.iter().skip(1) {
-            // Skip flags
-            if arg.starts_with('-') {
+            // Skip flags and custom-scheme auth callbacks.
+            if arg.starts_with('-') || arg.contains("://") {
                 continue;
             }
 
@@ -3988,6 +4305,7 @@ mod desktop {
             .plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
                 handle_cli_args(app, &args, &cwd);
             }))
+            .plugin(tauri_plugin_deep_link::init())
             .plugin(tauri_plugin_opener::init())
             .plugin(tauri_plugin_fs::init())
             .plugin(tauri_plugin_dialog::init())
@@ -4054,7 +4372,12 @@ mod desktop {
                     use tauri::Manager;
                     if let Some(window) = app.get_webview_window("main") {
                         use window_vibrancy::{apply_vibrancy, NSVisualEffectMaterial};
-                        let _ = apply_vibrancy(&window, NSVisualEffectMaterial::UnderWindowBackground, None, None);
+                        let _ = apply_vibrancy(
+                            &window,
+                            NSVisualEffectMaterial::UnderWindowBackground,
+                            None,
+                            None,
+                        );
                     }
                 }
 
@@ -4067,7 +4390,6 @@ mod desktop {
                     }
                 }
 
-
                 // Add notes folder to asset protocol scope so images can be served
                 if let Some(ref folder) = app
                     .state::<AppState>()
@@ -4078,6 +4400,12 @@ mod desktop {
                     .clone()
                 {
                     let _ = app.asset_protocol_scope().allow_directory(folder, true);
+                }
+
+                #[cfg(any(windows, target_os = "linux"))]
+                {
+                    use tauri_plugin_deep_link::DeepLinkExt;
+                    let _ = app.handle().deep_link().register_all();
                 }
 
                 // Handle CLI args on first launch; determine whether to show the main window.
@@ -4148,6 +4476,7 @@ mod desktop {
                 save_note,
                 delete_note,
                 create_note,
+                import_notes,
                 list_folders,
                 create_folder,
                 delete_folder,

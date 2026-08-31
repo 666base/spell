@@ -43,7 +43,7 @@ const editorWidthOptions: { value: EditorWidth; label: string }[] = [
 
 // Font family options
 const fontFamilyOptions: { value: FontFamily; label: string }[] = [
-  { value: "system-sans", label: "Sans" },
+  { value: "system-sans", label: "SN Pro" },
   { value: "serif", label: "Serif" },
   { value: "monospace", label: "Mono" },
 ];
@@ -366,12 +366,7 @@ export function AppearanceSettingsSection() {
               className="prose prose-lg dark:prose-invert max-w-xl mx-auto"
               dir={textDirection}
               style={{
-                fontFamily:
-                  editorFontSettings.baseFontFamily === "system-sans"
-                    ? "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
-                    : editorFontSettings.baseFontFamily === "serif"
-                      ? "ui-serif, Georgia, Cambria, 'Times New Roman', Times, serif"
-                      : "ui-monospace, 'Cascadia Code', 'Source Code Pro', Menlo, Consolas, 'DejaVu Sans Mono', monospace",
+                fontFamily: "var(--editor-font-family)",
                 fontSize: `${editorFontSettings.baseFontSize}px`,
               }}
             >

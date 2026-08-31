@@ -35,6 +35,7 @@ const LOCK_FILE = "sync.lock";
 const MAX_LOG_BYTES = 512 * 1024;
 const CONFLICT_LIMIT = 50;
 const LOCAL_ONLY_PATHS = new Set([".git", STATE_DIRECTORY, ".trash", ".scratch"]);
+const LIBRARY_SETTINGS = path.join("Spell Library", "settings.json");
 
 class VaultsyncError extends Error {}
 
@@ -285,6 +286,7 @@ const GITIGNORE_ENTRIES = [
   ".trash/",
   ".scratch/",
   ".vaultsync/",
+  "Spell Library/settings.json",
 ];
 
 async function ensureVaultGitignore(context) {
@@ -574,6 +576,7 @@ function ignoredByWatcher(vault, target) {
   if (!relative || relative.startsWith("..")) return false;
   const first = relative.split(path.sep)[0];
   if (LOCAL_ONLY_PATHS.has(first)) return true;
+  if (relative === LIBRARY_SETTINGS) return true;
   return relative === ".obsidian/workspace" || relative.startsWith(`.obsidian${path.sep}workspace`);
 }
 

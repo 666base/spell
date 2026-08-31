@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import type { Editor as TiptapEditor } from "@tiptap/react";
 import { format } from "date-fns";
 import { bg } from "date-fns/locale";
@@ -9,10 +10,10 @@ import { KanbanWorkspaceProvider } from "./context/KanbanWorkspaceContext";
 import { FinanceProvider } from "./context/FinanceContext";
 import { TooltipProvider, Toaster } from "./components/ui";
 import { Editor } from "./components/editor/Editor";
+import { EASE_DRAWER, MOTION_FAST_S, MOTION_PANEL_S } from "./lib/motion";
 import { JournalPage } from "./components/journal/JournalPage";
 import { FolderPicker } from "./components/layout/FolderPicker";
 import { CloudSync } from "./components/cloud/CloudSync";
-import { SpinnerIcon } from "./components/icons/velocity";
 import { SettingsPage } from "./components/settings";
 import { MobileFolders } from "./components/layout/mobile/MobileFolders";
 import { MobileWorkspace } from "./components/layout/mobile/MobileWorkspace";
@@ -31,11 +32,13 @@ import { cleanTitle } from "./lib/utils";
 
 const DAILY = 1;
 
-function DailyPage({
+const DailyPage = memo(function DailyPage({
+  active,
   onOpenFolders,
   onOpenWorkspace,
   onOpenToday,
 }: {
+  active: boolean;
   onOpenFolders: () => void;
   onOpenWorkspace: () => void;
   onOpenToday: () => void;
@@ -51,6 +54,27 @@ function DailyPage({
   const handleEditorReady = useCallback((editor: TiptapEditor | null) => {
     editorRef.current = editor;
   }, []);
+
+  useEffect(() => {
+    const editor = editorRef.current;
+    if (!editor || editor.isDestroyed) return;
+    const release = () => {
+      if (editor.isDestroyed) return;
+      if (document.activeElement?.classList.contains("mobile-nav-title-input")) return;
+      editor.commands.blur();
+      editor.view.dom.blur();
+      window.getSelection()?.removeAllRanges();
+    };
+    if (!active) {
+      release();
+      return;
+    }
+    const id = window.setTimeout(() => {
+      if (editor.isFocused) return;
+      release();
+    }, 300);
+    return () => window.clearTimeout(id);
+  }, [active]);
 
   const commitTitle = useCallback(
     (nextTitle: string) => {
@@ -73,7 +97,6 @@ function DailyPage({
         title={
           isVaultNote ? (
             <MobileNoteTitle
-              key={currentNote?.id}
               value={cleanTitle(currentNote?.title)}
               onCommit={commitTitle}
             />
@@ -126,7 +149,7 @@ function DailyPage({
       </div>
     </MobileScreen>
   );
-}
+});
 
 function MobileNoteTitle({
   value,
@@ -136,16 +159,24 @@ function MobileNoteTitle({
   onCommit: (title: string) => void;
 }) {
   const [draft, setDraft] = useState(value);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
+    if (document.activeElement === inputRef.current) return;
     setDraft(value);
   }, [value]);
 
+  useEffect(() => {
+    const onFocus = () => inputRef.current?.focus();
+    window.addEventListener("focus-mobile-note-title", onFocus);
+    return () => window.removeEventListener("focus-mobile-note-title", onFocus);
+  }, []);
+
   return (
     <input
+      ref={inputRef}
       className="mobile-nav-title-input"
       value={draft}
-      size={Math.max(4, draft.length || 8)}
       aria-label="Note title"
       data-pager-ignore
       onChange={(event) => setDraft(event.target.value)}
@@ -167,6 +198,7 @@ function MobileNoteTitle({
 function MobileAppContent() {
   const { notesFolder, isLoading, createNoteInFolder } = useNotes();
   const openJournal = useOpenJournal();
+  const reduceMotion = useReducedMotion();
   const [index, setIndex] = useState(DAILY);
   const [settingsOpen, setSettingsOpen] = useState(false);
   useKeyboardInset();
@@ -177,11 +209,22 @@ function MobileAppContent() {
   }, []);
 
   useEffect(() => {
+    if (!history.state?.spell) history.replaceState({ spell: true }, "");
+  }, []);
+
+  useEffect(() => {
     const onPopState = () => {
       if (settingsOpen) {
         setSettingsOpen(false);
         history.pushState({ spell: true }, "");
         return;
+      }
+      if (index === 2) {
+        const nested = new CustomEvent("spell-mobile-back", { cancelable: true });
+        if (!window.dispatchEvent(nested)) {
+          history.pushState({ spell: true }, "");
+          return;
+        }
       }
       if (index !== DAILY) {
         setIndex(DAILY);
@@ -202,9 +245,30 @@ function MobileAppContent() {
     });
   }, []);
 
+  useEffect(() => {
+    const onCreated = () => goTo(DAILY);
+    window.addEventListener("spell-note-created", onCreated);
+    return () => window.removeEventListener("spell-note-created", onCreated);
+  }, [goTo]);
+
+  const openFolders = useCallback(() => goTo(0), [goTo]);
+  const openWorkspace = useCallback(() => goTo(2), [goTo]);
+  const openDaily = useCallback(() => goTo(DAILY), [goTo]);
+  const closeSettings = useCallback(() => setSettingsOpen(false), []);
+  const openSettings = useCallback(() => {
+    history.pushState({ spell: "settings" }, "");
+    setSettingsOpen(true);
+  }, []);
+
+  useEffect(() => {
+    const openAccount = () => openSettings();
+    window.addEventListener("open-account-settings", openAccount);
+    return () => window.removeEventListener("open-account-settings", openAccount);
+  }, [openSettings]);
+
   const compose = useCallback(async () => {
-    await createNoteInFolder("");
-    goTo(DAILY);
+    const note = await createNoteInFolder("");
+    if (note) goTo(DAILY);
   }, [createNoteInFolder, goTo]);
 
   const openToday = useCallback(async () => {
@@ -213,18 +277,7 @@ function MobileAppContent() {
   }, [goTo, openJournal]);
 
   if (isLoading) {
-    return (
-      <div className="h-full min-h-dvh flex items-center justify-center bg-bg-secondary">
-        <div className="app-loading">
-          <div className="app-loading-mark">
-            <SpinnerIcon className="w-4.5 h-4.5 stroke-[1.6] animate-spin" />
-          </div>
-          <span>
-            Opening <span className="text-text">Spell</span>
-          </span>
-        </div>
-      </div>
-    );
+    return <div className="h-full min-h-dvh bg-bg-secondary" />;
   }
 
   if (!notesFolder) {
@@ -238,37 +291,47 @@ function MobileAppContent() {
         <MobilePager index={index} onIndexChange={goTo}>
           <MobilePagerSlide>
             <MobileFolders
-              onOpenNote={() => goTo(DAILY)}
-              onOpenJournal={() => {
-                void openToday();
-              }}
-              onOpenSettings={() => {
-                history.pushState({ spell: "settings" }, "");
-                setSettingsOpen(true);
-              }}
-              onCompose={() => {
-                void compose();
-              }}
+              onOpenNote={openDaily}
+              onOpenJournal={openToday}
+              onOpenSettings={openSettings}
+              onCompose={compose}
             />
           </MobilePagerSlide>
           <MobilePagerSlide>
             <DailyPage
-              onOpenFolders={() => goTo(0)}
-              onOpenWorkspace={() => goTo(2)}
-              onOpenToday={() => {
-                void openToday();
-              }}
+              active={index === DAILY}
+              onOpenFolders={openFolders}
+              onOpenWorkspace={openWorkspace}
+              onOpenToday={openToday}
             />
           </MobilePagerSlide>
           <MobilePagerSlide>
-            <MobileWorkspace onBackToDaily={() => goTo(DAILY)} />
+            <MobileWorkspace onBackToDaily={openDaily} />
           </MobilePagerSlide>
         </MobilePager>
-        {settingsOpen && (
-          <div className="mobile-settings-overlay">
-            <SettingsPage compact onBack={() => setSettingsOpen(false)} />
-          </div>
-        )}
+        <AnimatePresence>
+          {settingsOpen && (
+            <motion.div
+              className="mobile-settings-overlay"
+              initial={
+                reduceMotion ? { opacity: 0 } : { transform: "translate3d(100%, 0, 0)" }
+              }
+              animate={
+                reduceMotion ? { opacity: 1 } : { transform: "translate3d(0, 0, 0)" }
+              }
+              exit={
+                reduceMotion ? { opacity: 0 } : { transform: "translate3d(100%, 0, 0)" }
+              }
+              transition={
+                reduceMotion
+                  ? { duration: MOTION_FAST_S, ease: "easeOut" }
+                  : { duration: MOTION_PANEL_S, ease: EASE_DRAWER }
+              }
+            >
+              <SettingsPage compact onBack={closeSettings} />
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
     </>
   );

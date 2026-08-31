@@ -161,7 +161,8 @@ fn fetch_latest_release() -> Result<GithubRelease, String> {
             .into_json()
             .map_err(|_| "Could not read the latest Spell release.".to_string()),
         Err(_) => {
-            let list_url = format!("https://api.github.com/repos/{GITHUB_REPO}/releases?per_page=10");
+            let list_url =
+                format!("https://api.github.com/repos/{GITHUB_REPO}/releases?per_page=10");
             let releases: Vec<GithubRelease> = github_get(&list_url)?
                 .into_json()
                 .map_err(|_| "Could not read Spell releases.".to_string())?;
@@ -199,9 +200,9 @@ fn sanitize_filename(name: &str) -> Result<String, String> {
         || name.contains("..")
         || name.contains('/')
         || name.contains('\\')
-            || !name
-            .chars()
-            .all(|character| character.is_ascii_alphanumeric() || matches!(character, '.' | '_' | '-' | ' '))
+        || !name.chars().all(|character| {
+            character.is_ascii_alphanumeric() || matches!(character, '.' | '_' | '-' | ' ')
+        })
     {
         return Err("The update file name is invalid.".to_string());
     }
@@ -254,7 +255,9 @@ fn download_asset(app: &AppHandle, asset: &GithubAsset) -> Result<PathBuf, Strin
     emit_progress(app, 0, total);
 
     loop {
-        let read = reader.read(&mut buffer).map_err(|error| error.to_string())?;
+        let read = reader
+            .read(&mut buffer)
+            .map_err(|error| error.to_string())?;
         if read == 0 {
             break;
         }
@@ -266,6 +269,22 @@ fn download_asset(app: &AppHandle, asset: &GithubAsset) -> Result<PathBuf, Strin
 
     file.flush().map_err(|error| error.to_string())?;
     emit_progress(app, downloaded.max(total), total.max(downloaded));
+
+    if downloaded == 0 {
+        let _ = fs::remove_file(&destination);
+        return Err(
+            "Download failed — received an empty file. Check your connection or download from GitHub."
+                .to_string(),
+        );
+    }
+    if asset.size > 0 && downloaded + 1024 < asset.size {
+        let _ = fs::remove_file(&destination);
+        return Err(format!(
+            "Download incomplete ({downloaded} of {} bytes). Try again.",
+            asset.size
+        ));
+    }
+
     Ok(destination)
 }
 
