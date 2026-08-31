@@ -46,8 +46,8 @@ jobs:
         with:
           tagName: v__VERSION__
           releaseName: "Spell v__VERSION__"
-          releaseBody: "Linux .deb and Android APK. Publish this release, then use Check for updates in Spell settings."
-          releaseDraft: true
+          releaseBody: "Linux .deb. Attach the signed Android APK if you have a local build."
+          releaseDraft: false
           prerelease: false
           args: "--bundles deb"
 
