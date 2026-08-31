@@ -86,7 +86,12 @@ const DailyPage = memo(function DailyPage({
         setEditorDocumentTitle(editor, trimmed);
         return;
       }
-      void saveNote(replaceMarkdownTitle(currentNote.content, trimmed), currentNote.id);
+      void saveNote(
+        replaceMarkdownTitle(currentNote.content, trimmed),
+        currentNote.id,
+      ).catch((error) => {
+        console.error("Failed to save note title:", error);
+      });
     },
     [currentNote, saveNote],
   );
@@ -123,8 +128,6 @@ const DailyPage = memo(function DailyPage({
         }
       />
       <div className="mobile-editor-body">
-        <div className="mobile-pager-edge mobile-pager-edge-start" aria-hidden />
-        <div className="mobile-pager-edge mobile-pager-edge-end" aria-hidden />
         <div
           className="mobile-editor-pane"
           data-pager-ignore

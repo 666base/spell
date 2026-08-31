@@ -37,7 +37,7 @@ export function ProjectsHub({
   hideTitleBar = false,
   onOpenProject,
 }: ProjectsHubProps) {
-  const { workspace, isLoading, updateProject } = useKanbanWorkspace();
+  const { workspace, isLoading, patchProjectBoard } = useKanbanWorkspace();
   const dues = useMemo(() => dueTasks(workspace), [workspace]);
   const recent = useMemo(() => recentTasks(workspace), [workspace]);
   const openCount = overviewOpenCount(workspace);
@@ -49,22 +49,14 @@ export function ProjectsHub({
   }, [onOpenProject]);
 
   const toggleDone = useCallback((item: ProjectTaskItem) => {
-    const project = workspace.projects.find((current) => current.id === item.projectId);
-    if (!project) return;
-    updateProject({
-      ...project,
-      board: withCardCompleted(project.board, item.card.id, item.card.completed !== true),
-    });
-  }, [updateProject, workspace.projects]);
+    patchProjectBoard(item.projectId, (board) => (
+      withCardCompleted(board, item.card.id, item.card.completed !== true)
+    ));
+  }, [patchProjectBoard]);
 
   const moveTask = useCallback((item: ProjectTaskItem, columnId: string) => {
-    const project = workspace.projects.find((current) => current.id === item.projectId);
-    if (!project) return;
-    updateProject({
-      ...project,
-      board: withCardInColumn(project.board, item.card.id, columnId),
-    });
-  }, [updateProject, workspace.projects]);
+    patchProjectBoard(item.projectId, (board) => withCardInColumn(board, item.card.id, columnId));
+  }, [patchProjectBoard]);
 
   const titlebar = (
     <NoteTitlebar

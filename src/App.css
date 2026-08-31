@@ -1214,7 +1214,7 @@ button.source-list-folder-toggle {
   overflow: hidden;
   border: 0;
   margin: 0;
-  padding: 4px 8px 6px;
+  padding: 6px 8px 3px;
   background: transparent;
   box-shadow: none;
   color: var(--color-text);
@@ -1826,7 +1826,6 @@ html.mobile-app #root {
   height: 100%;
   overflow: hidden;
   overscroll-behavior: none;
-  touch-action: manipulation;
 }
 
 html.mobile-app .bg-overlay,
@@ -1843,35 +1842,27 @@ html.mobile-app .spell-calendar-layer--sheet::before {
 
 .mobile-pager {
   position: relative;
-  isolation: isolate;
-  display: flex;
   width: 100%;
   height: 100%;
   min-height: 0;
   overflow: hidden;
-  touch-action: pan-y;
   overscroll-behavior: none;
-  user-select: auto;
-  -webkit-user-select: auto;
-  -webkit-touch-callout: default;
 }
 
-.mobile-pager.keen-slider:not([data-keen-slider-disabled]) {
-  height: 100%;
+.mobile-pager-slide {
+  position: absolute;
+  inset: 0;
+  display: flex;
   min-height: 0;
-  user-select: auto;
-  -webkit-user-select: auto;
-  -webkit-touch-callout: default;
-}
-
-.mobile-pager-slide,
-.mobile-pager.keen-slider:not([data-keen-slider-disabled]) .keen-slider__slide {
-  position: relative;
-  height: 100%;
-  min-height: 0;
+  flex-direction: column;
   overflow: hidden;
-  backface-visibility: hidden;
-  -webkit-backface-visibility: hidden;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.mobile-pager-slide.is-active {
+  visibility: visible;
+  pointer-events: auto;
 }
 
 .mobile-screen {
@@ -1919,19 +1910,20 @@ html.mobile-app .spell-calendar-layer--sheet::before {
   justify-content: center;
   gap: 8px;
   overflow: visible;
-  padding: 0 0.25em 0.15em;
+  padding: 0;
   font-size: 17px;
   font-weight: 600;
   letter-spacing: -0.02em;
-  line-height: 24px;
+  line-height: 22px;
   text-align: center;
+  transform: translateY(1px);
 }
 
 .mobile-nav-title-text {
   min-width: 0;
   overflow: visible;
-  padding: 0 0.2em 0.22em;
-  line-height: 24px;
+  padding: 0;
+  line-height: 22px;
 }
 
 .mobile-workspace-switch {
@@ -1942,8 +1934,8 @@ html.mobile-app .spell-calendar-layer--sheet::before {
 
 .mobile-workspace-switch button {
   display: grid;
-  width: 40px;
-  height: 40px;
+  width: 44px;
+  height: 44px;
   place-items: center;
   padding: 0;
   border: 0;
@@ -2082,14 +2074,15 @@ html.mobile-app .spell-calendar-layer--sheet::before {
   display: flex;
   min-width: 0;
   max-width: 100%;
-  min-height: 40px;
+  min-height: 44px;
   align-items: center;
   overflow: visible;
   padding: 0 6px 0 2px;
   color: var(--notes-tint);
   font-size: 17px;
   letter-spacing: -0.02em;
-  line-height: 24px;
+  line-height: 22px;
+  transform: translateY(1px);
 }
 
 .mobile-nav-back,
@@ -2125,12 +2118,15 @@ html.mobile-app .mobile-tint-button:focus {
 
 .mobile-tint-button {
   display: grid;
-  width: 40px;
-  height: 40px;
+  width: 44px;
+  height: 44px;
   place-items: center;
   color: var(--notes-tint);
 }
 
+.mobile-tint-button:disabled {
+  opacity: 0.4;
+}
 
 .mobile-tint-button .ui-icon,
 .mobile-tint-button svg,
@@ -2473,23 +2469,6 @@ html.mobile-app .mobile-tint-button:focus {
   min-width: 0;
   flex: 1;
   flex-direction: column;
-}
-
-.mobile-pager-edge {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  z-index: 2;
-  width: 20px;
-  touch-action: none;
-}
-
-.mobile-pager-edge-start {
-  left: 0;
-}
-
-.mobile-pager-edge-end {
-  right: 0;
 }
 
 [data-mobile-shell] .ProseMirror {
@@ -2933,6 +2912,8 @@ body:has([data-mobile-shell]) .spell-calendar-popover.mobile-drawer[data-open="f
   flex-shrink: 0;
   align-items: center;
   justify-content: center;
+  appearance: none;
+  -webkit-appearance: none;
   border: 1.5px solid color-mix(in srgb, var(--status-fg, var(--color-text)) 55%, transparent);
   border-radius: 999px;
   background: transparent;
@@ -2961,10 +2942,33 @@ body:has([data-mobile-shell]) .spell-calendar-popover.mobile-drawer[data-open="f
 html.mobile-app .money-row-check,
 html.mobile-app .kanban-done-toggle {
   position: relative;
+  z-index: 2;
   width: 22px;
   height: 22px;
   flex: none;
   touch-action: manipulation;
+}
+
+html.mobile-app .kanban-task-check {
+  position: relative;
+  z-index: 2;
+  box-sizing: border-box;
+  width: 44px;
+  min-height: 44px;
+  height: 44px;
+  margin: -11px 0 -11px -11px;
+  padding: 11px;
+  overflow: visible;
+}
+
+html.mobile-app .kanban-task,
+html.mobile-app .kanban-card-tile {
+  overflow: visible;
+}
+
+html.mobile-app .kanban-task-body {
+  position: relative;
+  z-index: 0;
 }
 
 html.mobile-app .money-row-check::before,
@@ -2972,6 +2976,7 @@ html.mobile-app .kanban-done-toggle::before {
   content: "";
   position: absolute;
   inset: -11px;
+  z-index: -1;
 }
 
 .money-row-title.is-done {
@@ -3362,6 +3367,20 @@ button.motion-interactive:not(:disabled):active,
   line-height: 18px;
 }
 
+.kanban-board-composer input {
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.kanban-list-composer {
+  display: block;
+}
+
+[data-mobile-shell] .kanban-list-composer {
+  padding-top: 4px;
+  padding-bottom: 8px;
+}
+
 .kanban-board-empty {
   display: flex;
   flex-wrap: wrap;
@@ -3428,6 +3447,7 @@ html[data-kanban-dragging] * {
   align-items: center;
   justify-content: center;
   height: calc(var(--editor-base-font-size) * var(--editor-line-height));
+  overflow: visible;
 }
 
 .kanban-task-check.is-compact {
@@ -3518,6 +3538,8 @@ html[data-kanban-dragging] * {
   justify-content: center;
   position: relative;
   overflow: visible;
+  appearance: none;
+  -webkit-appearance: none;
   border-radius: 999px;
   border: 1.5px solid color-mix(in srgb, var(--status-fg, var(--color-text)) 55%, transparent);
   background: transparent;

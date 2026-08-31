@@ -22,6 +22,7 @@ import { CSS } from "@dnd-kit/utilities";
 import type { ColumnColorId, KanbanBoard, KanbanCard, KanbanColumn, KanbanPriority, KanbanTodo, ProjectViewId } from "../../types/note";
 import { useKanbanWorkspace } from "../../context/KanbanWorkspaceContext";
 import {
+  appendCardToColumn,
   captureColumn,
   createBoardFromTemplate,
   createEmptyBoard,
@@ -31,6 +32,7 @@ import {
   removeCardId,
   withCardCompleted,
   withCardInColumn,
+  withCardTodos,
 } from "../../lib/kanban";
 import { cn } from "../../lib/utils";
 import { isMobileApp } from "../../lib/platform";
@@ -111,7 +113,7 @@ export function KanbanPage({
   hideTitleBar = false,
   openCardId = null,
 }: KanbanPageProps) {
-  const { activeProject, isLoading, updateProject } = useKanbanWorkspace();
+  const { activeProject, isLoading, updateProject, patchActiveBoard } = useKanbanWorkspace();
   const [editing, setEditing] = useState<EditingCard | null>(null);
   const [activeCardId, setActiveCardId] = useState<string | null>(null);
   const [recentlyCreatedCardId, setRecentlyCreatedCardId] = useState<string | null>(null);
@@ -131,10 +133,9 @@ export function KanbanPage({
   );
   const board = activeProject?.board ?? createEmptyBoard();
 
-  const persist = useCallback((nextBoard: KanbanBoard) => {
-    if (!activeProject) return;
-    updateProject({ ...activeProject, board: nextBoard });
-  }, [activeProject, updateProject]);
+  const persist = useCallback((updater: (board: KanbanBoard) => KanbanBoard) => {
+    patchActiveBoard(updater);
+  }, [patchActiveBoard]);
 
   const cardsById = useMemo(
     () => new Map(board.cards.map((card) => [card.id, card])),
@@ -205,102 +206,101 @@ export function KanbanPage({
   const addColumn = useCallback((title: string) => {
     const trimmedTitle = title.trim();
     if (!trimmedTitle) return;
-    persist({
-      ...board,
-      columns: [...board.columns, { id: `column:${makeId()}`, title: trimmedTitle, cardIds: [] }],
-    });
+    persist((current) => ({
+      ...current,
+      columns: [...current.columns, { id: `column:${makeId()}`, title: trimmedTitle, cardIds: [] }],
+    }));
     setNewColumnTitle("");
     setIsAddingColumn(false);
-  }, [board, persist]);
+  }, [persist]);
 
   const renameColumn = useCallback((columnId: string, title: string) => {
     const trimmedTitle = title.trim();
     if (!trimmedTitle) return;
-    persist({
-      ...board,
-      columns: board.columns.map((column) => (
+    persist((current) => ({
+      ...current,
+      columns: current.columns.map((column) => (
         column.id === columnId ? { ...column, title: trimmedTitle } : column
       )),
-    });
-  }, [board, persist]);
+    }));
+  }, [persist]);
 
   const recolorColumn = useCallback((columnId: string, color: ColumnColorId) => {
-    persist({
-      ...board,
-      columns: board.columns.map((column) => (
+    persist((current) => ({
+      ...current,
+      columns: current.columns.map((column) => (
         column.id === columnId
           ? { ...column, color: color === "default" ? undefined : color }
           : column
       )),
-    });
-  }, [board, persist]);
+    }));
+  }, [persist]);
 
   const deleteColumn = useCallback((columnId: string) => {
-    const column = board.columns.find((item) => item.id === columnId);
-    if (!column) return;
-    const remainingColumns = board.columns.filter((item) => item.id !== columnId);
-    if (column.cardIds.length > 0 && remainingColumns.length === 0) {
-      toast.error("Create another column before removing this one");
-      return;
-    }
-    const columns = remainingColumns.map((item, index) => (
-      index === 0 && column.cardIds.length > 0
-        ? { ...item, cardIds: [...item.cardIds, ...column.cardIds] }
-        : item
-    ));
-    persist({ ...board, columns });
+    persist((current) => {
+      const column = current.columns.find((item) => item.id === columnId);
+      if (!column) return current;
+      const remainingColumns = current.columns.filter((item) => item.id !== columnId);
+      if (column.cardIds.length > 0 && remainingColumns.length === 0) {
+        toast.error("Create another column before removing this one");
+        return current;
+      }
+      const columns = remainingColumns.map((item, index) => (
+        index === 0 && column.cardIds.length > 0
+          ? { ...item, cardIds: [...item.cardIds, ...column.cardIds] }
+          : item
+      ));
+      if (column.cardIds.length > 0) {
+        toast.message(`Moved ${column.cardIds.length} task${column.cardIds.length === 1 ? "" : "s"} to ${columns[0].title}`);
+      }
+      return { ...current, columns };
+    });
     setSelectedColumnId((current) => current === columnId ? null : current);
-    if (column.cardIds.length > 0) toast.message(`Moved ${column.cardIds.length} task${column.cardIds.length === 1 ? "" : "s"} to ${columns[0].title}`);
-  }, [board, persist]);
+  }, [persist]);
 
   const reorderColumns = useCallback((activeId: string, overId: string) => {
-    const oldIndex = board.columns.findIndex((column) => column.id === activeId);
-    const newIndex = board.columns.findIndex((column) => column.id === overId);
-    if (oldIndex < 0 || newIndex < 0 || oldIndex === newIndex) return;
-    persist({ ...board, columns: arrayMove(board.columns, oldIndex, newIndex) });
-  }, [board, persist]);
+    persist((current) => {
+      const oldIndex = current.columns.findIndex((column) => column.id === activeId);
+      const newIndex = current.columns.findIndex((column) => column.id === overId);
+      if (oldIndex < 0 || newIndex < 0 || oldIndex === newIndex) return current;
+      return { ...current, columns: arrayMove(current.columns, oldIndex, newIndex) };
+    });
+  }, [persist]);
 
   const saveCard = useCallback((card: KanbanCard, columnId: string, isNew: boolean) => {
     const savedCard = { ...card, title: card.title.trim(), updatedAt: Date.now() };
     if (!savedCard.title) return;
-    persist(withCardInColumn({
-      ...board,
+    persist((current) => withCardInColumn({
+      ...current,
       cards: isNew
-        ? [...board.cards, savedCard]
-        : board.cards.map((existing) => existing.id === savedCard.id ? savedCard : existing),
+        ? [...current.cards, savedCard]
+        : current.cards.map((existing) => existing.id === savedCard.id ? savedCard : existing),
     }, savedCard.id, columnId));
     if (isNew) setRecentlyCreatedCardId(savedCard.id);
     setEditing(null);
-  }, [board, persist]);
+  }, [persist]);
 
   const deleteCard = useCallback((cardId: string) => {
-    persist({
-      ...board,
-      columns: removeCardId(board.columns, cardId),
-      cards: board.cards.filter((card) => card.id !== cardId),
-    });
+    persist((current) => ({
+      ...current,
+      columns: removeCardId(current.columns, cardId),
+      cards: current.cards.filter((card) => card.id !== cardId),
+    }));
     setEditing(null);
-  }, [board, persist]);
+  }, [persist]);
 
   const updateCardTodos = useCallback((cardId: string, update: (todos: KanbanTodo[]) => KanbanTodo[]) => {
-    const boardCard = board.cards.find((item) => item.id === cardId);
-    if (boardCard) {
-      const nextCard = { ...boardCard, todos: update(boardCard.todos ?? []), updatedAt: Date.now() };
-      persist({
-        ...board,
-        cards: board.cards.map((item) => item.id === cardId ? nextCard : item),
-      });
-      setEditing((current) => current?.card.id === cardId ? { ...current, card: nextCard } : current);
-      return;
-    }
+    persist((current) => {
+      const boardCard = current.cards.find((item) => item.id === cardId);
+      if (!boardCard) return current;
+      return withCardTodos(current, cardId, update(boardCard.todos ?? []));
+    });
     setEditing((current) => {
       if (current?.card.id !== cardId) return current;
-      return {
-        ...current,
-        card: { ...current.card, todos: update(current.card.todos ?? []), updatedAt: Date.now() },
-      };
+      const todos = update(current.card.todos ?? []);
+      return { ...current, card: { ...current.card, todos, updatedAt: Date.now() } };
     });
-  }, [board, persist]);
+  }, [persist]);
 
   const addTodoToCard = useCallback((cardId: string, title: string) => {
     const trimmed = title.trim();
@@ -315,12 +315,8 @@ export function KanbanPage({
   const addQuickCard = useCallback((columnId: string, title: string) => {
     const trimmed = title.trim();
     if (!trimmed) return;
-    const card = { ...newCard(), title: trimmed };
-    persist(withCardInColumn({
-      ...board,
-      cards: [...board.cards, card],
-    }, card.id, columnId));
-  }, [board, persist]);
+    persist((current) => appendCardToColumn(current, columnId, { ...newCard(), title: trimmed }));
+  }, [persist]);
 
   const renameCardTitle = useCallback((cardId: string, title: string) => {
     const trimmed = title.trim();
@@ -328,23 +324,25 @@ export function KanbanPage({
       deleteCard(cardId);
       return;
     }
-    persist({
-      ...board,
-      cards: board.cards.map((card) => (
+    persist((current) => ({
+      ...current,
+      cards: current.cards.map((card) => (
         card.id === cardId ? { ...card, title: trimmed, updatedAt: Date.now() } : card
       )),
-    });
-  }, [board, deleteCard, persist]);
+    }));
+  }, [deleteCard, persist]);
 
   const toggleCardDone = useCallback((cardId: string) => {
-    const card = board.cards.find((item) => item.id === cardId);
-    if (!card) return;
-    persist(withCardCompleted(board, cardId, card.completed !== true));
-  }, [board, persist]);
+    persist((current) => {
+      const card = current.cards.find((item) => item.id === cardId);
+      if (!card) return current;
+      return withCardCompleted(current, cardId, card.completed !== true);
+    });
+  }, [persist]);
 
   const moveCard = useCallback((cardId: string, columnId: string) => {
-    persist(withCardInColumn(board, cardId, columnId));
-  }, [board, persist]);
+    persist((current) => withCardInColumn(current, cardId, columnId));
+  }, [persist]);
 
   const renameProject = useCallback((name: string) => {
     if (!activeProject) return;
@@ -387,25 +385,27 @@ export function KanbanPage({
       return;
     }
 
-    const cardId = String(active.id);
-    const sourceColumn = board.columns.find((column) => column.cardIds.includes(cardId));
-    if (!sourceColumn) return;
-    const overData = over.data.current;
-    const destinationId = overData?.type === "kanban-card"
-      ? String(overData.columnId)
-      : String(over.id).replace(/^kanban-column:/, "");
-    const destinationColumn = board.columns.find((column) => column.id === destinationId);
-    if (!destinationColumn) return;
+    persist((current) => {
+      const cardId = String(active.id);
+      const sourceColumn = current.columns.find((column) => column.cardIds.includes(cardId));
+      if (!sourceColumn) return current;
+      const overData = over.data.current;
+      const destinationId = overData?.type === "kanban-card"
+        ? String(overData.columnId)
+        : String(over.id).replace(/^kanban-column:/, "");
+      const destinationColumn = current.columns.find((column) => column.id === destinationId);
+      if (!destinationColumn) return current;
 
-    const destinationCardId = overData?.type === "kanban-card" ? String(over.id) : null;
-    const withoutCard = removeCardId(board.columns, cardId);
-    const destination = withoutCard.find((column) => column.id === destinationColumn.id);
-    if (!destination) return;
-    const insertAt = destinationCardId
-      ? Math.max(0, destination.cardIds.indexOf(destinationCardId))
-      : destination.cardIds.length;
-    persist(withCardInColumn(board, cardId, destinationColumn.id, insertAt));
-  }, [board, persist, reorderColumns]);
+      const destinationCardId = overData?.type === "kanban-card" ? String(over.id) : null;
+      const withoutCard = removeCardId(current.columns, cardId);
+      const destination = withoutCard.find((column) => column.id === destinationColumn.id);
+      if (!destination) return current;
+      const insertAt = destinationCardId
+        ? Math.max(0, destination.cardIds.indexOf(destinationCardId))
+        : destination.cardIds.length;
+      return withCardInColumn(current, cardId, destinationColumn.id, insertAt);
+    });
+  }, [persist, reorderColumns]);
 
   useEffect(() => {
     if (!boardEditing) return;
@@ -525,7 +525,7 @@ export function KanbanPage({
     <>
       {!hasColumns && (
         <EmptyBoard
-          onUseTemplate={(id) => persist(createBoardFromTemplate(id))}
+          onUseTemplate={(id) => persist(() => createBoardFromTemplate(id))}
         />
       )}
       {board.columns.map((column) => (
@@ -586,7 +586,7 @@ export function KanbanPage({
               onOpenCard={(card, columnId) => setEditing({ card, columnId, isNew: false })}
               onRenameColumn={renameColumn}
               onColorColumn={recolorColumn}
-              onUseTemplate={(id) => persist(createBoardFromTemplate(id))}
+              onUseTemplate={(id) => persist(() => createBoardFromTemplate(id))}
               onAddColumn={() => addColumn(newColumnTitle)}
               onColumnTitleChange={setNewColumnTitle}
               onOpenColumnCreator={() => setIsAddingColumn(true)}
@@ -600,12 +600,18 @@ export function KanbanPage({
               columns={board.columns}
               cardsById={cardsById}
               recentlyCreatedCardId={recentlyCreatedCardId}
+              focusCaptureId={focusCaptureId}
+              onCaptureFocused={() => setFocusCaptureId(null)}
+              onAddCard={(title) => {
+                const column = captureColumn(board);
+                if (column) addQuickCard(column.id, title);
+              }}
               onToggleDone={(card) => toggleCardDone(card.id)}
               onToggleTodo={toggleCardTodo}
               onRenameCard={(card, title) => renameCardTitle(card.id, title)}
               onOpenCard={(card, columnId) => setEditing({ card, columnId, isNew: false })}
               onMoveCard={(card, columnId) => moveCard(card.id, columnId)}
-              onUseTemplate={(id) => persist(createBoardFromTemplate(id))}
+              onUseTemplate={(id) => persist(() => createBoardFromTemplate(id))}
             />
           ) : (
             <DndContext
@@ -832,7 +838,7 @@ function ProjectNoteList({
               onAdd={(title) => onAddCard(column.id, title)}
               autoFocus={focusCaptureId === column.id}
               onFocused={onCaptureFocused}
-              className="pl-7"
+              className="kanban-list-composer pl-7"
             />
           </section>
         ))}
@@ -879,6 +885,9 @@ function ProjectGallery({
   columns,
   cardsById,
   recentlyCreatedCardId,
+  focusCaptureId,
+  onCaptureFocused,
+  onAddCard,
   onToggleDone,
   onToggleTodo,
   onRenameCard,
@@ -889,6 +898,9 @@ function ProjectGallery({
   columns: KanbanColumn[];
   cardsById: Map<string, KanbanCard>;
   recentlyCreatedCardId: string | null;
+  focusCaptureId: string | null;
+  onCaptureFocused: () => void;
+  onAddCard: (title: string) => void;
   onToggleDone: (card: KanbanCard) => void;
   onToggleTodo: (cardId: string, todoId: string) => void;
   onRenameCard: (card: KanbanCard, title: string) => void;
@@ -908,6 +920,14 @@ function ProjectGallery({
   return (
     <div className="kanban-gallery">
       {columns.length === 0 && <EmptyBoard onUseTemplate={onUseTemplate} />}
+      {columns.length > 0 && (
+        <NoteAddLine
+          onAdd={onAddCard}
+          autoFocus={Boolean(focusCaptureId)}
+          onFocused={onCaptureFocused}
+          className="kanban-list-composer mb-4"
+        />
+      )}
       <div className="kanban-gallery-grid">
         {cards.map(({ card, columnId, columnTitle, columnColor }) => (
           <div key={card.id} className="kanban-gallery-card">
@@ -1164,6 +1184,8 @@ function NoteAddLine({
 }) {
   const [value, setValue] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
+  const valueRef = useRef(value);
+  valueRef.current = value;
 
   useEffect(() => {
     if (!autoFocus) return;
@@ -1171,27 +1193,51 @@ function NoteAddLine({
     onFocused?.();
   }, [autoFocus, onFocused]);
 
+  const submit = () => {
+    const title = valueRef.current.trim();
+    if (!title) return false;
+    valueRef.current = "";
+    setValue("");
+    onAdd(title);
+    return true;
+  };
+
+  const keepFocus = () => {
+    const input = inputRef.current;
+    if (!input) return;
+    input.focus({ preventScroll: true });
+    requestAnimationFrame(() => input.focus({ preventScroll: true }));
+  };
+
   return (
-    <input
-      ref={inputRef}
-      value={value}
-      onChange={(event) => setValue(event.target.value)}
-      onKeyDown={(event) => {
-        if (event.key === "Enter") {
-          event.preventDefault();
-          const title = value.trim();
-          if (!title) return;
-          onAdd(title);
-          setValue("");
-        }
+    <form
+      className={cn("not-prose min-w-0", className)}
+      onSubmit={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        if (!submit()) return;
+        keepFocus();
       }}
-      placeholder="Add"
-      aria-label="Add"
-      className={cn(
-        "not-prose w-full min-w-0 bg-transparent py-1 text-[length:var(--editor-base-font-size)] leading-[var(--editor-line-height)] text-text outline-none placeholder:text-text-muted/45",
-        className,
-      )}
-    />
+    >
+      <input
+        ref={inputRef}
+        value={value}
+        onChange={(event) => setValue(event.target.value)}
+        onBlur={(event) => {
+          if (event.relatedTarget instanceof Node && event.currentTarget.form?.contains(event.relatedTarget)) {
+            return;
+          }
+          submit();
+        }}
+        enterKeyHint="enter"
+        autoCapitalize="sentences"
+        autoComplete="off"
+        autoCorrect="on"
+        placeholder="Add"
+        aria-label="Add"
+        className="w-full min-w-0 bg-transparent py-1 text-[length:var(--editor-base-font-size)] leading-[var(--editor-line-height)] text-text outline-none placeholder:text-text-muted/45"
+      />
+    </form>
   );
 }
 
@@ -1320,7 +1366,6 @@ function KanbanCardTile({
         overlay && "kanban-card-float",
         recentlyCreated && "kanban-card-enter",
       )}
-      {...dragListeners}
     >
       <div className="kanban-task">
         <span className="kanban-task-check">
@@ -1332,7 +1377,7 @@ function KanbanCardTile({
             onToggle={onToggleDone}
           />
         </span>
-        <div className="kanban-task-body">
+        <div className="kanban-task-body" {...dragListeners}>
           {isMobileApp ? (
             <button
               type="button"
@@ -1522,6 +1567,8 @@ function TaskDetailPanel({
                 onChange={(event) => setNewTodo(event.target.value)}
                 placeholder="Add to-do"
                 aria-label="Add to-do"
+                enterKeyHint="enter"
+                autoComplete="off"
                 className="min-w-0 flex-1 bg-transparent text-[13px] leading-5 text-text outline-none placeholder:text-text-muted/75"
               />
             </form>

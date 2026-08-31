@@ -17,6 +17,7 @@ interface NoteTitlebarProps {
   editor?: Editor | null;
   showTools?: boolean;
   composePlus?: boolean;
+  newNoteBusy?: boolean;
   leading?: ReactNode;
   center?: ReactNode;
   trailing?: ReactNode;
@@ -32,6 +33,7 @@ export function NoteTitlebar({
   editor = null,
   showTools = true,
   composePlus = false,
+  newNoteBusy = false,
   leading,
   center,
   trailing,
@@ -64,6 +66,8 @@ export function NoteTitlebar({
                 size="sm"
                 title={composePlus ? "Create daily note" : "New note"}
                 onClick={onNewNote}
+                disabled={newNoteBusy}
+                aria-busy={newNoteBusy || undefined}
               >
                 {composePlus ? <PlusIcon /> : <AddNoteIcon />}
               </IconButton>

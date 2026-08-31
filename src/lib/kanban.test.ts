@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { KanbanBoard, KanbanCard } from "../types/note";
 import {
+  appendCardToColumn,
   columnStatusKind,
   createBoardFromTemplate,
   doneColumn,
@@ -8,6 +9,7 @@ import {
   resolvedColumnColor,
   withCardCompleted,
   withCardInColumn,
+  withProjectChrome,
 } from "./kanban";
 
 function card(id: string, extra: Partial<KanbanCard> = {}): KanbanCard {
@@ -100,6 +102,48 @@ describe("withCardInColumn", () => {
     const next = withCardInColumn(board, "a", "done");
     expect(next.cards[0]?.completed).toBe(false);
     expect(doneColumn(next)?.cardIds).toEqual(["a"]);
+  });
+});
+
+describe("appendCardToColumn", () => {
+  it("keeps every card when adding from the latest board", () => {
+    const empty = weekBoard([], { today: [], week: [], later: [], done: [] });
+    const first = appendCardToColumn(empty, "today", card("a"));
+    const second = appendCardToColumn(first, "today", card("b"));
+    expect(second.cards.map((item) => item.id)).toEqual(["a", "b"]);
+    expect(second.columns.find((column) => column.id === "today")?.cardIds).toEqual(["a", "b"]);
+  });
+
+  it("drops the first card if both adds start from the same snapshot", () => {
+    const empty = weekBoard([], { today: [], week: [], later: [], done: [] });
+    const first = appendCardToColumn(empty, "today", card("a"));
+    const second = appendCardToColumn(empty, "today", card("b"));
+    expect(first.cards.map((item) => item.id)).toEqual(["a"]);
+    expect(second.cards.map((item) => item.id)).toEqual(["b"]);
+  });
+});
+
+describe("withProjectChrome", () => {
+  it("keeps the current board when a project is renamed", () => {
+    const board = appendCardToColumn(
+      weekBoard([], { today: [], week: [], later: [], done: [] }),
+      "today",
+      card("a"),
+    );
+    const project = {
+      id: "p1",
+      name: "Old",
+      client: "",
+      icon: "briefcase" as const,
+      view: "list" as const,
+      createdAt: 1,
+      updatedAt: 1,
+      board,
+    };
+    const next = withProjectChrome(project, { ...project, name: "New" });
+    expect(next.name).toBe("New");
+    expect(next.board).toBe(board);
+    expect(next.board.cards.map((item) => item.id)).toEqual(["a"]);
   });
 });
 

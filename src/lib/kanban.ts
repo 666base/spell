@@ -142,6 +142,43 @@ export function withCardCompleted(
   return withCardFlag(board, cardId, completed, now);
 }
 
+export function withProjectChrome(
+  project: KanbanProject,
+  chrome: Pick<KanbanProject, "name" | "client" | "icon" | "view">,
+): KanbanProject {
+  return {
+    ...project,
+    name: chrome.name,
+    client: chrome.client,
+    icon: chrome.icon,
+    view: chrome.view,
+    board: project.board,
+  };
+}
+
+export function appendCardToColumn(board: KanbanBoard, columnId: string, card: KanbanCard): KanbanBoard {
+  if (!board.columns.some((column) => column.id === columnId)) return board;
+  const cards = board.cards.some((item) => item.id === card.id)
+    ? board.cards.map((item) => item.id === card.id ? card : item)
+    : [...board.cards, card];
+  return withCardInColumn({ ...board, cards }, card.id, columnId);
+}
+
+export function withCardTodos(
+  board: KanbanBoard,
+  cardId: string,
+  todos: KanbanCard["todos"],
+  now = Date.now(),
+): KanbanBoard {
+  if (!board.cards.some((card) => card.id === cardId)) return board;
+  return {
+    ...board,
+    cards: board.cards.map((card) => (
+      card.id === cardId ? { ...card, todos, updatedAt: now } : card
+    )),
+  };
+}
+
 export function withCardInColumn(
   board: KanbanBoard,
   cardId: string,

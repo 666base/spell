@@ -308,6 +308,7 @@ export const MobileFolders = memo(function MobileFolders({
     deleteNote,
     deleteNotes,
     deleteFolder,
+    isCreatingNote,
   } = useNotes();
   const [knownFolders, setKnownFolders] = useState<string[]>([]);
   const [creating, setCreating] = useState<string | null>(null);
@@ -636,14 +637,14 @@ export const MobileFolders = memo(function MobileFolders({
               <MobileTintButton title="New Folder" onClick={() => setCreating("")}>
                 <FolderPlusGlyph />
               </MobileTintButton>
-              <MobileTintButton title="New Note" onClick={onCompose}>
+              <MobileTintButton title="New Note" onClick={onCompose} disabled={isCreatingNote}>
                 <ComposeIcon />
               </MobileTintButton>
             </>
           )
         }
       />
-      <MobileScroll edgeEnd>
+      <MobileScroll>
         {pinnedItems.length > 0 && (
           <Group>{pinnedItems.map((item) => renderItem(item))}</Group>
         )}

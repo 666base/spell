@@ -23,7 +23,7 @@ export function MobileNavBar({
         {!leading && onBack && (
           <button type="button" className="mobile-nav-back" onClick={onBack}>
             <ChevronLeftIcon className="mobile-nav-back-icon" />
-            {backLabel && <span className="min-w-0 truncate pb-[0.2em] pe-[0.25em] leading-6">{backLabel}</span>}
+            {backLabel && <span className="min-w-0 truncate pe-[0.25em] leading-[22px]">{backLabel}</span>}
           </button>
         )}
       </div>
@@ -48,17 +48,21 @@ export function MobileTintButton({
   onClick,
   children,
   className,
+  disabled = false,
 }: {
   title: string;
   onClick: () => void;
   children: ReactNode;
   className?: string;
+  disabled?: boolean;
 }) {
   return (
     <button
       type="button"
       title={title}
       aria-label={title}
+      aria-busy={disabled || undefined}
+      disabled={disabled}
       onClick={onClick}
       className={cn("mobile-tint-button", className)}
     >
@@ -105,23 +109,13 @@ export function MobileActionSheet({
 export function MobileScroll({
   children,
   className,
-  edgeStart = false,
-  edgeEnd = false,
 }: {
   children: ReactNode;
   className?: string;
-  edgeStart?: boolean;
-  edgeEnd?: boolean;
 }) {
   return (
     <div className="mobile-scroll-host">
-      {edgeStart && <div className="mobile-pager-edge mobile-pager-edge-start" aria-hidden />}
-      {edgeEnd && <div className="mobile-pager-edge mobile-pager-edge-end" aria-hidden />}
-      <div
-        className={cn("mobile-scroll", className)}
-      >
-        {children}
-      </div>
+      <div className={cn("mobile-scroll", className)}>{children}</div>
     </div>
   );
 }

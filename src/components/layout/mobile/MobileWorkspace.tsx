@@ -143,7 +143,6 @@ export const MobileWorkspace = memo(function MobileWorkspace({ onBackToDaily }: 
         trailing={paneSwitch}
       />
       <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
-        <div className="mobile-pager-edge mobile-pager-edge-start" aria-hidden />
         <div className="mobile-workspace-stage">
           <AnimatePresence initial={false} custom={direction}>
             <motion.div
@@ -174,7 +173,7 @@ export const MobileWorkspace = memo(function MobileWorkspace({ onBackToDaily }: 
               }
             >
           {view === "hub" ? (
-          <MobileScroll edgeStart edgeEnd>
+          <MobileScroll>
             {hubPane === "projects" ? (
             <section className="mobile-group">
               <div className="mobile-group-card">

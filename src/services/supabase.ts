@@ -7,6 +7,7 @@ import {
   markPasswordRecoveryPending,
   parseCloudAuthCallback,
 } from "../lib/cloudAuth";
+import { resolveCloudAuthSession } from "../lib/cloudSyncError";
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL?.trim();
 const supabaseKey = (
@@ -63,9 +64,10 @@ export function getSupabase(): Promise<SupabaseClient> {
 
 export async function getCloudSession(): Promise<Session | null> {
   const supabase = await getSupabase();
-  const { data, error } = await supabase.auth.getSession();
-  if (error) throw error;
-  return data.session;
+  const result = await supabase.auth.getSession();
+  return resolveCloudAuthSession(result, async () => {
+    await supabase.auth.signOut({ scope: "local" });
+  });
 }
 
 export async function signInToCloud(

@@ -6,6 +6,7 @@ import type { Session } from "@supabase/supabase-js";
 import { useNotes } from "../../context/NotesContext";
 import { useGit } from "../../context/GitContext";
 import { useTheme } from "../../context/ThemeContext";
+import { cloudSyncErrorMessage } from "../../lib/cloudSyncError";
 import { isAndroid } from "../../lib/platform";
 import {
   CLOUD_PASSWORD_RECOVERY_EVENT,
@@ -280,7 +281,7 @@ export function AccountSettingsSection() {
       toast.success("Vault is up to date");
     } catch (error) {
       console.error("Sync failed:", error);
-      toast.error(error instanceof Error ? error.message : "Sync failed");
+      toast.error(cloudSyncErrorMessage(error));
     } finally {
       setIsSyncingNow(false);
     }

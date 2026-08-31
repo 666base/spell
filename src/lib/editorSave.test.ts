@@ -64,6 +64,14 @@ describe("lastWriteWins", () => {
       { noteId: "B", content: "draft-b" },
     ]);
   });
+
+  it("coalesces a rapid burst of saves on the same note", () => {
+    const pending = Array.from({ length: 20 }, (_, i) => ({
+      noteId: "A",
+      content: `edit-${i}`,
+    }));
+    expect(lastWriteWins(pending)).toEqual([{ noteId: "A", content: "edit-19" }]);
+  });
 });
 
 describe("isEditorRename", () => {

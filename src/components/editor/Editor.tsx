@@ -347,7 +347,6 @@ export function Editor({
   // Source mode state
   const [sourceMode, setSourceMode] = useState(false);
   const [sourceContent, setSourceContent] = useState("");
-  const sourceTimeoutRef = useRef<number | null>(null);
   const sourceModeTransitionRef = useRef<{
     topBlockIndex: number;
     cursorBlockIndex: number;
@@ -548,12 +547,21 @@ export function Editor({
   const saveImmediately = useCallback(
     async (noteId: string, content: string) => {
       lastSaveRef.current = { noteId, content };
-      const updated = await saveNote(content, noteId);
-      if (updated && lastSaveRef.current?.noteId === noteId) {
-        lastSaveRef.current = {
-          ...lastSaveRef.current,
-          resultId: updated.id,
-        };
+      try {
+        const updated = await saveNote(content, noteId);
+        if (updated && lastSaveRef.current?.noteId === noteId) {
+          lastSaveRef.current = {
+            ...lastSaveRef.current,
+            resultId: updated.id,
+          };
+        }
+      } catch (error) {
+        console.error("Failed to save note:", error);
+        if (loadedNoteIdRef.current === noteId) {
+          needsSaveRef.current = true;
+          if (sourceModeRef.current) sourceDirtyRef.current = true;
+        }
+        return;
       }
       const active = editorRef.current;
       const note = currentNoteRef.current;
@@ -572,10 +580,6 @@ export function Editor({
     if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current);
       saveTimeoutRef.current = null;
-    }
-    if (sourceTimeoutRef.current) {
-      clearTimeout(sourceTimeoutRef.current);
-      sourceTimeoutRef.current = null;
     }
 
     const editor = editorRef.current;
@@ -1320,7 +1324,7 @@ export function Editor({
         lastSaveRef.current = { ...lastSaveRef.current, noteId: currentNote.id };
       }
       currentNoteIdRef.current = currentNote.id;
-      if (needsSaveRef.current) {
+      if (needsSaveRef.current || sourceDirtyRef.current) {
         flushPendingSave();
       }
       return;
@@ -1333,10 +1337,6 @@ export function Editor({
     // Reset source mode when genuinely switching notes (renames return early above)
     if (!isSameNote) {
       setSourceMode(false);
-      if (sourceTimeoutRef.current) {
-        clearTimeout(sourceTimeoutRef.current);
-        sourceTimeoutRef.current = null;
-      }
     }
     // Check if this is a manual reload (user clicked Refresh button or pressed Cmd+R)
     const isManualReload = reloadVersion !== lastReloadVersionRef.current;
@@ -2045,35 +2045,14 @@ export function Editor({
     return () => window.removeEventListener("toggle-source-mode", handler);
   }, [toggleSourceMode]);
 
-  // Auto-save in source mode with debounce
   const handleSourceChange = useCallback(
     (value: string) => {
       setSourceContent(value);
       sourceContentRef.current = value;
       sourceDirtyRef.current = true;
-      if (sourceTimeoutRef.current) {
-        clearTimeout(sourceTimeoutRef.current);
-      }
-      sourceTimeoutRef.current = window.setTimeout(async () => {
-        const noteId = loadedNoteIdRef.current ?? currentNote?.id;
-        if (!noteId) return;
-        try {
-          lastSaveRef.current = { noteId, content: value };
-          sourceDirtyRef.current = false;
-          const updated = await saveNote(value, noteId);
-          if (updated && lastSaveRef.current?.noteId === noteId) {
-            lastSaveRef.current = {
-              ...lastSaveRef.current,
-              resultId: updated.id,
-            };
-          }
-        } catch (error) {
-          console.error("Failed to save note:", error);
-          toast.error("Failed to save note");
-        }
-      }, 300);
+      scheduleSave();
     },
-    [currentNote, saveNote],
+    [scheduleSave],
   );
 
   const titlebar = !hideTitleBar ? (
@@ -2084,6 +2063,7 @@ export function Editor({
       onNewNote={onNewNote}
       showCompose={showCompose ?? ((!sidebarVisible && !focusMode) || !currentNote)}
       composePlus={composePlus}
+      newNoteBusy={Boolean(notesCtx?.isCreatingNote)}
       showWindowControls={showWindowControls}
       editor={editor}
       center={titlebarCenter}

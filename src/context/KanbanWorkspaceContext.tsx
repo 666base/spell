@@ -10,7 +10,7 @@ import {
 } from "react";
 import { useNotesData } from "./NotesContext";
 import * as notesService from "../services/notes";
-import { createEmptyBoard, createBoardFromTemplate, iconForTemplate, isProjectIcon, isProjectView, normalizeBoard } from "../lib/kanban";
+import { createEmptyBoard, createBoardFromTemplate, iconForTemplate, isProjectIcon, isProjectView, normalizeBoard, withProjectChrome } from "../lib/kanban";
 import type { ProjectTemplateId } from "../lib/kanban";
 import type {
   KanbanBoard,
@@ -35,6 +35,8 @@ interface KanbanWorkspaceContextValue {
   selectProject: (projectId: string) => void;
   reorderProjects: (activeProjectId: string, overProjectId: string) => void;
   updateProject: (project: KanbanProject) => void;
+  patchProjectBoard: (projectId: string, updater: (board: KanbanBoard) => KanbanBoard) => void;
+  patchActiveBoard: (updater: (board: KanbanBoard) => KanbanBoard) => void;
   deleteProject: (projectId: string) => void;
 }
 
@@ -162,15 +164,16 @@ export function KanbanWorkspaceProvider({ children }: { children: ReactNode }) {
     persistQueue.current = (persistQueue.current ?? Promise.resolve())
       .catch(() => undefined)
       .then(async () => {
+        const latest = workspaceRef.current;
         try {
-          await notesService.updateKanbanData(nextWorkspace);
+          await notesService.updateKanbanData(latest);
           window.localStorage.removeItem(storageKey);
         } catch (error) {
           console.warn("Using local project workspace storage:", error);
-          writeLocalWorkspace(storageKey, nextWorkspace);
+          writeLocalWorkspace(storageKey, latest);
         }
       })
-      .catch(() => writeLocalWorkspace(storageKey, nextWorkspace));
+      .catch(() => writeLocalWorkspace(storageKey, workspaceRef.current));
   }, [storageKey]);
 
   const createProject = useCallback((input: CreateProjectInput) => {
@@ -204,9 +207,33 @@ export function KanbanWorkspaceProvider({ children }: { children: ReactNode }) {
     const currentWorkspace = workspaceRef.current;
     persist({
       ...currentWorkspace,
-      projects: currentWorkspace.projects.map((current) => current.id === project.id ? { ...project, updatedAt: Date.now() } : current),
+      projects: currentWorkspace.projects.map((current) => (
+        current.id === project.id
+          ? { ...withProjectChrome(current, project), updatedAt: Date.now() }
+          : current
+      )),
     });
   }, [persist]);
+
+  const patchProjectBoard = useCallback((projectId: string, updater: (board: KanbanBoard) => KanbanBoard) => {
+    const currentWorkspace = workspaceRef.current;
+    const project = currentWorkspace.projects.find((item) => item.id === projectId);
+    if (!project) return;
+    const nextBoard = updater(project.board);
+    if (nextBoard === project.board) return;
+    persist({
+      ...currentWorkspace,
+      projects: currentWorkspace.projects.map((item) => (
+        item.id === projectId ? { ...item, board: nextBoard, updatedAt: Date.now() } : item
+      )),
+    });
+  }, [persist]);
+
+  const patchActiveBoard = useCallback((updater: (board: KanbanBoard) => KanbanBoard) => {
+    const projectId = workspaceRef.current.activeProjectId;
+    if (!projectId) return;
+    patchProjectBoard(projectId, updater);
+  }, [patchProjectBoard]);
 
   const deleteProject = useCallback((projectId: string) => {
     const currentWorkspace = workspaceRef.current;
@@ -223,7 +250,7 @@ export function KanbanWorkspaceProvider({ children }: { children: ReactNode }) {
   }, [persist]);
 
   const activeProject = workspace.projects.find((project) => project.id === workspace.activeProjectId) ?? null;
-  const value = useMemo(() => ({ workspace, activeProject, isLoading, createProject, selectProject, reorderProjects, updateProject, deleteProject }), [workspace, activeProject, isLoading, createProject, selectProject, reorderProjects, updateProject, deleteProject]);
+  const value = useMemo(() => ({ workspace, activeProject, isLoading, createProject, selectProject, reorderProjects, updateProject, patchProjectBoard, patchActiveBoard, deleteProject }), [workspace, activeProject, isLoading, createProject, selectProject, reorderProjects, updateProject, patchProjectBoard, patchActiveBoard, deleteProject]);
 
   return <KanbanWorkspaceContext.Provider value={value}>{children}</KanbanWorkspaceContext.Provider>;
 }

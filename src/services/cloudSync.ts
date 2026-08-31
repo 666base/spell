@@ -1,4 +1,8 @@
 import type { RealtimeChannel } from "@supabase/supabase-js";
+import {
+  CLOUD_SYNC_SIGN_IN_AGAIN,
+  cloudSyncErrorMessage,
+} from "../lib/cloudSyncError";
 import type { Note } from "../types/note";
 import * as notesService from "./notes";
 import { getCloudSession, getSupabase } from "./supabase";
@@ -131,8 +135,14 @@ function scheduleFlush(): void {
   if (flushTimer !== null) window.clearTimeout(flushTimer);
   flushTimer = window.setTimeout(() => {
     flushTimer = null;
-    void flushCloudQueue();
+    void flushCloudQueue().catch((error) => {
+      console.error("Cloud queue flush failed:", error);
+    });
   }, 900);
+}
+
+export function reportCloudSignedOut(): void {
+  emitSyncStatus({ lastError: CLOUD_SYNC_SIGN_IN_AGAIN });
 }
 
 export function setActiveCloudUser(userId: string | null): void {
@@ -185,7 +195,12 @@ export async function flushCloudQueue(): Promise<void> {
   beginSync();
   flushPromise = (async () => {
     const session = await getCloudSession();
-    if (!session || session.user.id !== userId) return;
+    if (!session || session.user.id !== userId) {
+      if (readQueue(userId).length > 0) {
+        throw new Error(CLOUD_SYNC_SIGN_IN_AGAIN);
+      }
+      return;
+    }
     const supabase = await getSupabase();
 
     for (const mutation of readQueue(userId)) {
@@ -217,9 +232,7 @@ export async function flushCloudQueue(): Promise<void> {
     emitSyncStatus({ lastSyncedAt: syncedAt, lastError: null });
   })()
     .catch((error) => {
-      emitSyncStatus({
-        lastError: error instanceof Error ? error.message : String(error),
-      });
+      emitSyncStatus({ lastError: cloudSyncErrorMessage(error) });
       throw error;
     })
     .finally(() => {
@@ -255,6 +268,10 @@ export async function syncCloudNotes(userId: string): Promise<boolean> {
   setActiveCloudUser(userId);
   beginSync();
   try {
+    const session = await getCloudSession();
+    if (!session || session.user.id !== userId) {
+      throw new Error(CLOUD_SYNC_SIGN_IN_AGAIN);
+    }
     await flushCloudQueue();
 
     const supabase = await getSupabase();
@@ -287,9 +304,7 @@ export async function syncCloudNotes(userId: string): Promise<boolean> {
     emitSyncStatus({ lastSyncedAt: syncedAt, lastError: null });
     return localChanged;
   } catch (error) {
-    emitSyncStatus({
-      lastError: error instanceof Error ? error.message : String(error),
-    });
+    emitSyncStatus({ lastError: cloudSyncErrorMessage(error) });
     throw error;
   } finally {
     endSync();

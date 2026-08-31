@@ -1,8 +1,10 @@
 import { useEffect } from "react";
 import { toast } from "sonner";
 import { useNotes } from "../../context/NotesContext";
+import { CLOUD_SYNC_SIGN_IN_AGAIN, cloudSyncErrorMessage } from "../../lib/cloudSyncError";
 import * as notesService from "../../services/notes";
 import {
+  reportCloudSignedOut,
   setActiveCloudUser,
   subscribeToCloudNotes,
   syncCloudNotes,
@@ -44,7 +46,17 @@ export function CloudSync() {
           setActiveCloudUser(cloudUserId);
           if (!navigator.onLine) return;
           const session = await getCloudSession();
-          if (!session || session.user.id !== cloudUserId || cancelled) return;
+          if (!session || session.user.id !== cloudUserId) {
+            if (!cancelled) {
+              reportCloudSignedOut();
+              toast.error("Cloud sync needs attention", {
+                id: "cloud-sync-error",
+                description: CLOUD_SYNC_SIGN_IN_AGAIN,
+              });
+            }
+            return;
+          }
+          if (cancelled) return;
 
           await unsubscribe?.();
           unsubscribe = null;
@@ -60,8 +72,7 @@ export function CloudSync() {
           if (!navigator.onLine) return;
           toast.error("Cloud sync needs attention", {
             id: "cloud-sync-error",
-            description:
-              error instanceof Error ? error.message : "Please try again later.",
+            description: cloudSyncErrorMessage(error),
           });
         } finally {
           startPromise = null;

@@ -1,6 +1,7 @@
 package com.base666.spell
 
 import android.content.Intent
+import android.content.res.Configuration
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -15,7 +16,6 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsAnimationCompat
 import androidx.core.view.WindowInsetsCompat
-import androidx.core.view.WindowInsetsControllerCompat
 import java.io.File
 
 class MainActivity : TauriActivity() {
@@ -137,10 +137,15 @@ class MainActivity : TauriActivity() {
     val leftCss = safeLeft / density
     val rightCss = safeRight / density
     imeBridge.cssPx = imeCss
+    val topRule =
+      if (safeTop > 0)
+        "document.documentElement.style.setProperty('--safe-area-top','${topCss}px');"
+      else
+        ""
     val js =
       "window.__SPELL_IME__=$imeCss;" +
         "document.documentElement.style.setProperty('--keyboard-inset','${imeCss}px');" +
-        "document.documentElement.style.setProperty('--safe-area-top','${topCss}px');" +
+        topRule +
         "document.documentElement.style.setProperty('--safe-area-bottom','${bottomCss}px');" +
         "document.documentElement.style.setProperty('--safe-area-left','${leftCss}px');" +
         "document.documentElement.style.setProperty('--safe-area-right','${rightCss}px');" +
@@ -162,11 +167,12 @@ class MainActivity : TauriActivity() {
   }
 
   private fun configureSystemBars() {
+    val night =
+      resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK ==
+        Configuration.UI_MODE_NIGHT_YES
     WindowCompat.getInsetsController(window, window.decorView).apply {
-      isAppearanceLightStatusBars = false
-      isAppearanceLightNavigationBars = false
-      systemBarsBehavior =
-        WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+      isAppearanceLightStatusBars = !night
+      isAppearanceLightNavigationBars = !night
       hide(WindowInsetsCompat.Type.statusBars())
       show(WindowInsetsCompat.Type.navigationBars())
     }
