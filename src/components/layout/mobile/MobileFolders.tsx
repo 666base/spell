@@ -48,6 +48,7 @@ import {
   MobileNavBar,
   MobileScreen,
   MobileScroll,
+  MobileSidebarToggle,
   MobileTintButton,
 } from "./MobileChrome";
 import { MobileJournalDrawer } from "./MobileJournalDrawer";
@@ -57,6 +58,7 @@ interface MobileFoldersProps {
   onOpenNote: () => void;
   onOpenJournal: () => void;
   onOpenSettings: () => void;
+  onOpenWorkspace: () => void;
   onCompose: () => void;
 }
 
@@ -296,6 +298,7 @@ export const MobileFolders = memo(function MobileFolders({
   onOpenNote,
   onOpenJournal,
   onOpenSettings,
+  onOpenWorkspace,
   onCompose,
 }: MobileFoldersProps) {
   const {
@@ -610,9 +613,7 @@ export const MobileFolders = memo(function MobileFolders({
               Cancel
             </button>
           ) : (
-            <MobileTintButton title="Settings" onClick={onOpenSettings}>
-              <SettingsIcon />
-            </MobileTintButton>
+            <MobileSidebarToggle side="left" pressed onClick={onOpenNote} />
           )
         }
         title={
@@ -640,6 +641,7 @@ export const MobileFolders = memo(function MobileFolders({
               <MobileTintButton title="New Note" onClick={onCompose} disabled={isCreatingNote}>
                 <ComposeIcon />
               </MobileTintButton>
+              <MobileSidebarToggle side="right" onClick={onOpenWorkspace} />
             </>
           )
         }
@@ -664,6 +666,14 @@ export const MobileFolders = memo(function MobileFolders({
         {restItems.length > 0 && (
           <Group>{restItems.map((item) => renderItem(item))}</Group>
         )}
+        <Group>
+          <button type="button" className="mobile-folder-row" onClick={onOpenSettings}>
+            <span className="mobile-folder-icon">
+              <SettingsIcon />
+            </span>
+            <span className="mobile-folder-label">Settings</span>
+          </button>
+        </Group>
       </MobileScroll>
       <MobileJournalDrawer
         open={journalDrawerOpen}

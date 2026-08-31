@@ -21,10 +21,9 @@ import { MobilePager, MobilePagerSlide } from "./components/layout/mobile/Mobile
 import {
   MobileNavBar,
   MobileScreen,
-  MobileTintButton,
+  MobileSidebarToggle,
   useKeyboardInset,
 } from "./components/layout/mobile/MobileChrome";
-import { FoldersIcon, KanbanIcon } from "./components/icons/velocity";
 import { useOpenJournal } from "./components/journal/useOpenJournal";
 import { startOfLocalDay, isSameLocalDay } from "./lib/journal";
 import { replaceMarkdownTitle, setEditorDocumentTitle } from "./lib/noteTitle";
@@ -117,14 +116,10 @@ const DailyPage = memo(function DailyPage({
           )
         }
         leading={
-          <MobileTintButton title="Folders" onClick={onOpenFolders}>
-            <FoldersIcon />
-          </MobileTintButton>
+          <MobileSidebarToggle side="left" onClick={onOpenFolders} />
         }
         trailing={
-          <MobileTintButton title="Workspace" onClick={onOpenWorkspace}>
-            <KanbanIcon />
-          </MobileTintButton>
+          <MobileSidebarToggle side="right" onClick={onOpenWorkspace} />
         }
       />
       <div className="mobile-editor-body">
@@ -297,6 +292,7 @@ function MobileAppContent() {
               onOpenNote={openDaily}
               onOpenJournal={openToday}
               onOpenSettings={openSettings}
+              onOpenWorkspace={openWorkspace}
               onCompose={compose}
             />
           </MobilePagerSlide>
@@ -309,7 +305,7 @@ function MobileAppContent() {
             />
           </MobilePagerSlide>
           <MobilePagerSlide>
-            <MobileWorkspace onBackToDaily={openDaily} />
+            <MobileWorkspace onBackToDaily={openDaily} onOpenFolders={openFolders} />
           </MobilePagerSlide>
         </MobilePager>
         <AnimatePresence>

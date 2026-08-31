@@ -1,7 +1,14 @@
 import { type ReactNode, type RefObject, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
+import {
+  isKeyboardOpen,
+  readCssKeyboardInset,
+  readNativeIme,
+  resolveKeyboardInset,
+  visualViewportGap,
+} from "../../../lib/keyboardInset";
 import { cn } from "../../../lib/utils";
-import { ChevronLeftIcon } from "../../icons/velocity";
+import { ChevronLeftIcon, PanelLeftIcon, PanelRightIcon } from "../../icons/velocity";
 
 export function MobileNavBar({
   leading,
@@ -49,18 +56,21 @@ export function MobileTintButton({
   children,
   className,
   disabled = false,
+  pressed = false,
 }: {
   title: string;
   onClick: () => void;
   children: ReactNode;
   className?: string;
   disabled?: boolean;
+  pressed?: boolean;
 }) {
   return (
     <button
       type="button"
       title={title}
       aria-label={title}
+      aria-pressed={pressed || undefined}
       aria-busy={disabled || undefined}
       disabled={disabled}
       onClick={onClick}
@@ -68,6 +78,23 @@ export function MobileTintButton({
     >
       {children}
     </button>
+  );
+}
+
+export function MobileSidebarToggle({
+  side,
+  pressed,
+  onClick,
+}: {
+  side: "left" | "right";
+  pressed?: boolean;
+  onClick: () => void;
+}) {
+  const title = side === "left" ? "Folders" : "Workspace";
+  return (
+    <MobileTintButton title={title} pressed={pressed} onClick={onClick}>
+      {side === "left" ? <PanelLeftIcon /> : <PanelRightIcon />}
+    </MobileTintButton>
   );
 }
 
@@ -178,44 +205,39 @@ function virtualKeyboard(): VirtualKeyboard | undefined {
   return (navigator as Navigator & { virtualKeyboard?: VirtualKeyboard }).virtualKeyboard;
 }
 
-function nativeIme(): number {
-  const w = window as ImeWindow;
-  try {
-    const bridged = w.SpellIme?.getInset?.();
-    if (typeof bridged === "number" && Number.isFinite(bridged)) {
-      return Math.max(0, bridged);
-    }
-  } catch {
-    // Native bridge is optional in the web preview.
-  }
-  const fallback = Number(w.__SPELL_IME__);
-  return Number.isFinite(fallback) ? Math.max(0, fallback) : 0;
-}
-
 function keyboardInset(): number {
   const viewport = window.visualViewport;
-  const visual = viewport
-    ? Math.max(0, window.innerHeight - (viewport.offsetTop + viewport.height))
-    : 0;
+  const visual = visualViewportGap(window.innerHeight, viewport);
   const virtual = virtualKeyboard()?.boundingRect.height ?? 0;
-  return Math.max(0, Math.round(Math.max(nativeIme(), visual, virtual)));
+  const css = readCssKeyboardInset(
+    document.documentElement.style.getPropertyValue("--keyboard-inset"),
+  );
+  return resolveKeyboardInset([
+    readNativeIme(window as ImeWindow),
+    visual,
+    virtual,
+    css,
+  ]);
 }
 
 let lastKeyboardInset = 0;
 
-function syncKeyboardInset() {
-  const next = keyboardInset();
-  const wasOpen = lastKeyboardInset > 80;
-  const isOpen = next > 80;
-  if (wasOpen && isOpen && Math.abs(next - lastKeyboardInset) < 48) return;
-  if (!wasOpen && !isOpen && Math.abs(next - lastKeyboardInset) < 10) return;
+function applyKeyboardInset(next: number) {
   lastKeyboardInset = next;
   const inset = `${next}px`;
   document.documentElement.style.setProperty("--keyboard-inset", inset);
+  if (isKeyboardOpen(next)) document.documentElement.dataset.keyboard = "open";
+  else delete document.documentElement.dataset.keyboard;
   const shell = document.querySelector("[data-mobile-shell]");
   if (shell instanceof HTMLElement) {
     shell.style.setProperty("--keyboard-inset", inset);
   }
+}
+
+function syncKeyboardInset() {
+  const next = keyboardInset();
+  if (Math.abs(next - lastKeyboardInset) < 1) return;
+  applyKeyboardInset(next);
 }
 
 /** Keep --keyboard-inset in sync with the visual viewport (Android keyboard). */

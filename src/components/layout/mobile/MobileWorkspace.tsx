@@ -38,6 +38,7 @@ import {
   MobileNavBar,
   MobileScreen,
   MobileScroll,
+  MobileSidebarToggle,
 } from "./MobileChrome";
 import { useLongPress } from "./useLongPress";
 
@@ -46,9 +47,10 @@ type HubPane = "projects" | "money";
 
 interface MobileWorkspaceProps {
   onBackToDaily: () => void;
+  onOpenFolders: () => void;
 }
 
-export const MobileWorkspace = memo(function MobileWorkspace({ onBackToDaily }: MobileWorkspaceProps) {
+export const MobileWorkspace = memo(function MobileWorkspace({ onBackToDaily, onOpenFolders }: MobileWorkspaceProps) {
   const { workspace, selectProject, activeProject, createProject, updateProject, deleteProject } = useKanbanWorkspace();
   const { addMonth } = useFinance();
   const [view, setView] = useState<WorkspaceView>("hub");
@@ -127,20 +129,30 @@ export const MobileWorkspace = memo(function MobileWorkspace({ onBackToDaily }: 
     </div>
   );
 
-  const backLabel = view === "hub" ? "Daily" : hubPane === "money" ? "Money" : "Projects";
+  const backLabel = view === "hub" ? undefined : hubPane === "money" ? "Money" : "Projects";
 
   const onBack =
     view === "hub"
-      ? onBackToDaily
+      ? undefined
       : () => setView("hub");
 
   return (
     <MobileScreen className="mobile-workspace">
       <MobileNavBar
+        leading={
+          view === "hub" ? (
+            <MobileSidebarToggle side="left" onClick={onOpenFolders} />
+          ) : undefined
+        }
         backLabel={backLabel}
         onBack={onBack}
         title={title}
-        trailing={paneSwitch}
+        trailing={
+          <>
+            {paneSwitch}
+            <MobileSidebarToggle side="right" pressed={view === "hub"} onClick={onBackToDaily} />
+          </>
+        }
       />
       <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
         <div className="mobile-workspace-stage">

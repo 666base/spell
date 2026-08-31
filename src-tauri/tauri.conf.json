@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Spell",
-  "version": "1.1.5",
+  "version": "1.1.6",
   "identifier": "com.base666.spell",
   "build": {
     "beforeDevCommand": "npm run web:dev",

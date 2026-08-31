@@ -91,13 +91,22 @@ export function TextColorControls({ editor, placement = "above" }: TextColorCont
 
   useLayoutEffect(() => {
     if (!open || !isMobileApp) return;
-    const node = rootRef.current;
-    if (!node) return;
-    const rect = node.getBoundingClientRect();
-    setMenuPos({
-      left: Math.max(8, Math.min(rect.left, window.innerWidth - 280)),
-      bottom: Math.max(8, window.innerHeight - rect.top + 8),
-    });
+    const place = () => {
+      const node = rootRef.current;
+      if (!node) return;
+      const rect = node.getBoundingClientRect();
+      setMenuPos({
+        left: Math.max(8, Math.min(rect.left, window.innerWidth - 280)),
+        bottom: Math.max(8, window.innerHeight - rect.top + 8),
+      });
+    };
+    place();
+    window.addEventListener("spell-keyboard", place);
+    window.visualViewport?.addEventListener("resize", place);
+    return () => {
+      window.removeEventListener("spell-keyboard", place);
+      window.visualViewport?.removeEventListener("resize", place);
+    };
   }, [open]);
 
   useEffect(() => {

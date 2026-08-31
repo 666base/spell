@@ -17,6 +17,7 @@ import { AppearanceSettingsSection } from "./AppearanceSettingsSection";
 import { ToolsSettingsSection } from "./ToolsSettingsSection";
 import { isMac } from "../../lib/platform";
 import { WindowControls } from "../layout/WindowControls";
+import { MobileNavBar } from "../layout/mobile/MobileChrome";
 
 interface SettingsPageProps {
   onBack: () => void;
@@ -86,20 +87,11 @@ export function SettingsPage({ onBack, compact = false }: SettingsPageProps) {
     const open = section ? mobileRows.find((tab) => tab.id === section) : null;
     return (
       <div className="mobile-settings">
-        <header className="mobile-nav">
-          <div className="mobile-nav-side">
-            <button
-              type="button"
-              className="mobile-nav-back"
-              onClick={open ? () => setSection(null) : onBack}
-            >
-              <ChevronLeftIcon className="mobile-nav-back-icon" />
-              <span className="min-w-0 truncate pb-[0.2em] pe-[0.25em] leading-6">{open ? "Settings" : "Folders"}</span>
-            </button>
-          </div>
-          <div className="mobile-nav-title">{open ? open.label : "Settings"}</div>
-          <div className="mobile-nav-side mobile-nav-side-end" />
-        </header>
+        <MobileNavBar
+          backLabel={open ? "Settings" : "Folders"}
+          onBack={open ? () => setSection(null) : onBack}
+          title={open ? open.label : "Settings"}
+        />
         <div ref={scrollContainerRef} className="mobile-scroll">
           {open ? (
             <div className="mobile-settings-section">{body(open.id)}</div>
