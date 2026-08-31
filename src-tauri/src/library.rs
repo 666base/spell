@@ -171,10 +171,8 @@ fn migrate_attachment_dirs(notes_folder: &Path) -> bool {
             continue;
         }
         moved = true;
-        if !dest.exists() {
-            if relocate(&source, &dest).is_ok() {
-                continue;
-            }
+        if !dest.exists() && relocate(&source, &dest).is_ok() {
+            continue;
         }
         merge_directory(&source, &dest);
         remove_if_empty(&source);
@@ -183,10 +181,8 @@ fn migrate_attachment_dirs(notes_folder: &Path) -> bool {
     let nested = library_dir(notes_folder).join(ATTACHMENTS_DIR);
     if nested.exists() && nested != dest {
         moved = true;
-        if !dest.exists() {
-            if relocate(&nested, &dest).is_ok() {
-                return moved;
-            }
+        if !dest.exists() && relocate(&nested, &dest).is_ok() {
+            return moved;
         }
         merge_directory(&nested, &dest);
         remove_if_empty(&nested);
