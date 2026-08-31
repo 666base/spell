@@ -8,6 +8,7 @@ import {
   parseCloudAuthCallback,
 } from "../lib/cloudAuth";
 import { resolveCloudAuthSession } from "../lib/cloudSyncError";
+import { hasSpellCloudCredentials } from "../lib/spellCloudConfig";
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL?.trim();
 const supabaseKey = (
@@ -19,7 +20,7 @@ const supabaseKey = (
 let clientPromise: Promise<SupabaseClient> | null = null;
 
 export function isSupabaseConfigured(): boolean {
-  return Boolean(supabaseUrl && supabaseKey);
+  return hasSpellCloudCredentials(supabaseUrl, supabaseKey);
 }
 
 export function getSupabaseUrl(): string | undefined {

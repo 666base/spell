@@ -1,12 +1,12 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Spell",
-  "version": "1.1.4",
+  "version": "1.1.5",
   "identifier": "com.base666.spell",
   "build": {
     "beforeDevCommand": "npm run web:dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "npm run build",
+    "beforeBuildCommand": "npm run build && node scripts/assert-cloud-baked.mjs",
     "frontendDist": "../dist"
   },
   "app": {

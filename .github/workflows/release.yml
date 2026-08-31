@@ -12,9 +12,20 @@ permissions:
 jobs:
   build-deb:
     runs-on: ubuntu-22.04
+    env:
+      VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+      VITE_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
+      VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Check Spell Cloud secrets
+        run: |
+          if [ -z "$VITE_SUPABASE_URL" ] || { [ -z "$VITE_PUBLIC_SUPABASE_PUBLISHABLE_KEY" ] && [ -z "$VITE_SUPABASE_ANON_KEY" ]; }; then
+            echo "Spell Cloud Vite secrets are missing. Packaged apps would show 'not configured in this build'."
+            exit 1
+          fi
 
       - name: Install Linux dependencies
         run: |
@@ -43,6 +54,9 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
         with:
           tagName: v__VERSION__
           releaseName: "Spell v__VERSION__"
@@ -54,9 +68,20 @@ jobs:
   build-apk:
     runs-on: ubuntu-22.04
     needs: build-deb
+    env:
+      VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+      VITE_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
+      VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Check Spell Cloud secrets
+        run: |
+          if [ -z "$VITE_SUPABASE_URL" ] || { [ -z "$VITE_PUBLIC_SUPABASE_PUBLISHABLE_KEY" ] && [ -z "$VITE_SUPABASE_ANON_KEY" ]; }; then
+            echo "Spell Cloud Vite secrets are missing. Packaged apps would show 'not configured in this build'."
+            exit 1
+          fi
 
       - name: Check Android signing secrets
         run: |
@@ -114,6 +139,9 @@ jobs:
       - name: Build Android APK
         env:
           NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
         run: |
           export ANDROID_HOME="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
           npx tauri android build --apk --target aarch64
