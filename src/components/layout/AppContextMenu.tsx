@@ -3,12 +3,24 @@ import type { Editor } from "@tiptap/react";
 import { toast } from "sonner";
 import { SpellMonthPicker } from "../ui/SpellCalendar";
 import { parseTableGrid, tableContentFromGrid } from "../../lib/tablePaste";
+import {
+  ignoreBgWord,
+  issueAtCoords,
+  suggestBgWord,
+} from "../editor/BgSpellcheck";
 
 interface MenuState {
   x: number;
   y: number;
   target: HTMLElement;
   editable: boolean;
+}
+
+interface SpellIssueMenu {
+  word: string;
+  from: number;
+  to: number;
+  suggestions: string[];
 }
 
 interface AppContextMenuProps {
@@ -23,6 +35,7 @@ export function AppContextMenu({
   onCreateFolder,
 }: AppContextMenuProps) {
   const [menu, setMenu] = useState<MenuState | null>(null);
+  const [spellIssue, setSpellIssue] = useState<SpellIssueMenu | null>(null);
   const [monthPickerOpen, setMonthPickerOpen] = useState(false);
   const [monthAnchor, setMonthAnchor] = useState<{ getBoundingClientRect: () => DOMRect } | null>(null);
 
@@ -52,14 +65,41 @@ export function AppContextMenu({
       const editTarget = target.closest<HTMLElement>(
         "input, textarea, [contenteditable='true']",
       );
+      setSpellIssue(null);
       setMenu({
         x: event.clientX,
         y: event.clientY,
         target: editTarget ?? target,
         editable: Boolean(editTarget),
       });
+      const editor = getEditor();
+      if (editor && target.closest(".ProseMirror")) {
+        const issue = issueAtCoords(editor, event.clientX, event.clientY);
+        if (issue) {
+          const seed = issue.replacement ? [issue.replacement] : [];
+          setSpellIssue({
+            word: issue.word,
+            from: issue.from,
+            to: issue.to,
+            suggestions: seed,
+          });
+          void suggestBgWord(issue.word).then((list) => {
+            setSpellIssue((current) => {
+              if (!current || current.word !== issue.word) return current;
+              const unique: string[] = [];
+              for (const item of [...seed, ...list]) {
+                if (item && !unique.includes(item)) unique.push(item);
+              }
+              return { ...current, suggestions: unique };
+            });
+          });
+        }
+      }
     };
-    const closeMenu = () => setMenu(null);
+    const closeMenu = () => {
+      setMenu(null);
+      setSpellIssue(null);
+    };
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === "Escape") closeMenu();
     };
@@ -78,13 +118,14 @@ export function AppContextMenu({
       window.removeEventListener("keydown", closeOnEscape);
       document.removeEventListener("scroll", closeMenu, true);
     };
-  }, []);
+  }, [getEditor]);
 
   const finish = useCallback((action: () => void | Promise<void>) => {
     void Promise.resolve(action()).catch(() => {
       toast.error("That action could not be completed");
     });
     setMenu(null);
+    setSpellIssue(null);
   }, []);
 
   const runEdit = useCallback(
@@ -139,7 +180,10 @@ export function AppContextMenu({
 
   const x = menu ? Math.min(menu.x, window.innerWidth - 176) : 0;
   const y = menu
-    ? Math.min(menu.y, window.innerHeight - (menu.editable ? 168 : 80))
+    ? Math.min(
+        menu.y,
+        window.innerHeight - (spellIssue ? 320 : menu.editable ? 168 : 80),
+      )
     : 0;
 
   return (
@@ -165,6 +209,38 @@ export function AppContextMenu({
           } as CSSProperties}
           onPointerDown={(event) => event.stopPropagation()}
         >
+          {spellIssue && (
+            <>
+              {spellIssue.suggestions.map((suggestion) => (
+                <MenuItem
+                  key={suggestion}
+                  label={suggestion}
+                  onSelect={() =>
+                    finish(() => {
+                      const editor = getEditor();
+                      editor
+                        ?.chain()
+                        .focus()
+                        .command(({ tr }) => {
+                          tr.insertText(
+                            suggestion,
+                            spellIssue.from,
+                            spellIssue.to,
+                          );
+                          return true;
+                        })
+                        .run();
+                    })
+                  }
+                />
+              ))}
+              <MenuItem
+                label="Ignore"
+                onSelect={() => finish(() => ignoreBgWord(spellIssue.word))}
+              />
+              <Separator />
+            </>
+          )}
           {menu.editable ? (
             <>
               <MenuItem label="Cut" onSelect={() => finish(() => runEdit("cut"))} />

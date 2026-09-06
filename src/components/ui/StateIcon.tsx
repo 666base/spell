@@ -1,10 +1,6 @@
-import { useLayoutEffect, useRef } from "react";
+import { useLayoutEffect, useRef, type ReactNode } from "react";
 import { cn } from "../../lib/utils";
-import {
-  ChevronRightIcon,
-  PanelLeftIcon,
-  PanelRightIcon,
-} from "../icons/velocity";
+import { ChevronRightIcon } from "../icons/velocity";
 
 export const CHECK_SHORT_PATH = "M6.2 12.4 10.1 16.4";
 export const CHECK_LONG_PATH = "M10.1 16.4 18.2 7.3";
@@ -171,14 +167,32 @@ interface PanelToggleIconProps {
 }
 
 export function PanelToggleIcon({ side, open, className }: PanelToggleIconProps) {
-  const Icon = side === "left" ? PanelLeftIcon : PanelRightIcon;
   return (
-    <Icon
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
       aria-hidden="true"
       data-open={open ? "true" : "false"}
       data-side={side}
       className={cn("ui-icon panel-toggle-icon", className)}
-    />
+    >
+      <rect width="18" height="18" x="3" y="3" rx="2" />
+      <rect
+        className="panel-toggle-pane"
+        x={side === "left" ? 3 : 15}
+        y="3"
+        width="6"
+        height="18"
+        rx="1"
+        fill="currentColor"
+        stroke="none"
+      />
+      <path className="panel-toggle-divider" d={side === "left" ? "M9 3v18" : "M15 3v18"} />
+    </svg>
   );
 }
 
@@ -244,16 +258,153 @@ export function FolderGlyph({ open = false, className }: { open?: boolean; class
       viewBox="0 0 20 20"
       aria-hidden="true"
       data-open={open ? "true" : "false"}
-      className={cn("folder-glyph", className)}
+      className={cn("source-glyph folder-glyph", className)}
     >
       <g className="folder-glyph-open">
-        <path className="folder-glyph-pocket" d={FOLDER_OPEN_FRONT} />
-        <path className="folder-glyph-back" d={FOLDER_OPEN_BACK} />
+        <path className="source-glyph-dark folder-glyph-pocket" d={FOLDER_OPEN_FRONT} />
+        <path className="source-glyph-light folder-glyph-back" d={FOLDER_OPEN_BACK} />
       </g>
       <g className="folder-glyph-closed">
-        <path className="folder-glyph-body" d={FOLDER_CLOSED} />
-        <path className="folder-glyph-tab" d={FOLDER_TAB} />
+        <path className="source-glyph-dark folder-glyph-body" d={FOLDER_CLOSED} />
+        <path className="source-glyph-light folder-glyph-tab" d={FOLDER_TAB} />
       </g>
     </svg>
   );
+}
+
+function SourceGlyph({
+  className,
+  children,
+}: {
+  className?: string;
+  children: ReactNode;
+}) {
+  return (
+    <svg viewBox="0 0 20 20" aria-hidden="true" className={cn("source-glyph", className)}>
+      {children}
+    </svg>
+  );
+}
+
+/** Two-tone calendar: binding rings, month bar, day grid. */
+export function JournalGlyph({ className }: { className?: string }) {
+  return (
+    <SourceGlyph className={cn("journal-glyph", className)}>
+      <rect className="source-glyph-dark journal-glyph-page" x="2.15" y="3.55" width="15.7" height="14.45" rx="2.15" />
+      <rect className="source-glyph-light journal-glyph-header" x="2.15" y="3.55" width="15.7" height="4.85" rx="2.15" />
+      <rect className="source-glyph-light journal-glyph-header" x="2.15" y="6.15" width="15.7" height="2.25" />
+      <rect className="source-glyph-dark journal-glyph-ring" x="5.15" y="1.55" width="2.5" height="4.7" rx="1.25" />
+      <rect className="source-glyph-dark journal-glyph-ring" x="12.35" y="1.55" width="2.5" height="4.7" rx="1.25" />
+      <rect className="source-glyph-light journal-glyph-day" x="4.45" y="9.55" width="3.15" height="2.7" rx="0.7" />
+      <rect className="source-glyph-light journal-glyph-day" x="8.425" y="9.55" width="3.15" height="2.7" rx="0.7" />
+      <rect className="source-glyph-light journal-glyph-day" x="12.4" y="9.55" width="3.15" height="2.7" rx="0.7" />
+      <rect className="source-glyph-light journal-glyph-day" x="4.45" y="13.4" width="3.15" height="2.7" rx="0.7" />
+      <rect className="source-glyph-light journal-glyph-day" x="8.425" y="13.4" width="3.15" height="2.7" rx="0.7" />
+      <rect className="source-glyph-light journal-glyph-day" x="12.4" y="13.4" width="3.15" height="2.7" rx="0.7" />
+    </SourceGlyph>
+  );
+}
+
+/** Two-tone board with staggered columns. */
+export function ProjectsGlyph({ className }: { className?: string }) {
+  return (
+    <SourceGlyph className={className}>
+      <rect className="source-glyph-dark" x="2.05" y="2.35" width="15.9" height="15.3" rx="2.15" />
+      <rect className="source-glyph-light" x="4.1" y="4.7" width="3.15" height="10.15" rx="1" />
+      <rect className="source-glyph-light" x="8.425" y="4.7" width="3.15" height="6.35" rx="1" />
+      <rect className="source-glyph-light" x="12.75" y="4.7" width="3.15" height="8.55" rx="1" />
+    </SourceGlyph>
+  );
+}
+
+/** Two-tone debit/credit card: body, stripe, chip. */
+export function MoneyGlyph({ className }: { className?: string }) {
+  return (
+    <SourceGlyph className={cn("money-glyph", className)}>
+      <rect className="source-glyph-dark money-glyph-card" x="1.85" y="4.05" width="16.3" height="11.9" rx="2.15" />
+      <rect className="source-glyph-light money-glyph-stripe" x="1.85" y="6.4" width="16.3" height="2.2" />
+      <rect className="source-glyph-light money-glyph-chip" x="3.55" y="10.25" width="3.7" height="2.75" rx="0.55" />
+      <rect className="source-glyph-light money-glyph-mark" x="13.15" y="12.55" width="3.15" height="2.05" rx="0.55" />
+    </SourceGlyph>
+  );
+}
+
+const HOME_BODY =
+  "M10 2.55 17.35 9.7c.22.22.07.58-.24.58H15.85V16.45c0 1.1-.9 1.95-2 1.95H6.15c-1.1 0-2-.85-2-1.95V10.28H2.89c-.31 0-.46-.36-.24-.58Z";
+
+const HOME_ROOF =
+  "M2.65 9.7 10 2.55l7.35 7.15c.22.22.07.58-.24.58H2.89c-.31 0-.46-.36-.24-.58Z";
+
+const HOME_DOOR =
+  "M8.4 18.4V13.05C8.4 12.22 9.12 11.55 9.95 11.55h.1c.83 0 1.55.67 1.55 1.5V18.4Z";
+
+/** Two-tone house: connected pentagon, light roof, light door. */
+export function HomeGlyph({ className }: { className?: string }) {
+  return (
+    <SourceGlyph className={cn("home-glyph", className)}>
+      <path className="source-glyph-dark home-glyph-body" d={HOME_BODY} />
+      <path className="source-glyph-light home-glyph-roof" d={HOME_ROOF} />
+      <path className="source-glyph-light home-glyph-door" d={HOME_DOOR} />
+    </SourceGlyph>
+  );
+}
+
+/** Two-tone stack of notes. */
+export function AllNotesGlyph({ className }: { className?: string }) {
+  return (
+    <SourceGlyph className={cn("all-notes-glyph", className)}>
+      <rect className="source-glyph-light all-notes-glyph-back" x="4.4" y="2.05" width="13.4" height="13.85" rx="2.15" />
+      <rect className="source-glyph-dark all-notes-glyph-page" x="2.15" y="4.15" width="13.4" height="13.7" rx="2.15" />
+      <rect className="source-glyph-light all-notes-glyph-line" x="4.45" y="7.45" width="8.8" height="1.7" rx="0.7" />
+      <rect className="source-glyph-light all-notes-glyph-line" x="4.45" y="10.55" width="6.4" height="1.7" rx="0.7" />
+    </SourceGlyph>
+  );
+}
+
+/** Two-tone archive box with a lid. */
+export function ArchiveGlyph({ className }: { className?: string }) {
+  return (
+    <SourceGlyph className={cn("archive-glyph", className)}>
+      <rect className="source-glyph-dark archive-glyph-box" x="2.25" y="7.55" width="15.5" height="10.25" rx="2.15" />
+      <rect className="source-glyph-light archive-glyph-lid" x="1.7" y="4.05" width="16.6" height="5.15" rx="2.15" />
+      <rect className="source-glyph-light archive-glyph-lid" x="1.7" y="6.7" width="16.6" height="2.5" />
+      <rect className="source-glyph-dark archive-glyph-slot" x="7.55" y="5.55" width="4.9" height="1.65" rx="0.8" />
+    </SourceGlyph>
+  );
+}
+
+/** Two-tone dashboard: tiles on a board. */
+export function OverviewGlyph({ className }: { className?: string }) {
+  return (
+    <SourceGlyph className={cn("overview-glyph", className)}>
+      <rect className="source-glyph-dark overview-glyph-board" x="2.05" y="2.35" width="15.9" height="15.3" rx="2.15" />
+      <rect className="source-glyph-light overview-glyph-tile" x="4.15" y="4.5" width="5.45" height="5.35" rx="1" />
+      <rect className="source-glyph-light overview-glyph-tile" x="10.4" y="4.5" width="5.45" height="5.35" rx="1" />
+      <rect className="source-glyph-light overview-glyph-tile" x="4.15" y="10.7" width="11.7" height="4.55" rx="1" />
+    </SourceGlyph>
+  );
+}
+
+/** Two-tone stacked cards — recurring charges, not a single bank card. */
+export function SubscriptionsGlyph({ className }: { className?: string }) {
+  return (
+    <SourceGlyph className={cn("subscriptions-glyph", className)}>
+      <rect className="source-glyph-light subscriptions-glyph-back" x="3.55" y="2.65" width="14.6" height="10.5" rx="2.15" />
+      <rect className="source-glyph-dark subscriptions-glyph-card" x="1.85" y="6.7" width="14.6" height="10.7" rx="2.15" />
+      <rect className="source-glyph-light subscriptions-glyph-stripe" x="1.85" y="8.85" width="14.6" height="2.05" />
+      <rect className="source-glyph-light subscriptions-glyph-chip" x="3.5" y="12.55" width="3.35" height="2.45" rx="0.5" />
+    </SourceGlyph>
+  );
+}
+
+export function MoneyKindGlyph({
+  kind,
+  className,
+}: {
+  kind: "overview" | "month" | "subscriptions";
+  className?: string;
+}) {
+  if (kind === "overview") return <OverviewGlyph className={className} />;
+  if (kind === "subscriptions") return <SubscriptionsGlyph className={className} />;
+  return <JournalGlyph className={className} />;
 }

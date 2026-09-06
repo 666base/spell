@@ -3,10 +3,11 @@ import * as ContextMenu from "@radix-ui/react-context-menu";
 import { cn } from "../../lib/utils";
 import { useFinance } from "../../context/FinanceContext";
 import { moneyListItems } from "../../lib/finance";
-import { CalendarIcon, FinanceIcon, PlusIcon, SubscriptionIcon } from "../icons/velocity";
+import { PlusIcon } from "../icons/velocity";
 import type { NotesScope } from "../../lib/notesScope";
-import { IconButton } from "../ui";
+import { GlideMenu, MoneyKindGlyph } from "../ui";
 import { SpellMonthPicker } from "../ui/SpellCalendar";
+import { NOTE_LIST_ROW_INSET_CLASS } from "../notes/VirtualizedNoteList";
 
 const menuItemClass = "spell-menu-item cursor-pointer";
 
@@ -27,14 +28,15 @@ export function MoneyList({ scope, onSelect }: MoneyListProps) {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="min-h-0 flex-1 overflow-y-auto px-2 pt-3 pb-3">
+      <div data-money-list className="min-h-0 flex-1 overflow-y-auto pt-3 pb-3">
+        <GlideMenu className="w-full" activeSelector='[data-selected="true"]'>
         {items.map((item) => {
           const selected =
             item.kind === "overview" ? scope.type === "money"
               : item.kind === "subscriptions" ? scope.type === "subscriptions"
                 : scope.type === "moneyMonth" && scope.month === item.month;
           return (
-            <div key={item.id} className="px-2 pb-1.5">
+            <div key={item.id} data-money-list-row className={cn("pb-1.5", NOTE_LIST_ROW_INSET_CLASS)}>
               <MoneyRow
                 title={item.title}
                 subtitle={item.subtitle}
@@ -53,6 +55,7 @@ export function MoneyList({ scope, onSelect }: MoneyListProps) {
             </div>
           );
         })}
+        </GlideMenu>
       </div>
       <SpellMonthPicker
         open={pickerOpen}
@@ -101,15 +104,16 @@ export function AddMonthButton({
 
   return (
     <>
-      <IconButton
+      <button
         ref={triggerRef}
-        size="sm"
-        title="Add month"
+        type="button"
+        className="folder-nav-footer-btn"
         data-add-month
         onClick={() => setOpen(true)}
       >
-        <PlusIcon />
-      </IconButton>
+        <PlusIcon className="size-3.5" />
+        Add month
+      </button>
       <SpellMonthPicker
         open={open}
         anchor={triggerRef.current}
@@ -136,7 +140,6 @@ const MoneyRow = memo(function MoneyRow({
   onAddMonth: (anchor: HTMLElement) => void;
 }) {
   const rowRef = useRef<HTMLButtonElement>(null);
-  const Icon = kind === "overview" ? FinanceIcon : kind === "subscriptions" ? SubscriptionIcon : CalendarIcon;
   return (
     <ContextMenu.Root>
       <ContextMenu.Trigger asChild>
@@ -146,9 +149,10 @@ const MoneyRow = memo(function MoneyRow({
             type="button"
             onClick={onSelect}
             data-selected={selected ? "true" : "false"}
-            className={cn("note-row flex w-full items-center gap-2.5 rounded-[8px] px-3 py-[9px] text-left", selected && "note-row-selected")}
+            data-row
+            className={cn("note-row flex w-full items-center gap-2.5 rounded-[10px] px-3.5 py-2.5 text-left", selected && "note-row-selected")}
           >
-            <Icon className="size-4 shrink-0 text-text-muted" />
+            <MoneyKindGlyph kind={kind} />
             <span className="flex min-w-0 flex-1 flex-col">
               <span className="note-row-title-line">
                 <span className="note-row-title">{title}</span>

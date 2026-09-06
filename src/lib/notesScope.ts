@@ -1,6 +1,7 @@
 import type { NoteMetadata } from "../types/note";
 
 export type NotesScope =
+  | { type: "home" }
   | { type: "all" }
   | { type: "journal" }
   | { type: "folder"; path: string }
@@ -11,6 +12,10 @@ export type NotesScope =
   | { type: "subscriptions" };
 
 export const ALL_NOTES_SCOPE: NotesScope = { type: "all" };
+
+export function isHomeTab(scope: NotesScope) {
+  return scope.type === "home";
+}
 
 export function isWorkspaceScope(scope: NotesScope) {
   return scope.type === "projects" || scope.type === "project";
@@ -148,14 +153,17 @@ export function selectionAfterNotesChange(args: {
   selectedNoteId: string | null;
   noteIds: string[];
   scopedIds: string[];
+  /** First hydrate after launch. Do not steal an empty selection toward row 0. */
+  hydrating?: boolean;
 }): SelectionDecision {
-  const { selectedNoteId, noteIds, scopedIds } = args;
+  const { selectedNoteId, noteIds, scopedIds, hydrating = false } = args;
   if (selectedNoteId && noteIds.includes(selectedNoteId)) return { type: "keep" };
   if (selectedNoteId) {
     // A title save renames the file. For a beat the old id is missing.
     // Jumping to the first row is the "redirect" users feel while typing.
     return { type: "keep" };
   }
+  if (hydrating) return { type: "keep" };
   if (scopedIds.length > 0) return { type: "select", id: scopedIds[0] };
   return { type: "keep" };
 }

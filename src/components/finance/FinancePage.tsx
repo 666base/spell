@@ -46,6 +46,7 @@ const menuItemClass = "spell-menu-item cursor-pointer";
 interface FinancePageProps {
   scope: NotesScope;
   sidebarVisible?: boolean;
+  foldersVisible?: boolean;
   focusMode?: boolean;
   onToggleSidebar?: () => void;
   onNewNote?: () => void;
@@ -56,6 +57,7 @@ interface FinancePageProps {
 export function FinancePage({
   scope,
   sidebarVisible = true,
+  foldersVisible,
   focusMode = false,
   onToggleSidebar,
   onNewNote,
@@ -162,11 +164,11 @@ export function FinancePage({
   const titlebar = (
     <NoteTitlebar
       sidebarVisible={sidebarVisible}
+      foldersVisible={foldersVisible}
       focusMode={focusMode}
       onToggleSidebar={onToggleSidebar}
       onNewNote={onNewNote}
       showWindowControls={showWindowControls}
-      showTools={false}
       center={
         <span className="titlebar-title">
           {pageTitle}

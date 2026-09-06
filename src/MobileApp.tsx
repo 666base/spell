@@ -14,7 +14,7 @@ import { EASE_DRAWER, MOTION_FAST_S, MOTION_PANEL_S } from "./lib/motion";
 import { JournalPage } from "./components/journal/JournalPage";
 import { FolderPicker } from "./components/layout/FolderPicker";
 import { CloudSync } from "./components/cloud/CloudSync";
-import { SettingsPage } from "./components/settings";
+import { HomePage } from "./components/home/HomePage";
 import { MobileFolders } from "./components/layout/mobile/MobileFolders";
 import { MobileWorkspace } from "./components/layout/mobile/MobileWorkspace";
 import { MobilePager, MobilePagerSlide } from "./components/layout/mobile/MobilePager";
@@ -26,6 +26,8 @@ import {
 } from "./components/layout/mobile/MobileChrome";
 import { useOpenJournal } from "./components/journal/useOpenJournal";
 import { startOfLocalDay, isSameLocalDay } from "./lib/journal";
+import { shouldShowFolderPicker } from "./lib/startupSurface";
+import { isMoneyTab, type NotesScope } from "./lib/notesScope";
 import { replaceMarkdownTitle, setEditorDocumentTitle } from "./lib/noteTitle";
 import { cleanTitle } from "./lib/utils";
 
@@ -42,7 +44,7 @@ const DailyPage = memo(function DailyPage({
   onOpenWorkspace: () => void;
   onOpenToday: () => void;
 }) {
-  const { currentNote, saveNote } = useNotes();
+  const { currentNote, saveNote, isLoading } = useNotes();
   const editorRef = useRef<TiptapEditor | null>(null);
   const [journalDate, setJournalDate] = useState(() => startOfLocalDay());
   const isVaultNote = Boolean(currentNote && !currentNote.id.startsWith("journals/"));
@@ -134,6 +136,8 @@ const DailyPage = memo(function DailyPage({
               hideTitleBar
               onEditorReady={handleEditorReady}
             />
+          ) : isLoading ? (
+            <div className="h-full bg-bg" />
           ) : (
             <JournalPage
               sidebarVisible={false}
@@ -198,7 +202,7 @@ function MobileAppContent() {
   const openJournal = useOpenJournal();
   const reduceMotion = useReducedMotion();
   const [index, setIndex] = useState(DAILY);
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [homeOpen, setHomeOpen] = useState(false);
   useKeyboardInset();
 
   useEffect(() => {
@@ -212,8 +216,8 @@ function MobileAppContent() {
 
   useEffect(() => {
     const onPopState = () => {
-      if (settingsOpen) {
-        setSettingsOpen(false);
+      if (homeOpen) {
+        setHomeOpen(false);
         history.pushState({ spell: true }, "");
         return;
       }
@@ -231,7 +235,7 @@ function MobileAppContent() {
     };
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
-  }, [index, settingsOpen]);
+  }, [index, homeOpen]);
 
   const goTo = useCallback((next: number) => {
     setIndex((current) => {
@@ -252,17 +256,16 @@ function MobileAppContent() {
   const openFolders = useCallback(() => goTo(0), [goTo]);
   const openWorkspace = useCallback(() => goTo(2), [goTo]);
   const openDaily = useCallback(() => goTo(DAILY), [goTo]);
-  const closeSettings = useCallback(() => setSettingsOpen(false), []);
-  const openSettings = useCallback(() => {
-    history.pushState({ spell: "settings" }, "");
-    setSettingsOpen(true);
+  const closeHome = useCallback(() => setHomeOpen(false), []);
+  const [homeSettingsToken, setHomeSettingsToken] = useState(0);
+  const openHome = useCallback(() => {
+    history.pushState({ spell: "home" }, "");
+    setHomeOpen(true);
   }, []);
-
-  useEffect(() => {
-    const openAccount = () => openSettings();
-    window.addEventListener("open-account-settings", openAccount);
-    return () => window.removeEventListener("open-account-settings", openAccount);
-  }, [openSettings]);
+  const openAccount = useCallback(() => {
+    setHomeSettingsToken((token) => token + 1);
+    openHome();
+  }, [openHome]);
 
   const compose = useCallback(async () => {
     const note = await createNoteInFolder("");
@@ -274,11 +277,28 @@ function MobileAppContent() {
     goTo(DAILY);
   }, [goTo, openJournal]);
 
-  if (isLoading) {
-    return <div className="h-full min-h-dvh bg-bg" />;
-  }
+  const selectFromHome = useCallback(
+    (scope: NotesScope) => {
+      setHomeOpen(false);
+      if (scope.type === "journal") {
+        void openToday();
+        return;
+      }
+      if (scope.type === "projects" || scope.type === "project" || isMoneyTab(scope)) {
+        openWorkspace();
+        return;
+      }
+      goTo(0);
+    },
+    [goTo, openToday, openWorkspace],
+  );
 
-  if (!notesFolder) {
+  useEffect(() => {
+    window.addEventListener("open-account-settings", openAccount);
+    return () => window.removeEventListener("open-account-settings", openAccount);
+  }, [openAccount]);
+
+  if (shouldShowFolderPicker(isLoading, notesFolder)) {
     return <FolderPicker />;
   }
 
@@ -291,7 +311,7 @@ function MobileAppContent() {
             <MobileFolders
               onOpenNote={openDaily}
               onOpenJournal={openToday}
-              onOpenSettings={openSettings}
+              onOpenHome={openHome}
               onOpenWorkspace={openWorkspace}
               onCompose={compose}
             />
@@ -309,7 +329,7 @@ function MobileAppContent() {
           </MobilePagerSlide>
         </MobilePager>
         <AnimatePresence>
-          {settingsOpen && (
+          {homeOpen && (
             <motion.div
               className="mobile-settings-overlay"
               initial={
@@ -327,7 +347,12 @@ function MobileAppContent() {
                   : { duration: MOTION_PANEL_S, ease: EASE_DRAWER }
               }
             >
-              <SettingsPage compact onBack={closeSettings} />
+              <HomePage
+                compact
+                onBack={closeHome}
+                onSelectScope={selectFromHome}
+                openSettingsToken={homeSettingsToken}
+              />
             </motion.div>
           )}
         </AnimatePresence>

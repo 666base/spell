@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { Editor as TiptapEditor } from "@tiptap/react";
 import { useNotes } from "../../context/NotesContext";
 import { CalendarIcon } from "../icons/velocity";
 import { Editor } from "../editor/Editor";
@@ -25,6 +24,7 @@ interface JournalPageProps {
   onToggleSidebar?: () => void;
   onNewNote?: () => void;
   showWindowControls?: boolean;
+  foldersVisible?: boolean;
 }
 
 export function JournalPage({
@@ -35,6 +35,7 @@ export function JournalPage({
   onDateChange,
   onToggleSidebar,
   showWindowControls = false,
+  foldersVisible,
 }: JournalPageProps) {
   const { notes, currentNote, clearSelection } = useNotes();
   const openJournal = useOpenJournal();
@@ -42,7 +43,6 @@ export function JournalPage({
   const hasOpenedInitialJournalRef = useRef(false);
   const [isOpeningJournal, setIsOpeningJournal] = useState(false);
   const [selectedDate, setSelectedDate] = useState(() => startOfLocalDay());
-  const [journalEditor, setJournalEditor] = useState<TiptapEditor | null>(null);
   const [calendarMode, setCalendarMode] = useState<"week" | "month">("week");
 
   const today = useMemo(() => startOfLocalDay(), []);
@@ -101,20 +101,9 @@ export function JournalPage({
     }
   }, [currentNote?.id, openDateJournal, today, todayId, todayNote]);
 
-  const handleEditorReady = useCallback(
-    (editor: TiptapEditor | null) => {
-      setJournalEditor(editor);
-      onEditorReady(editor);
-    },
-    [onEditorReady],
-  );
-
-  useEffect(() => {
-    if (!isJournalOpen) setJournalEditor(null);
-  }, [isJournalOpen]);
-
   const chrome = {
     sidebarVisible,
+    foldersVisible,
     focusMode,
     onToggleSidebar,
     onNewNote: () => void openDateJournal(selectedDate),
@@ -128,8 +117,6 @@ export function JournalPage({
       {...chrome}
       showCompose={!isJournalOpen}
       composePlus
-      showTools={isJournalOpen}
-      editor={journalEditor}
       leading={
         !focusMode ? (
           <IconButton
@@ -169,7 +156,7 @@ export function JournalPage({
       {isJournalOpen ? (
         <Editor
           hideTitleBar
-          onEditorReady={handleEditorReady}
+          onEditorReady={onEditorReady}
           showCompose={false}
           {...chrome}
         />

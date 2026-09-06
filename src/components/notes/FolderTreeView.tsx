@@ -944,8 +944,7 @@ export function FolderTreeView({
           <AlertDialogHeader>
             <AlertDialogTitle>Delete note?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will permanently delete the note and all its content. This
-              action cannot be undone.
+              This note will be moved to trash. You can restore it from Home.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

@@ -20,6 +20,7 @@ import type { Settings } from "../../types/note";
 import type { Editor } from "@tiptap/react";
 import {
   CommandItem,
+  GlideMenu,
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -540,6 +541,7 @@ export function CommandPalette({
         shortcut: `${mod} ,`,
         icon: <SettingsIcon className="w-4.5 h-4.5 stroke-[1.5]" />,
         action: () => {
+          window.dispatchEvent(new CustomEvent("open-account-settings"));
           onOpenSettings?.();
           onClose();
         },
@@ -767,11 +769,17 @@ export function CommandPalette({
         {/* Results */}
         <div ref={listRef} className="overflow-y-auto h-full p-2.5 flex-1">
           {allItems.length === 0 ? (
-            <div className="text-sm font-medium opacity-50 text-text-muted p-2">
-              No results found
+            <div className="command-empty" role="status">
+              <p className="command-empty-title">No results</p>
+              <p className="command-empty-hint">
+                Try a different note title or command
+              </p>
             </div>
           ) : (
-            <>
+            <GlideMenu
+              className="min-h-full"
+              activeSelector={`[data-index="${selectedIndex}"]`}
+            >
               {/* Commands section */}
               {filteredCommands.length > 0 && (
                 <div className="space-y-0.5 mb-5">
@@ -780,7 +788,12 @@ export function CommandPalette({
                   </div>
                   {filteredCommands.map((cmd, i) => {
                     return (
-                      <div key={cmd.id} data-index={i}>
+                      <div
+                        key={cmd.id}
+                        data-index={i}
+                        data-row
+                        onMouseEnter={() => setSelectedIndex(i)}
+                      >
                         <CommandItem
                           label={cmd.label}
                           shortcut={cmd.shortcut}
@@ -810,7 +823,12 @@ export function CommandPalette({
                       .trim();
                     const index = commandsCount + i;
                     return (
-                      <div key={note.id} data-index={index}>
+                      <div
+                        key={note.id}
+                        data-index={index}
+                        data-row
+                        onMouseEnter={() => setSelectedIndex(index)}
+                      >
                         <CommandItem
                           label={title}
                           subtitle={cleanSubtitle}
@@ -824,7 +842,7 @@ export function CommandPalette({
                   })}
                 </div>
               )}
-            </>
+            </GlideMenu>
           )}
         </div>
       </div>
@@ -835,8 +853,7 @@ export function CommandPalette({
           <AlertDialogHeader>
             <AlertDialogTitle>Delete note?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will permanently delete the note and all its content. This
-              action cannot be undone.
+              This note will be moved to trash. You can restore it from Home.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

@@ -11,6 +11,13 @@ import { invoke } from "@tauri-apps/api/core";
 import { getSettings, updateSettings } from "../services/notes";
 import { SIDEBAR_MIN_PX, SIDEBAR_MAX_PX } from "../lib/sidebar";
 import { applyResolvedTheme } from "../lib/themeSwitch";
+import {
+  readCachedInterfaceZoom,
+  readCachedSidebarWidth,
+  rememberEditorMaxWidth,
+  rememberInterfaceZoom,
+  rememberSidebarWidth,
+} from "../lib/startupSurface";
 import type {
   ThemeSettings,
   EditorFontSettings,
@@ -26,7 +33,7 @@ type ThemeMode = "light" | "dark" | "system";
 // Font family CSS values
 const fontFamilyMap: Record<FontFamily, string> = {
   "system-sans":
-    '"SN Pro Variable", "SN Pro", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+    '"SN Pro Variable", "SN Pro", "SN Pro Fallback", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
   serif: 'ui-serif, Georgia, Cambria, "Times New Roman", Times, serif',
   monospace:
     "ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Monaco, 'Courier New', monospace",
@@ -205,9 +212,13 @@ function applyLayoutCSSVariables(
 ) {
   const root = document.documentElement;
   if (width === "custom" && customWidthPx) {
-    root.style.setProperty("--editor-max-width", `${customWidthPx}px`);
+    const value = `${customWidthPx}px`;
+    root.style.setProperty("--editor-max-width", value);
+    rememberEditorMaxWidth(value);
   } else if (width !== "custom") {
-    root.style.setProperty("--editor-max-width", editorWidthMap[width]);
+    const value = editorWidthMap[width];
+    root.style.setProperty("--editor-max-width", value);
+    rememberEditorMaxWidth(value);
   }
 }
 
@@ -222,11 +233,15 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
   >(defaultEditorFontSettings);
   const [textDirection, setTextDirectionState] = useState<TextDirection>("auto");
   const [editorWidth, setEditorWidthState] = useState<EditorWidth>("normal");
-  const [interfaceZoom, setInterfaceZoomState] = useState(1.0);
+  const [interfaceZoom, setInterfaceZoomState] = useState(
+    () => readCachedInterfaceZoom() ?? 1.0,
+  );
   const [customEditorWidthPx, setCustomEditorWidthPxState] = useState<number>(
     DEFAULT_CUSTOM_WIDTH_PX
   );
-  const [sidebarWidthPx, setSidebarWidthPxState] = useState<number | null>(null);
+  const [sidebarWidthPx, setSidebarWidthPxState] = useState<number | null>(
+    () => readCachedSidebarWidth(),
+  );
   const [customColorsLight, setCustomColorsLightState] = useState<CustomColors>({});
   const [customColorsDark, setCustomColorsDarkState] = useState<CustomColors>({});
   const [isInitialized, setIsInitialized] = useState(false);
@@ -327,15 +342,17 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
 
   const themePainted = useRef(false);
 
-  // Apply theme to document (just toggle dark class)
+  // Startup script owns the class until settings arrive so first paint
+  // does not flip system vs last session.
   useEffect(() => {
+    if (!isInitialized) return;
     applyResolvedTheme(
       document.documentElement,
       resolvedTheme,
       themePainted.current,
     );
     themePainted.current = true;
-  }, [resolvedTheme]);
+  }, [isInitialized, resolvedTheme]);
 
   // Save theme mode to backend
   const saveThemeSettings = useCallback(async (newMode: ThemeMode) => {
@@ -370,33 +387,45 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
 
   // Apply font CSS variables whenever font settings change
   useEffect(() => {
+    if (!isInitialized) return;
     applyFontCSSVariables(editorFontSettings);
-  }, [editorFontSettings]);
+  }, [editorFontSettings, isInitialized]);
 
   // Apply layout CSS variables whenever width changes
   useEffect(() => {
+    if (!isInitialized) return;
     applyLayoutCSSVariables(editorWidth, customEditorWidthPx);
-  }, [editorWidth, customEditorWidthPx]);
+  }, [customEditorWidthPx, editorWidth, isInitialized]);
 
   // Apply sidebar width CSS variable whenever it changes (null = no override, fallback to 16rem)
   useEffect(() => {
+    if (!isInitialized) return;
     if (sidebarWidthPx === null) {
       document.documentElement.style.removeProperty("--sidebar-width");
+      rememberSidebarWidth(null);
     } else {
       document.documentElement.style.setProperty("--sidebar-width", `${sidebarWidthPx}px`);
+      rememberSidebarWidth(sidebarWidthPx);
     }
-  }, [sidebarWidthPx]);
+  }, [isInitialized, sidebarWidthPx]);
 
   // Apply interface zoom whenever it changes (suppress transitions during zoom)
   useEffect(() => {
+    if (!isInitialized) return;
     const root = document.documentElement;
+    const next = String(interfaceZoom);
+    if (root.style.zoom === next) {
+      rememberInterfaceZoom(interfaceZoom);
+      return;
+    }
     root.classList.add("zoom-no-transition");
-    root.style.zoom = String(interfaceZoom);
+    root.style.zoom = next;
+    rememberInterfaceZoom(interfaceZoom);
     const raf = requestAnimationFrame(() => {
       root.classList.remove("zoom-no-transition");
     });
     return () => cancelAnimationFrame(raf);
-  }, [interfaceZoom]);
+  }, [interfaceZoom, isInitialized]);
 
   // Save font settings to backend
   const saveFontSettings = useCallback(
@@ -548,6 +577,7 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
 
   // Apply custom color CSS variable overrides whenever theme or colors change
   useEffect(() => {
+    if (!isInitialized) return;
     const root = document.documentElement;
     const activeColors = resolvedTheme === "dark" ? customColorsDark : customColorsLight;
     const defaults = defaultThemeColors[resolvedTheme];
@@ -576,7 +606,7 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
         b: rgb[2],
       }).catch(() => {});
     }
-  }, [resolvedTheme, customColorsLight, customColorsDark]);
+  }, [customColorsDark, customColorsLight, isInitialized, resolvedTheme]);
 
   // Set a single custom color for a given mode
   const setCustomColor = useCallback(
@@ -642,11 +672,6 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
   const setSidebarWidthLive = useCallback((px: number) => {
     document.documentElement.style.setProperty("--sidebar-width", `${px}px`);
   }, []);
-
-  // Don't render until initialized to prevent flash
-  if (!isInitialized) {
-    return null;
-  }
 
   return (
     <ThemeContext.Provider

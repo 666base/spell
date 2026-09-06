@@ -16,11 +16,14 @@ import {
   CodeIcon,
   RowsIcon,
   ColumnsIcon,
+  SpellCheckIcon,
 } from "../icons/velocity";
 import { ToolbarButton } from "../ui";
 import { TextColorControls } from "./TextColorControls";
 import { useVisualViewportBottom } from "../layout/mobile/MobileChrome";
 import { preserveEditorSelection } from "../../lib/dismiss";
+import { proofreadEditorSelection } from "./proofreadSelection";
+import { toast } from "sonner";
 
 interface MobileFormattingToolbarProps {
   editor: Editor | null;
@@ -209,6 +212,16 @@ export const MobileFormattingToolbar = memo(function MobileFormattingToolbar({
           <StrikethroughIcon className="w-4 h-4" />
         </ToolbarButton>
         <TextColorControls editor={editor} />
+        <ToolbarButton
+          tabIndex={-1}
+          title="Fix spelling"
+          onClick={format(() => {
+            const result = proofreadEditorSelection(editor);
+            if (!result.applied) toast("No spelling issues");
+          })}
+        >
+          <SpellCheckIcon className="w-4 h-4" />
+        </ToolbarButton>
       </div>
       <div className="mobile-format-group">
         <ToolbarButton

@@ -4,7 +4,7 @@
 
 use std::fs;
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// User-visible library folder. One place, named like a product.
@@ -13,6 +13,7 @@ pub const ATTACHMENTS_DIR: &str = "Attachments";
 pub const SETTINGS_FILE: &str = "settings.json";
 pub const BOARDS_FILE: &str = "Boards.json";
 pub const MONEY_FILE: &str = "Money.json";
+pub const TRASH_DIR: &str = ".trash";
 
 /// Folders Spell never treats as notes. Includes the library plus leftover
 /// developer-style names so they disappear from the sidebar after upgrade.
@@ -21,7 +22,7 @@ pub const EXCLUDED_DIR_NAMES: &[&str] = &[
     ".obsidian",
     ".scratch",
     ".spell",
-    ".trash",
+    TRASH_DIR,
     ".vaultsync",
     ".media",
     ".assets",
@@ -58,6 +59,97 @@ pub fn attachments_relative_path(file_name: &str) -> String {
 
 pub fn is_excluded_dir_name(name: &str) -> bool {
     EXCLUDED_DIR_NAMES.contains(&name)
+}
+
+pub fn trash_dir(notes_folder: &Path) -> PathBuf {
+    notes_folder.join(TRASH_DIR)
+}
+
+fn note_file(root: &Path, id: &str) -> Result<PathBuf, String> {
+    if id.is_empty() || id.contains('\\') {
+        return Err("Invalid note ID".to_string());
+    }
+    let relative = Path::new(id);
+    for component in relative.components() {
+        match component {
+            Component::Normal(_) => {}
+            _ => return Err("Invalid note ID".to_string()),
+        }
+    }
+    let mut path = root.join(relative).into_os_string();
+    path.push(".md");
+    let path = PathBuf::from(path);
+    if !path.starts_with(root) {
+        return Err("Invalid note ID".to_string());
+    }
+    Ok(path)
+}
+
+fn unique_file_path(path: PathBuf) -> PathBuf {
+    if !path.exists() {
+        return path;
+    }
+    let file_name = path
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let stem = file_name.strip_suffix(".md").unwrap_or(&file_name).to_string();
+    let parent = path
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| PathBuf::from("."));
+    let mut n = 2;
+    loop {
+        let mut candidate = parent.join(format!("{stem}-{n}")).into_os_string();
+        candidate.push(".md");
+        let candidate = PathBuf::from(candidate);
+        if !candidate.exists() {
+            return candidate;
+        }
+        n += 1;
+    }
+}
+
+/// Move a live note file into `.trash`, keeping its vault-relative path.
+pub fn move_to_trash(notes_root: &Path, note_file_path: &Path) -> Result<PathBuf, String> {
+    let relative = note_file_path
+        .strip_prefix(notes_root)
+        .map_err(|_| "Note is outside the vault".to_string())?;
+    let dest = unique_file_path(trash_dir(notes_root).join(relative));
+    if let Some(parent) = dest.parent() {
+        fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    }
+    fs::rename(note_file_path, &dest).map_err(|error| error.to_string())?;
+    Ok(dest)
+}
+
+pub fn restore_from_trash(notes_root: &Path, id: &str) -> Result<PathBuf, String> {
+    let src = note_file(&trash_dir(notes_root), id)?;
+    if !src.exists() {
+        return Err("That note is not in the trash".to_string());
+    }
+    let dest = unique_file_path(note_file(notes_root, id)?);
+    if let Some(parent) = dest.parent() {
+        fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    }
+    fs::rename(&src, &dest).map_err(|error| error.to_string())?;
+    Ok(dest)
+}
+
+pub fn delete_from_trash(notes_root: &Path, id: &str) -> Result<(), String> {
+    let src = note_file(&trash_dir(notes_root), id)?;
+    if src.exists() {
+        fs::remove_file(&src).map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
+
+pub fn empty_trash(notes_root: &Path) -> Result<(), String> {
+    let dir = trash_dir(notes_root);
+    if dir.exists() {
+        fs::remove_dir_all(&dir).map_err(|error| error.to_string())?;
+    }
+    Ok(())
 }
 
 pub fn ensure_library_dir(notes_folder: &Path) -> io::Result<PathBuf> {
@@ -486,7 +578,33 @@ mod tests {
         assert!(is_excluded_dir_name("assets"));
         assert!(is_excluded_dir_name(".spell"));
         assert!(is_excluded_dir_name(".scratch"));
+        assert!(is_excluded_dir_name(".trash"));
         assert!(!is_excluded_dir_name("Projects"));
+    }
+
+    #[test]
+    fn move_restore_and_empty_trash() {
+        let vault = temp_vault("trash");
+        let live = vault.join("Work");
+        fs::create_dir_all(&live).unwrap();
+        let note = live.join("alpha.md");
+        fs::write(&note, "# Alpha\n").unwrap();
+
+        let trashed = move_to_trash(&vault, &note).unwrap();
+        assert!(!note.exists());
+        assert_eq!(trashed, vault.join(".trash").join("Work").join("alpha.md"));
+        assert_eq!(fs::read_to_string(&trashed).unwrap(), "# Alpha\n");
+
+        let restored = restore_from_trash(&vault, "Work/alpha").unwrap();
+        assert_eq!(restored, note);
+        assert!(note.exists());
+        assert!(!trashed.exists());
+
+        let _ = move_to_trash(&vault, &note).unwrap();
+        empty_trash(&vault).unwrap();
+        assert!(!vault.join(".trash").exists());
+
+        let _ = fs::remove_dir_all(&vault);
     }
 
     #[test]

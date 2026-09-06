@@ -23,6 +23,7 @@ import { CSS } from "@dnd-kit/utilities";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import type { Note, NoteMetadata } from "../../types/note";
 import { cn, cleanTitle } from "../../lib/utils";
+import { windowDragRegionProps } from "../../lib/windowDrag";
 import { CheckmarkIcon, IconButton, PanelToggleIcon } from "../ui";
 import {
   CalendarIcon,
@@ -275,7 +276,7 @@ export function RightSidebar({
         {!chrome && showWindowControls && (
           <div
             className="flex h-11 shrink-0 items-center justify-end px-3"
-            data-tauri-drag-region
+            {...windowDragRegionProps}
           >
             <WindowControls />
           </div>

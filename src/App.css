@@ -1,6 +1,26 @@
 @import "tailwindcss";
 @plugin "@tailwindcss/typography";
 
+/* Metric-matched fallback so a late SN Pro swap does not move the first line. */
+@font-face {
+  font-family: "SN Pro Fallback";
+  src: local("Arial"), local("Helvetica Neue"), local("Liberation Sans");
+  size-adjust: 105%;
+  ascent-override: 92%;
+  descent-override: 23%;
+  line-gap-override: 0%;
+}
+
+/* Prefer optional on the latin face so a late arrival does not restyle first paint. */
+@font-face {
+  font-family: "SN Pro Variable";
+  font-style: normal;
+  font-display: optional;
+  font-weight: 200 900;
+  src: url("@fontsource-variable/sn-pro/files/sn-pro-latin-wght-normal.woff2") format("woff2-variations");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
 /* Use class-based dark mode instead of media query */
 @custom-variant dark (&:where(.dark, .dark *));
 @custom-variant hover {
@@ -82,16 +102,18 @@
   --motion-base: 180ms;
   --motion-panel: 220ms;
   --motion-press: 100ms;
+  --motion-glide: 220ms;
   --ease-out: cubic-bezier(0.2, 0, 0, 1);
   --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
   --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+  --ease-glide: cubic-bezier(0.23, 1, 0.32, 1);
   --radius-control: 0.5rem;
   --radius-surface: 0.625rem;
   --radius-sheet: 0.875rem;
 
   /* Editor font settings - simplified (overridden by ThemeContext) */
   --editor-font-family:
-    "SN Pro Variable", "SN Pro", -apple-system, BlinkMacSystemFont, "Segoe UI",
+    "SN Pro Variable", "SN Pro", "SN Pro Fallback", -apple-system, BlinkMacSystemFont, "Segoe UI",
     Roboto, "Helvetica Neue", Arial, sans-serif;
   --editor-base-font-size: 17px;
   --editor-bold-weight: 600;
@@ -177,7 +199,7 @@
 /* Register theme colors with Tailwind */
 @theme {
   --font-sans:
-    "SN Pro Variable", "SN Pro", -apple-system, BlinkMacSystemFont, "Segoe UI",
+    "SN Pro Variable", "SN Pro", "SN Pro Fallback", -apple-system, BlinkMacSystemFont, "Segoe UI",
     Roboto, "Helvetica Neue", Arial, sans-serif, "Apple Color Emoji",
     "Segoe UI Emoji";
   --font-serif:
@@ -240,8 +262,10 @@ body,
   border-top: 1px solid var(--color-border);
 }
 
-/* macOS transparent title bar support */
-.titlebar-drag-region {
+/* Custom titlebars: WebKitGTK on Linux ignores the data attribute unless
+   startDragging() also runs; Chromium still honors the CSS region. */
+.titlebar-drag-region,
+[data-tauri-drag-region] {
   -webkit-app-region: drag;
 }
 
@@ -584,6 +608,10 @@ body,
   .note-row:hover {
     background: var(--color-bg-hover);
   }
+
+  [data-glide] .note-row:hover:not(.note-row-selected):not([data-selected="true"]) {
+    background: transparent;
+  }
 }
 
 .note-row:active {
@@ -599,16 +627,28 @@ body,
   background: var(--color-bg-selected);
 }
 
+[data-glide] .note-row[data-selected="true"],
+[data-glide] .note-row[data-selected="true"]:hover,
+[data-glide] .note-row[data-selected="true"]:active,
+[data-glide] .note-row-selected,
+[data-glide] .note-row-selected:hover,
+[data-glide] .note-row-selected:active {
+  background: transparent;
+}
+
 /* Keep list paint in one stacking context so WebKit does not leave a
    hover/menu shadow after a virtual row or context menu unmounts.
    Horizontal inset lives on the virtual row: absolute children ignore
    the scroller's padding. Match the titlebar (12px). */
-[data-note-list] {
+[data-note-list],
+[data-money-list],
+[data-project-list] {
   isolation: isolate;
   --note-list-inset-x: 0.75rem;
 }
 
-.folder-glyph {
+.folder-glyph,
+.source-glyph {
   display: block;
   width: var(--source-list-icon, 20px);
   height: var(--source-list-icon, 20px);
@@ -618,24 +658,40 @@ body,
   stroke: none;
 }
 
+.source-glyph-light {
+  fill: #dcdcdc;
+}
+
+.source-glyph-dark {
+  fill: #9b9b9b;
+}
+
+.dark .source-glyph-light {
+  fill: #414141;
+}
+
+.dark .source-glyph-dark {
+  fill: #737373;
+}
+
 .folder-glyph-tab,
 .folder-glyph-back {
-  fill: #dcdcdc;
+  fill: color-mix(in srgb, var(--notes-tint) 42%, white);
 }
 
 .folder-glyph-body,
 .folder-glyph-pocket {
-  fill: #9b9b9b;
+  fill: var(--notes-tint);
 }
 
 .dark .folder-glyph-tab,
 .dark .folder-glyph-back {
-  fill: #414141;
+  fill: color-mix(in srgb, var(--notes-tint) 42%, black);
 }
 
 .dark .folder-glyph-body,
 .dark .folder-glyph-pocket {
-  fill: #737373;
+  fill: var(--notes-tint);
 }
 
 .folder-glyph-open,
@@ -662,17 +718,24 @@ body,
   }
 }
 
-/* Apple Notes source list: 32px rows, 20px two-tone folders.
-   Nested rows indent the icon, not a chevron. */
+/* Compact source list: 32px rows, 20px two-tone folders.
+   Nested rows indent the icon, not a chevron.
+   Tokens live on the whole folder rail so destination rows (outside
+   `.source-list`) keep a real height — missing vars collapse rows to 0
+   in WebKitGTK and stack the icons on top of the glide pill. */
+[data-folder-nav],
 .source-list {
-  --source-list-row-height: 36px;
-  --source-list-inset: 4px;
+  --source-list-row-height: 32px;
+  --source-list-inset: 8px;
   --source-list-row-pad: 8px;
   --source-list-icon: 20px;
-  --source-list-gap: 8px;
-  --source-list-radius: 10px;
-  --source-list-indent: 18px;
-  padding: var(--source-list-inset);
+  --source-list-gap: 6px;
+  --source-list-radius: 8px;
+  --source-list-indent: 16px;
+}
+
+.source-list {
+  padding: 0 0 8px;
 }
 
 .source-list-header {
@@ -693,18 +756,19 @@ body,
 .source-list-row {
   --source-depth: 0;
   position: relative;
+  z-index: 1;
   display: flex;
   box-sizing: border-box;
-  width: 100%;
-  height: var(--source-list-row-height);
-  min-height: var(--source-list-row-height);
+  width: auto;
+  height: var(--source-list-row-height, 32px);
+  min-height: var(--source-list-row-height, 32px);
   align-items: center;
-  gap: var(--source-list-gap);
-  margin: 3px 0;
-  padding: 0 var(--source-list-row-pad) 0
-    calc(var(--source-list-row-pad) + (var(--source-depth, 0) * var(--source-list-indent)));
+  gap: var(--source-list-gap, 6px);
+  margin: 0 8px;
+  padding: 0 var(--source-list-row-pad, 8px) 0
+    calc(var(--source-list-row-pad, 8px) + (var(--source-depth, 0) * var(--source-list-indent, 16px)));
   border: 0;
-  border-radius: var(--source-list-radius);
+  border-radius: var(--source-list-radius, 8px);
   background: transparent;
   color: var(--color-text);
   font-size: 13px;
@@ -726,6 +790,14 @@ button.source-list-row {
   .source-list-row:hover:not([data-selected="true"]) {
     background: color-mix(in srgb, var(--color-text) 6%, transparent);
   }
+
+  [data-glide] .source-list-row:hover:not([data-selected="true"]) {
+    background: transparent;
+  }
+
+  [data-glide] .source-list-row[data-selected="true"] {
+    background: transparent;
+  }
 }
 
 .source-list-row:active:not([data-selected="true"]) {
@@ -741,6 +813,12 @@ button.source-list-row {
 .source-list-row[data-selected="true"]:hover,
 .source-list-row[data-selected="true"]:active {
   background: var(--color-bg-selected);
+}
+
+[data-glide] .source-list-row[data-selected="true"],
+[data-glide] .source-list-row[data-selected="true"]:hover,
+[data-glide] .source-list-row[data-selected="true"]:active {
+  background: transparent;
 }
 
 .library-hit {
@@ -854,8 +932,8 @@ html[data-library-dragging] * {
 
 .source-list-icon {
   display: flex;
-  width: var(--source-list-icon);
-  height: var(--source-list-icon);
+  width: var(--source-list-icon, 20px);
+  height: var(--source-list-icon, 20px);
   flex-shrink: 0;
   align-items: center;
   justify-content: center;
@@ -864,14 +942,25 @@ html[data-library-dragging] * {
 .source-list-icon > svg {
   display: block;
   overflow: visible;
-  width: var(--source-list-icon);
-  height: var(--source-list-icon);
+  width: var(--source-list-icon, 20px);
+  height: var(--source-list-icon, 20px);
+}
+
+/* Lucide 24 viewBox has ~2px inset and a heavier default stroke than
+   FolderGlyph. Tighten those rows so Journal/Projects/Money match folder
+   notes instead of sitting in extra air. */
+.source-list-row[data-line-icon="true"] {
+  --source-list-gap: 2px;
+}
+
+.source-list-icon > svg.lucide {
+  stroke-width: 1.75;
 }
 
 .source-list-label,
 .source-list-count {
-  height: var(--source-list-icon);
-  line-height: var(--source-list-icon);
+  height: var(--source-list-icon, 20px);
+  line-height: var(--source-list-icon, 20px);
   translate: 0 -1px;
 }
 
@@ -881,6 +970,8 @@ html[data-library-dragging] * {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-size: 14px;
+  font-weight: 500;
 }
 
 .source-list-pin {
@@ -898,7 +989,7 @@ html[data-library-dragging] * {
   flex-shrink: 0;
   margin-left: auto;
   font-size: 12px;
-  font-weight: 400;
+  font-weight: 500;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0;
   color: var(--color-text-muted);
@@ -999,7 +1090,7 @@ html[data-library-dragging] * {
   flex: 1;
   height: 100%;
   align-items: center;
-  gap: var(--source-list-gap);
+  gap: var(--source-list-gap, 6px);
   margin: 0;
   padding: 0;
   border: 0;
@@ -1025,7 +1116,7 @@ button.source-list-folder-toggle {
 
 .source-list-divider {
   height: 1px;
-  margin: 0.45rem 0.5rem;
+  margin: 4px 8px;
   background: var(--color-border);
 }
 
@@ -1045,6 +1136,416 @@ button.source-list-folder-toggle {
 .source-list-children-inner {
   min-height: 0;
   overflow: hidden;
+}
+
+
+.glide-highlight {
+  pointer-events: none;
+  position: absolute;
+  z-index: 0;
+  top: 0;
+  left: 8px;
+  right: 8px;
+  border-radius: var(--source-list-radius, 8px);
+  background: var(--color-bg-hover);
+  opacity: 0;
+  will-change: transform, height, opacity;
+  transition: opacity 150ms ease;
+}
+
+[data-note-list] .glide-highlight,
+[data-money-list] .glide-highlight,
+[data-project-list] .glide-highlight {
+  left: var(--note-list-inset-x, 0.75rem);
+  right: var(--note-list-inset-x, 0.75rem);
+  border-radius: 10px;
+}
+
+.glide-highlight[data-visible="true"] {
+  opacity: 1;
+}
+
+.glide-highlight[data-follow="true"] {
+  transition:
+    transform var(--glide-duration, var(--motion-glide)) var(--ease-glide),
+    height var(--glide-duration, var(--motion-glide)) var(--ease-glide),
+    opacity 150ms ease;
+}
+
+.source-list-row,
+[data-glide] [data-row] {
+  position: relative;
+  z-index: 1;
+}
+
+.pixel-loader {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+}
+
+.pixel-loader-grid {
+  display: grid;
+  flex-shrink: 0;
+  grid-template-columns: repeat(3, 4px);
+  gap: 1.5px;
+}
+
+.pixel-loader-cell {
+  width: 4px;
+  height: 4px;
+  border-radius: 1px;
+  background: var(--color-text);
+  opacity: 0.15;
+  animation: pixel-on 650ms ease-in-out infinite;
+}
+
+.pixel-loader-label {
+  font-size: 13px;
+  font-weight: 500;
+  background-image: linear-gradient(
+    90deg,
+    var(--color-text-muted) 35%,
+    var(--color-text) 50%,
+    var(--color-text-muted) 65%
+  );
+  background-size: 200% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  animation: shimmer-text 1.4s linear infinite;
+}
+
+.pixel-loader-time {
+  font-family: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Monaco, monospace;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-muted);
+}
+
+@keyframes pixel-on {
+  0%,
+  100% {
+    opacity: 0.15;
+  }
+  18%,
+  42% {
+    opacity: 1;
+  }
+  62% {
+    opacity: 0.15;
+  }
+}
+
+@keyframes shimmer-text {
+  0% {
+    background-position: 150%;
+  }
+  100% {
+    background-position: -50%;
+  }
+}
+
+.segmented {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(var(--segmented-count, 3), minmax(0, 1fr));
+  padding: 4px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+}
+
+.segmented-pill {
+  pointer-events: none;
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  left: 4px;
+  width: calc((100% - 8px) / var(--segmented-count, 3));
+  border-radius: 8px;
+  background: var(--color-accent);
+  transform: translate3d(calc(var(--segmented-index, 0) * 100%), 0, 0);
+  transition: transform var(--motion-panel) var(--ease-glide);
+}
+
+.segmented-item {
+  position: relative;
+  z-index: 1;
+  height: 2rem;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 0.875rem;
+  font-weight: 550;
+  cursor: pointer;
+  transition: color var(--motion-fast) var(--ease-out);
+}
+
+.segmented-item[data-active="true"] {
+  color: var(--color-text-inverse);
+}
+
+.command-empty {
+  padding: 2rem 1rem;
+  text-align: center;
+  animation: spell-fade-in var(--motion-base) var(--ease-out);
+}
+
+.command-empty-title {
+  margin: 0;
+  color: var(--color-text);
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.command-empty-hint {
+  margin: 0.25rem 0 0;
+  color: var(--color-text-muted);
+  font-size: 0.8125rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .glide-highlight,
+  .glide-highlight[data-follow="true"],
+  .segmented-pill,
+  .command-empty {
+    transition: none;
+    animation: none;
+  }
+
+  .pixel-loader-cell,
+  .pixel-loader-label {
+    animation: none;
+  }
+
+  .pixel-loader-cell {
+    opacity: 0.45;
+  }
+
+  .pixel-loader-label {
+    background: none;
+    color: var(--color-text-muted);
+  }
+}
+
+.folder-nav-destinations {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  gap: 1px;
+}
+
+.folder-search {
+  position: relative;
+  height: 32px;
+  margin: 8px 8px 4px;
+}
+
+.folder-home-wrap {
+  position: absolute;
+  inset: 0 64px 0 0;
+  transition:
+    opacity var(--motion-base) var(--ease-out),
+    transform var(--motion-base) var(--ease-out);
+}
+
+.folder-home {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 12.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    opacity var(--motion-base) var(--ease-out),
+    transform var(--motion-base) var(--ease-out),
+    background-color var(--motion-fast) var(--ease-out),
+    color var(--motion-fast) var(--ease-out);
+}
+
+.folder-home[data-selected="true"] {
+  color: var(--color-text);
+  background: var(--color-bg-selected);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .folder-home:hover:not([data-selected="true"]) {
+    color: var(--color-text);
+    background: var(--color-bg-hover);
+  }
+}
+
+.folder-search[data-open="true"] .folder-home-wrap {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-4px);
+}
+
+.folder-search-actions {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 10;
+  display: flex;
+  height: 32px;
+  align-items: center;
+  transition: opacity var(--motion-base) var(--ease-out);
+}
+
+.folder-search[data-open="true"] .folder-search-actions {
+  pointer-events: none;
+  opacity: 0;
+}
+
+.folder-search-create {
+  width: 32px;
+  height: 32px;
+  color: var(--color-text-muted);
+}
+
+.folder-search-create.icon-button > .ui-icon {
+  width: 1rem;
+  height: 1rem;
+}
+
+.folder-search-trigger {
+  display: flex;
+  width: 32px;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition:
+    background-color var(--motion-fast) var(--ease-out),
+    color var(--motion-fast) var(--ease-out);
+}
+
+.folder-search-trigger:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text);
+}
+
+.folder-search-field {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 20;
+  display: flex;
+  height: 32px;
+  align-items: center;
+  overflow: hidden;
+  border-radius: 8px;
+  background: var(--color-bg-muted);
+  color: var(--color-text-muted);
+  pointer-events: none;
+  opacity: 0;
+  width: 28px;
+  transition:
+    width var(--motion-base) var(--ease-out),
+    opacity var(--motion-base) var(--ease-out);
+}
+
+.folder-search[data-open="true"] .folder-search-field {
+  width: 100%;
+  pointer-events: auto;
+  opacity: 1;
+}
+
+.folder-search-field:focus-within {
+  color: var(--color-text);
+}
+
+.folder-search-field input {
+  min-width: 0;
+  flex: 1;
+  margin-left: 6px;
+  border: 0;
+  background: transparent;
+  color: var(--color-text);
+  font-size: 13px;
+  font-weight: 500;
+  outline: none;
+}
+
+.folder-search-field input::placeholder {
+  color: var(--color-text-muted);
+}
+
+.folder-search-close {
+  display: flex;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.folder-search-close:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text);
+}
+
+.folder-nav-empty {
+  margin: 0 8px;
+  padding: 8px;
+  color: var(--color-text-muted);
+  font-size: 12.5px;
+}
+
+.folder-nav-footer {
+  margin: 0 8px 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--color-border);
+}
+
+.folder-nav-footer-btn {
+  display: flex;
+  width: 100%;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: var(--color-bg-hover);
+  color: var(--color-text);
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color var(--motion-fast) var(--ease-out);
+}
+
+.folder-nav-footer-btn:hover {
+  background: var(--color-bg-emphasis);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .folder-home,
+  .folder-home-wrap,
+  .folder-search-actions,
+  .folder-search-trigger,
+  .folder-search-field {
+    transition: none;
+  }
 }
 
 /* Occasional settings panels grow in place instead of popping extra rows. */
@@ -1299,15 +1800,6 @@ button.source-list-folder-toggle {
   text-align: center;
   text-overflow: ellipsis;
   white-space: nowrap;
-  -webkit-app-region: no-drag;
-}
-
-input.titlebar-title {
-  min-width: 0;
-  width: auto;
-  max-width: 100%;
-  field-sizing: content;
-  cursor: text;
 }
 
 .titlebar-title:focus {
@@ -1730,6 +2222,34 @@ select {
 .spell-popover[data-open="false"] {
   opacity: 0;
   pointer-events: none;
+}
+
+.selection-toolbar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 40;
+  display: flex;
+  height: 36px;
+  width: max-content;
+  max-width: calc(100vw - 16px);
+  align-items: center;
+  gap: 1px;
+  padding: 4px;
+  border: 1px solid var(--glass-edge);
+  border-top-color: var(--glass-edge-lit);
+  border-radius: 12px;
+  background: var(--material-menu);
+  color: var(--color-text);
+  will-change: transform;
+}
+
+.selection-toolbar-sep {
+  width: 1px;
+  height: 16px;
+  margin: 0 2px;
+  flex-shrink: 0;
+  background: color-mix(in srgb, var(--color-text) 10%, transparent);
 }
 
 .spell-overlay {
@@ -2692,6 +3212,10 @@ body:has(.mobile-settings-overlay) .mobile-format-toolbar {
   background: var(--color-bg-secondary);
 }
 
+.mobile-settings .home-tabs {
+  background: var(--color-bg-secondary);
+}
+
 .mobile-settings-section {
   padding: 8px 16px 32px;
 }
@@ -2900,6 +3424,142 @@ body:has([data-mobile-shell]) .spell-calendar-popover.mobile-drawer[data-open="f
 .money-hero-split strong {
   color: var(--color-text);
   font-weight: 600;
+}
+
+.home-page {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--color-bg);
+}
+
+.home-tabs {
+  display: flex;
+  flex-shrink: 0;
+  gap: 2px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.home-tab {
+  position: relative;
+  height: 36px;
+  padding: 0 12px;
+  border: 0;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.home-tab[aria-selected="true"] {
+  color: var(--color-text);
+}
+
+.home-tab[aria-selected="true"]::after {
+  content: "";
+  position: absolute;
+  right: 12px;
+  bottom: -1px;
+  left: 12px;
+  height: 1px;
+  background: var(--color-text);
+}
+
+.home-panel {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.home-library,
+.home-stack,
+.home-settings {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
+.home-stack,
+.home-settings {
+  overflow-y: auto;
+  padding-bottom: 24px;
+}
+
+.home-shortcuts {
+  display: flex;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 12px 16px 4px;
+}
+
+.home-chip {
+  display: inline-flex;
+  height: 32px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--color-bg-muted);
+  color: var(--color-text);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.home-chip svg {
+  width: 14px;
+  height: 14px;
+}
+
+.home-empty {
+  margin: 24px 16px;
+  color: var(--color-text-muted);
+  font-size: 13px;
+}
+
+.home-stack .money-row + .money-row {
+  box-shadow: inset 0 0.5px 0 var(--color-border);
+}
+
+.home-trash-toolbar {
+  display: flex;
+  flex-shrink: 0;
+  justify-content: flex-end;
+  padding: 10px 16px 0;
+}
+
+.home-trash-actions {
+  display: flex;
+  flex-shrink: 0;
+  gap: 4px;
+}
+
+.home-text-button {
+  height: 28px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.home-text-button:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text);
+}
+
+.home-text-button.is-danger:hover {
+  color: var(--color-menu-danger);
 }
 
 .money-group {
@@ -3719,7 +4379,11 @@ html[data-kanban-dragging] * {
     opacity: 1;
   }
 
-  .panel-toggle-icon > path {
+  .panel-toggle-pane,
+  .panel-toggle-divider,
+  .create-plus-icon,
+  .icon-cog,
+  .icon-search-nudge {
     transition: none;
   }
 
@@ -3808,7 +4472,7 @@ html[data-kanban-dragging] * {
   stroke-width: var(--icon-stroke);
 }
 
-/* Apple Notes titlebar: one format/insert cluster, then share. */
+/* Compact icon cluster used in project titlebars. */
 .notes-toolbar {
   gap: 8px;
 }
@@ -3830,8 +4494,7 @@ html[data-kanban-dragging] * {
   color: var(--color-icon, var(--color-text-muted));
 }
 
-.notes-toolbar .icon-button[data-size="sm"] > .ui-icon,
-.notes-toolbar .icon-button > .notes-glyph {
+.notes-toolbar .icon-button[data-size="sm"] > .ui-icon {
   width: var(--icon-size-sm);
   height: var(--icon-size-sm);
   stroke-width: var(--icon-stroke);
@@ -3855,29 +4518,83 @@ html[data-kanban-dragging] * {
   box-shadow: none;
 }
 
-.notes-aa {
-  display: inline-flex;
-  align-items: baseline;
-  height: 18px;
-  font-family: var(--font-sans);
-  font-weight: 700;
-  line-height: 1;
-  letter-spacing: -0.06em;
-  user-select: none;
-  pointer-events: none;
-}
-
-.notes-aa span:first-child {
-  font-size: 15px;
-}
-
-.notes-aa span:last-child {
-  font-size: 11px;
-  margin-left: 0.5px;
-}
-
 .panel-toggle-icon {
   overflow: visible;
+}
+
+.panel-toggle-pane {
+  fill: currentColor;
+  opacity: 0.22;
+  transform-box: fill-box;
+  transform-origin: left center;
+  transition: transform var(--motion-base) var(--ease-out);
+}
+
+.panel-toggle-icon[data-side="right"] .panel-toggle-pane {
+  transform-origin: right center;
+}
+
+.panel-toggle-divider {
+  transition: transform var(--motion-base) var(--ease-out);
+}
+
+.panel-toggle-icon[data-open="false"] .panel-toggle-pane {
+  transform: scaleX(0.42);
+}
+
+.panel-toggle-icon[data-open="false"][data-side="left"] .panel-toggle-divider {
+  transform: translateX(-2px);
+}
+
+.panel-toggle-icon[data-open="false"][data-side="right"] .panel-toggle-divider {
+  transform: translateX(2px);
+}
+
+.create-plus-icon,
+.icon-cog,
+.icon-search-nudge {
+  transform-origin: center;
+  transition: transform var(--motion-base) var(--ease-out);
+}
+
+.icon-button[data-state="open"] .create-plus-icon {
+  transform: rotate(45deg);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  @media (prefers-reduced-motion: no-preference) {
+    .icon-button:hover:not(:disabled) .panel-toggle-icon[data-open="true"] .panel-toggle-pane {
+      transform: scaleX(0.62);
+    }
+
+    .icon-button:hover:not(:disabled) .panel-toggle-icon[data-open="false"] .panel-toggle-pane {
+      transform: scaleX(1);
+    }
+
+    .icon-button:hover:not(:disabled) .panel-toggle-icon[data-open="true"][data-side="left"] .panel-toggle-divider {
+      transform: translateX(-1.5px);
+    }
+
+    .icon-button:hover:not(:disabled) .panel-toggle-icon[data-open="false"][data-side="left"] .panel-toggle-divider {
+      transform: translateX(0);
+    }
+
+    .icon-button:hover:not(:disabled) .panel-toggle-icon[data-open="true"][data-side="right"] .panel-toggle-divider {
+      transform: translateX(1.5px);
+    }
+
+    .icon-button:hover:not(:disabled) .panel-toggle-icon[data-open="false"][data-side="right"] .panel-toggle-divider {
+      transform: translateX(0);
+    }
+
+    .icon-button:hover:not(:disabled) .icon-cog {
+      transform: rotate(60deg);
+    }
+
+    .folder-search-trigger:hover .icon-search-nudge {
+      transform: rotate(-12deg);
+    }
+  }
 }
 
 .icon-button[data-size="xs"] > .ui-icon {
@@ -3891,9 +4608,8 @@ html[data-kanban-dragging] * {
   height: var(--icon-size-touch);
 }
 
-/* Semantic icon motion: directional disclosure, line-drawn confirmation, and
-   a small crossfade for an icon changing meaning. No spring, overshoot, or
-   hover bounce is used. */
+/* Semantic icon motion: directional disclosure, line-drawn confirmation,
+   sidebar pane width, and a plus-to-x rotate. No spring or overshoot. */
 .state-disclosure {
   transform-origin: center;
   transition: transform var(--motion-fast) var(--ease-out);
@@ -4128,8 +4844,8 @@ html.dark {
 }
 
 /* Desktop side rails clip to a fixed inner width so toggling is a drawer,
-   not a content squash. Width only transitions while `.is-animating` so
-   resize and first paint stay instant. */
+   not a content squash. Width changes are instant: animating layout width
+   reflows the editor every frame and reads as a faded, dragging close. */
 .app-workspace-panel {
   min-width: 0;
   width: var(--panel-width);
@@ -4148,15 +4864,6 @@ html.dark {
   height: 100%;
   background: var(--color-border);
   pointer-events: none;
-  opacity: 1;
-}
-
-.app-workspace-panel.is-animating {
-  transition: width var(--motion-panel) var(--ease-out);
-}
-
-.app-workspace-panel.is-animating::after {
-  transition: opacity var(--motion-panel) var(--ease-out);
 }
 
 .app-workspace-panel[data-state="closed"] {
@@ -4164,14 +4871,35 @@ html.dark {
   pointer-events: none;
 }
 
+/* Keep the layout slot during the close slide so the editor does not reflow
+   every frame. Width snaps after the inner drawer finishes. */
+.app-workspace-panel[data-state="closed"].is-animating {
+  width: var(--panel-width);
+}
+
 .app-workspace-panel[data-state="closed"]::after {
-  opacity: 0;
+  content: none;
 }
 
 .app-workspace-panel-inner {
   width: var(--panel-width);
   min-width: var(--panel-width);
   height: 100%;
+  transform: translate3d(0, 0, 0);
+}
+
+.app-workspace-panel[data-state="closed"] .app-workspace-panel-inner {
+  transform: translate3d(-100%, 0, 0);
+}
+
+.app-workspace-panel.is-animating .app-workspace-panel-inner {
+  transition: transform var(--motion-panel) var(--ease-drawer);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-workspace-panel.is-animating .app-workspace-panel-inner {
+    transition: none;
+  }
 }
 
 @keyframes spin-slow {
@@ -4211,10 +4939,14 @@ html.dark {
 }
 
 /* Finance detail panes are part of the workspace. They arrive from their
-   own edge rather than appearing as floating dialog boxes. */
+   own edge rather than appearing as floating dialog boxes. First paint
+   stays instant; slide only while a user-initiated open is animating. */
 .workspace-detail-panel {
   opacity: 1;
   transform: translateX(0);
+}
+
+.workspace-detail-panel.is-animating {
   transition:
     transform var(--motion-panel) var(--ease-drawer),
     opacity var(--motion-base) var(--ease-out);
@@ -4226,11 +4958,7 @@ html.dark {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .app-workspace-panel.is-animating {
-    transition: none;
-  }
-
-  .workspace-detail-panel {
+  .workspace-detail-panel.is-animating {
     transform: none;
     transition: opacity var(--motion-fast) var(--ease-out);
 
@@ -4248,6 +4976,20 @@ html.dark {
   margin-right: auto;
   min-height: calc(100vh - 150px);
   outline: none;
+}
+
+.spell-underline {
+  text-decoration-line: underline;
+  text-decoration-style: wavy;
+  text-decoration-thickness: from-font;
+  text-decoration-skip-ink: none;
+  text-underline-offset: 0.12em;
+  text-decoration-color: #e24b4a;
+}
+
+.spell-underline[data-spell-kind="grammar"],
+.spell-underline[data-spell-kind="punctuation"] {
+  text-decoration-color: #3b82f6;
 }
 
 @media (max-width: 767px) {
@@ -5666,6 +6408,7 @@ table.not-prose th {
 .spell-menu,
 .spell-suggestion-menu,
 .tiptap-bubble-menu-wrapper,
+.selection-toolbar,
 [data-tippy-root],
 [data-radix-popper-content-wrapper],
 [data-radix-menu-content],

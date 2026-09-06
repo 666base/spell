@@ -73,12 +73,14 @@ import { BlockMathEditor } from "./BlockMathEditor";
 import { LinkEditor } from "./LinkEditor";
 import { SearchToolbar } from "./SearchToolbar";
 import { MobileFormattingToolbar } from "./MobileFormattingToolbar";
+import { SelectionToolbar } from "./SelectionToolbar";
 import { SlashCommand } from "./SlashCommand";
 import { Wikilink, type WikilinkStorage } from "./Wikilink";
 import { WikilinkSuggestion } from "./WikilinkSuggestion";
 import { EditorWidthHandles } from "./EditorWidthHandle";
 import { ScratchBlockMath, normalizeBlockMath } from "./MathExtensions";
 import { FormatShortcuts } from "./FormatShortcuts";
+import { BgSpellcheck } from "./BgSpellcheck";
 import { plainTextFromMarkdown } from "../../lib/plainText";
 import { capturePendingEditorSave, isEditorRename } from "../../lib/editorSave";
 import { downloadPdf, downloadMarkdown } from "../../services/pdf";
@@ -245,6 +247,7 @@ interface EditorProps {
   titlebarCenter?: ReactNode;
   showCompose?: boolean;
   composePlus?: boolean;
+  foldersVisible?: boolean;
 }
 
 /**
@@ -315,6 +318,7 @@ export function Editor({
   titlebarCenter,
   showCompose,
   composePlus,
+  foldersVisible,
 }: EditorProps) {
   // Always call the hook (rules of hooks), but it returns null outside NotesProvider
   const notesCtx = useOptionalNotes();
@@ -971,6 +975,7 @@ export function Editor({
         matches: [],
         currentIndex: 0,
       }),
+      BgSpellcheck,
       SlashCommand,
       Wikilink,
       WikilinkSuggestion,
@@ -989,7 +994,7 @@ export function Editor({
       attributes: {
         class:
           "prose prose-lg dark:prose-invert max-w-3xl mx-auto focus:outline-none min-h-full px-6 pt-3 pb-24",
-        spellcheck: "true",
+        spellcheck: "false",
         autocorrect: "on",
         autocapitalize: "sentences",
         ...(isMobileApp ? { tabindex: "-1" } : {}),
@@ -2058,6 +2063,7 @@ export function Editor({
   const titlebar = !hideTitleBar ? (
     <NoteTitlebar
       sidebarVisible={sidebarVisible}
+      foldersVisible={foldersVisible}
       focusMode={focusMode}
       onToggleSidebar={onToggleSidebar}
       onNewNote={onNewNote}
@@ -2065,7 +2071,6 @@ export function Editor({
       composePlus={composePlus}
       newNoteBusy={Boolean(notesCtx?.isCreatingNote)}
       showWindowControls={showWindowControls}
-      editor={editor}
       center={titlebarCenter}
     />
   ) : null;
@@ -2086,9 +2091,16 @@ export function Editor({
       return (
         <div className="flex-1 flex flex-col bg-bg">
           {titlebar}
-          <div className="flex-1 flex items-center justify-center">
-            <SpinnerIcon className="w-6 h-6 text-text-muted animate-spin" />
-          </div>
+          <div className="flex-1 bg-bg" />
+        </div>
+      );
+    }
+
+    if (notesCtx?.isLoading) {
+      return (
+        <div className="flex-1 flex flex-col bg-bg overflow-hidden">
+          {titlebar}
+          <div className="flex-1 bg-bg" />
         </div>
       );
     }
@@ -2216,6 +2228,9 @@ export function Editor({
                 }}
               >
                 <EditorContent editor={editor} className="h-full text-text" />
+                {editor && !sourceMode && !isMobileApp && (
+                  <SelectionToolbar editor={editor} onAddLink={handleAddLink} />
+                )}
                 {tableContextMenu && (
                   <div
                     role="menu"

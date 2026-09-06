@@ -20,7 +20,7 @@ import {
   toggleListValue,
   type SidebarLibrary,
 } from "../../../lib/sidebarLibrary";
-import { FolderGlyph } from "../../ui";
+import { FolderGlyph, HomeGlyph, JournalGlyph } from "../../ui";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -33,14 +33,12 @@ import {
 } from "../../ui";
 import {
   AddNoteIcon,
-  BookIcon,
   CheckIcon,
   CheckSquareIcon,
   CopyIcon,
   FolderIcon,
   FolderPlusIcon,
   PinIcon,
-  SettingsIcon,
   TrashIcon,
 } from "../../icons/velocity";
 import { FolderNameDialog } from "../../notes/FolderNameDialog";
@@ -59,7 +57,7 @@ import { useLongPress } from "./useLongPress";
 interface MobileFoldersProps {
   onOpenNote: () => void;
   onOpenJournal: () => void;
-  onOpenSettings: () => void;
+  onOpenHome: () => void;
   onOpenWorkspace: () => void;
   onCompose: () => void;
 }
@@ -315,7 +313,7 @@ function ActionSheet({
 export const MobileFolders = memo(function MobileFolders({
   onOpenNote,
   onOpenJournal,
-  onOpenSettings,
+  onOpenHome,
   onOpenWorkspace,
   onCompose,
 }: MobileFoldersProps) {
@@ -709,7 +707,7 @@ export const MobileFolders = memo(function MobileFolders({
             {...(selecting ? {} : journalPress)}
           >
             <span className="mobile-folder-icon">
-              <BookIcon />
+              <JournalGlyph />
             </span>
             <span className="mobile-folder-label">Journal</span>
             <span className="mobile-folder-count">{journalCount}</span>
@@ -719,11 +717,11 @@ export const MobileFolders = memo(function MobileFolders({
           <Group>{restItems.map((item) => renderItem(item))}</Group>
         )}
         <Group>
-          <button type="button" className="mobile-folder-row" onClick={onOpenSettings}>
+          <button type="button" className="mobile-folder-row" onClick={onOpenHome}>
             <span className="mobile-folder-icon">
-              <SettingsIcon />
+              <HomeGlyph />
             </span>
-            <span className="mobile-folder-label">Settings</span>
+            <span className="mobile-folder-label">Home</span>
           </button>
         </Group>
       </MobileScroll>

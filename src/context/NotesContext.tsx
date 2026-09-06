@@ -13,7 +13,8 @@ import { toast } from "sonner";
 import type { Note, NoteMetadata } from "../types/note";
 import * as notesService from "../services/notes";
 import { lastWriteWins } from "../lib/editorSave";
-import { applySavedNoteToList, holdOpenNotePosition, remapNoteIds } from "../lib/noteListOrder";
+import { applySavedNoteToList, holdOpenNotePosition, pinNoteIds, remapNoteIds } from "../lib/noteListOrder";
+import { rememberSession, readSession } from "../lib/startupSurface";
 import {
   queueCloudDelete,
   queueCloudUpsert,
@@ -140,6 +141,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       // Set selected ID immediately for responsive UI
       selectedNoteIdRef.current = id;
       setSelectedNoteId(id);
+      rememberSession({ noteId: id });
       setHasExternalChanges(false);
       // Expand parent folders so the note is visible in the tree
       const lastSlash = id.lastIndexOf("/");
@@ -164,6 +166,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
     pendingNewNoteIdRef.current = null;
     selectedNoteIdRef.current = null;
     setSelectedNoteId(null);
+    rememberSession({ noteId: null });
     setCurrentNote(null);
     setHasExternalChanges(false);
   }, []);
@@ -189,6 +192,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       await refreshNotes();
       setCurrentNote(note);
       setSelectedNoteId(note.id);
+      rememberSession({ noteId: note.id });
       queueCloudUpsert(note);
       setSearchQuery("");
       setSearchResults([]);
@@ -442,7 +446,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
         if (!pinnedIds.includes(id)) {
           const updatedSettings = {
             ...currentSettings,
-            pinnedNoteIds: [id, ...pinnedIds],
+            pinnedNoteIds: pinNoteIds(pinnedIds, id),
             noteOrder: (currentSettings.noteOrder || []).filter((noteId) => noteId !== id),
           };
           await notesService.updateSettings(updatedSettings);
@@ -778,6 +782,10 @@ export function NotesProvider({ children }: { children: ReactNode }) {
         if (folder) {
           const notesList = await notesService.listNotes();
           setNotes(notesList);
+          const session = readSession();
+          if (session?.noteId && notesList.some((note) => note.id === session.noteId)) {
+            await selectNote(session.noteId);
+          }
           // Start file watcher
           await notesService.startFileWatcher();
         }
@@ -788,7 +796,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       }
     }
     init();
-  }, []);
+  }, [selectNote]);
 
   // Listen for file change events and notify if current note changed externally
   useEffect(() => {

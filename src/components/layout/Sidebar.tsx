@@ -1,42 +1,33 @@
-import { cn } from "../../lib/utils";
 import { NoteList } from "../notes/NoteList";
-import {
-  IconButton,
-  PanelToggleIcon,
-} from "../ui";
+import { IconButton } from "../ui";
 import {
   XIcon,
-  NoteIcon,
-  BookIcon,
 } from "../icons/velocity";
 import { isMac } from "../../lib/platform";
-import type { NotesScope } from "../../lib/notesScope";
+import { windowDragRegionProps } from "../../lib/windowDrag";
+import { isMoneyTab, isProjectsTab, type NotesScope } from "../../lib/notesScope";
 import { useLibrarySelection } from "./LibraryDnd";
+import { ProjectList } from "../kanban/ProjectList";
+import { MoneyList } from "../finance/MoneyList";
 
 export type SidebarPanel = "notes" | "journal";
-
-const SIDEBAR_PANELS: { id: SidebarPanel; label: string; icon: typeof NoteIcon }[] = [
-  { id: "notes", label: "Notes", icon: NoteIcon },
-  { id: "journal", label: "Journal", icon: BookIcon },
-];
 
 interface SidebarProps {
   panel: SidebarPanel;
   onSelectPanel: (panel: SidebarPanel) => void;
   onClose?: () => void;
-  onToggle?: () => void;
   foldersVisible?: boolean;
   scope?: NotesScope;
-  onOpenSettings?: () => void;
+  onSelectScope?: (scope: NotesScope) => void;
   mobile?: boolean;
 }
 
 export function Sidebar({
   panel,
   onClose,
-  onToggle,
   foldersVisible = true,
   scope,
+  onSelectScope,
   mobile = false,
 }: SidebarProps) {
   const {
@@ -45,14 +36,20 @@ export function Sidebar({
     lastClickedNoteId,
     setLastClickedNoteId,
   } = useLibrarySelection();
-  const panelLabel = SIDEBAR_PANELS.find((item) => item.id === panel)?.label ?? "Library";
-  const showFoldersToggle = Boolean(onToggle && !foldersVisible);
+  const current = scope ?? { type: "all" as const };
+  const listLabel = isProjectsTab(current)
+    ? "Projects"
+    : isMoneyTab(current)
+      ? "Money"
+      : panel === "journal"
+        ? "Journal"
+        : "Notes";
 
   return (
     <div className="app-sidebar-surface relative flex h-full w-full flex-col select-none">
       {mobile ? (
         <div className="app-chrome flex h-14 shrink-0 items-center justify-between px-3">
-          <span className="text-sm font-semibold tracking-[-0.012em] text-text">{panelLabel}</span>
+          <span className="text-sm font-semibold tracking-[-0.012em] text-text">{listLabel}</span>
           {onClose && (
             <IconButton
               size="xl"
@@ -65,34 +62,41 @@ export function Sidebar({
             </IconButton>
           )}
         </div>
-      ) : showFoldersToggle ? (
+      ) : isMac && !foldersVisible ? (
         <div
-          className={cn(
-            "app-titlebar flex shrink-0 items-center gap-1",
-            isMac && "pl-20",
-          )}
-          data-tauri-drag-region
-        >
-          <div className="titlebar-no-drag flex min-w-0 items-center gap-px" data-tauri-drag-region="false">
-            <IconButton size="sm" title="Show folders" onClick={onToggle} aria-expanded={false}>
-              <PanelToggleIcon side="left" open={false} />
-            </IconButton>
-          </div>
-        </div>
+          className="app-titlebar folder-titlebar"
+          {...windowDragRegionProps}
+        />
       ) : null}
       <div className="flex min-h-0 flex-1 flex-col">
-        <div className="min-h-0 flex-1">
-          <NoteList
-            filter={
-              (scope?.type ?? panel) === "journal" ? "journal" : "all"
-            }
-            folderPath={scope?.type === "folder" ? scope.path : null}
-            showEmptyCanvas={mobile}
-            multiSelectedNoteIds={selectedNoteIds}
-            setMultiSelectedNoteIds={setSelectedNoteIds}
-            lastClickedNoteId={lastClickedNoteId}
-            setLastClickedNoteId={setLastClickedNoteId}
-          />
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+          {isProjectsTab(current) ? (
+            <ProjectList
+              selectedId={current.type === "project" ? current.id : null}
+              overviewSelected={current.type === "projects"}
+              onSelect={(id) => onSelectScope?.({ type: "project", id })}
+              onSelectOverview={() => onSelectScope?.({ type: "projects" })}
+              onCreated={(id) => onSelectScope?.({ type: "project", id })}
+              onDeletedSelected={() => onSelectScope?.({ type: "projects" })}
+            />
+          ) : isMoneyTab(current) ? (
+            <MoneyList
+              scope={current}
+              onSelect={(next) => onSelectScope?.(next)}
+            />
+          ) : (
+            <NoteList
+              filter={
+                (current.type === "journal" ? "journal" : "all")
+              }
+              folderPath={current.type === "folder" ? current.path : null}
+              showEmptyCanvas={mobile}
+              multiSelectedNoteIds={selectedNoteIds}
+              setMultiSelectedNoteIds={setSelectedNoteIds}
+              lastClickedNoteId={lastClickedNoteId}
+              setLastClickedNoteId={setLastClickedNoteId}
+            />
+          )}
         </div>
       </div>
     </div>

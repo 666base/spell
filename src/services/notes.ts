@@ -49,6 +49,22 @@ export async function deleteNote(id: string): Promise<void> {
   return invoke("delete_note", { id });
 }
 
+export async function listTrash(): Promise<NoteMetadata[]> {
+  return invoke("list_trash");
+}
+
+export async function restoreTrashNote(id: string): Promise<NoteMetadata> {
+  return invoke("restore_trash_note", { id });
+}
+
+export async function deleteTrashNote(id: string): Promise<void> {
+  return invoke("delete_trash_note", { id });
+}
+
+export async function emptyTrash(): Promise<void> {
+  return invoke("empty_trash");
+}
+
 export async function createNote(targetFolder?: string, content?: string): Promise<Note> {
   return invoke("create_note", {
     targetFolder: targetFolder ?? null,

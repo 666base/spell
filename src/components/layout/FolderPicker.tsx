@@ -18,6 +18,7 @@ import { CloudAuthListener } from "../cloud/CloudAuthListener";
 import { BookIcon } from "../icons/velocity";
 import { WindowControls } from "./WindowControls";
 import { cn } from "../../lib/utils";
+import { windowDragRegionProps } from "../../lib/windowDrag";
 
 const CloudSetup = lazy(() => import("../cloud/CloudSetup"));
 
@@ -117,7 +118,7 @@ export function FolderPicker() {
           "flex h-11 shrink-0 items-center justify-end px-3",
           isMac && "pl-20",
         )}
-        data-tauri-drag-region
+        {...windowDragRegionProps}
       >
         <WindowControls />
       </div>

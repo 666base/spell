@@ -1,5 +1,5 @@
 import { useTheme, defaultThemeColors } from "../../context/ThemeContext";
-import { Button, CodeCopyButton, IconButton, Input, Select } from "../ui";
+import { Button, CodeCopyButton, IconButton, Input, SegmentedControl, Select } from "../ui";
 import { ColorPicker } from "../ui/ColorPicker";
 import type {
   FontFamily,
@@ -122,19 +122,16 @@ export function AppearanceSettingsSection() {
       {/* Theme Section */}
       <section className="pb-2">
         <h2 className="text-xl font-medium mb-3">Theme</h2>
-        <div className="flex gap-2 p-1 rounded-[10px] border border-border">
-          {(["light", "dark", "system"] as const).map((mode) => (
-            <Button
-              key={mode}
-              onClick={() => setTheme(mode)}
-              variant={theme === mode ? "primary" : "ghost"}
-              size="md"
-              className="flex-1"
-            >
-              {mode.charAt(0).toUpperCase() + mode.slice(1)}
-            </Button>
-          ))}
-        </div>
+        <SegmentedControl
+          ariaLabel="Theme"
+          value={theme}
+          onChange={setTheme}
+          options={[
+            { value: "light", label: "Light" },
+            { value: "dark", label: "Dark" },
+            { value: "system", label: "System" },
+          ]}
+        />
         {theme === "system" && (
           <p className="mt-3 text-sm text-text-muted">
             Currently using {resolvedTheme} mode based on system preference

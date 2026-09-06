@@ -501,9 +501,44 @@ fn delete_note(id: String, state: State<AppState>) -> Result<(), String> {
     let vault = vault_path_from_config(&state)?;
     let path = note_path(&vault, &id)?;
     if path.exists() {
-        fs::remove_file(path).map_err(|error| error.to_string())?;
+        library::move_to_trash(&vault, &path)?;
     }
     Ok(())
+}
+
+#[tauri::command]
+fn list_trash(state: State<AppState>) -> Result<Vec<NoteMetadata>, String> {
+    let vault = vault_path_from_config(&state)?;
+    let trash = library::trash_dir(&vault);
+    let mut notes = Vec::new();
+    collect_notes(&trash, &trash, 0, &mut notes);
+    Ok(notes)
+}
+
+#[tauri::command]
+fn restore_trash_note(id: String, state: State<AppState>) -> Result<NoteMetadata, String> {
+    let vault = vault_path_from_config(&state)?;
+    let dest = library::restore_from_trash(&vault, &id)?;
+    let restored_id =
+        relative_note_id(&vault, &dest).ok_or_else(|| "Restored note path is invalid".to_string())?;
+    note_from_path(restored_id, dest).map(|note| NoteMetadata {
+        id: note.id,
+        title: note.title,
+        preview: preview(&note.content),
+        modified: note.modified,
+    })
+}
+
+#[tauri::command]
+fn delete_trash_note(id: String, state: State<AppState>) -> Result<(), String> {
+    let vault = vault_path_from_config(&state)?;
+    library::delete_from_trash(&vault, &id)
+}
+
+#[tauri::command]
+fn empty_trash(state: State<AppState>) -> Result<(), String> {
+    let vault = vault_path_from_config(&state)?;
+    library::empty_trash(&vault)
 }
 
 fn sanitize_note_name(title: &str) -> String {
@@ -774,6 +809,10 @@ pub fn run() {
             read_note,
             save_note,
             delete_note,
+            list_trash,
+            restore_trash_note,
+            delete_trash_note,
+            empty_trash,
             create_note,
             list_folders,
             create_folder,

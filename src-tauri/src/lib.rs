@@ -1404,9 +1404,7 @@ mod desktop {
         let folder_path = PathBuf::from(&folder);
         let file_path = abs_path_from_id(&folder_path, &id)?;
         if file_path.exists() {
-            fs::remove_file(&file_path)
-                .await
-                .map_err(|e| e.to_string())?;
+            library::move_to_trash(&folder_path, &file_path)?;
         }
 
         // Update search index
@@ -1424,6 +1422,132 @@ mod desktop {
         }
 
         Ok(())
+    }
+
+    #[tauri::command]
+    async fn list_trash(state: State<'_, AppState>) -> Result<Vec<NoteMetadata>, String> {
+        let folder = {
+            let app_config = state.app_config.read().expect("app_config read lock");
+            app_config
+                .notes_folder
+                .clone()
+                .ok_or("Notes folder not set")?
+        };
+        let trash = library::trash_dir(&PathBuf::from(&folder));
+        if !trash.exists() {
+            return Ok(vec![]);
+        }
+        let discovered = tokio::task::spawn_blocking(move || {
+            use walkdir::WalkDir;
+            let mut results: Vec<(String, String, String, i64)> = Vec::new();
+            for entry in WalkDir::new(&trash).max_depth(10).into_iter().flatten() {
+                let file_path = entry.path();
+                if !file_path.is_file() {
+                    continue;
+                }
+                if let Some(id) = id_from_abs_path(&trash, file_path, &[]) {
+                    if let Ok(content) = std::fs::read_to_string(file_path) {
+                        let modified = entry
+                            .metadata()
+                            .ok()
+                            .and_then(|m| m.modified().ok())
+                            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                            .map(|d| d.as_secs() as i64)
+                            .unwrap_or(0);
+                        results.push((
+                            id,
+                            extract_title(&content),
+                            generate_preview(&content),
+                            modified,
+                        ));
+                    }
+                }
+            }
+            results
+        })
+        .await
+        .map_err(|e| e.to_string())?;
+        Ok(discovered
+            .into_iter()
+            .map(|(id, title, preview, modified)| NoteMetadata {
+                id,
+                title,
+                preview,
+                modified,
+            })
+            .collect())
+    }
+
+    #[tauri::command]
+    async fn restore_trash_note(id: String, state: State<'_, AppState>) -> Result<NoteMetadata, String> {
+        let folder = {
+            let app_config = state.app_config.read().expect("app_config read lock");
+            app_config
+                .notes_folder
+                .clone()
+                .ok_or("Notes folder not set")?
+        };
+        let folder_path = PathBuf::from(&folder);
+        let dest = library::restore_from_trash(&folder_path, &id)?;
+        let content = tokio::fs::read_to_string(&dest)
+            .await
+            .map_err(|e| e.to_string())?;
+        let title = extract_title(&content);
+        let preview = generate_preview(&content);
+        let restored_id = id_from_abs_path(&folder_path, &dest, &[])
+            .ok_or_else(|| "Restored note path is invalid".to_string())?;
+        let modified = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+        {
+            let index = state.search_index.lock().expect("search index mutex");
+            if let Some(ref search_index) = *index {
+                let _ = search_index.index_note(&restored_id, &title, &content, modified);
+            }
+        }
+        {
+            let mut cache = state.notes_cache.write().expect("cache write lock");
+            cache.insert(
+                restored_id.clone(),
+                NoteMetadata {
+                    id: restored_id.clone(),
+                    title: title.clone(),
+                    preview: preview.clone(),
+                    modified,
+                },
+            );
+        }
+        Ok(NoteMetadata {
+            id: restored_id,
+            title,
+            preview,
+            modified,
+        })
+    }
+
+    #[tauri::command]
+    async fn delete_trash_note(id: String, state: State<'_, AppState>) -> Result<(), String> {
+        let folder = {
+            let app_config = state.app_config.read().expect("app_config read lock");
+            app_config
+                .notes_folder
+                .clone()
+                .ok_or("Notes folder not set")?
+        };
+        library::delete_from_trash(&PathBuf::from(&folder), &id)
+    }
+
+    #[tauri::command]
+    async fn empty_trash(state: State<'_, AppState>) -> Result<(), String> {
+        let folder = {
+            let app_config = state.app_config.read().expect("app_config read lock");
+            app_config
+                .notes_folder
+                .clone()
+                .ok_or("Notes folder not set")?
+        };
+        library::empty_trash(&PathBuf::from(&folder))
     }
 
     fn unique_note_id(notes_root: &Path, base_id: &str) -> Result<String, String> {
@@ -4513,6 +4637,10 @@ mod desktop {
                 read_note,
                 save_note,
                 delete_note,
+                list_trash,
+                restore_trash_note,
+                delete_trash_note,
+                empty_trash,
                 create_note,
                 import_notes,
                 list_folders,

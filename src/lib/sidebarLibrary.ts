@@ -96,6 +96,23 @@ export function toggleListValue<T extends string>(list: T[], value: T) {
   return list.includes(value) ? list.filter((item) => item !== value) : [...list, value];
 }
 
+/** Pin to the front of the list. Unpin removes it. Hide/collapse still use toggleListValue. */
+export function togglePinned(library: SidebarLibrary, id: string): SidebarLibrary {
+  const already = library.pinned.includes(id);
+  if (already) {
+    return {
+      ...library,
+      pinned: library.pinned.filter((item) => item !== id),
+      pinOrder: library.pinOrder.filter((item) => item !== id),
+    };
+  }
+  return {
+    ...library,
+    pinned: [id, ...library.pinned.filter((item) => item !== id)],
+    pinOrder: [id, ...library.pinOrder.filter((item) => item !== id)],
+  };
+}
+
 export function revealFolder(library: SidebarLibrary, path: string): SidebarLibrary {
   if (!path) return library;
   const parts = path.split("/").filter(Boolean);

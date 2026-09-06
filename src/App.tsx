@@ -13,9 +13,10 @@ import { SidebarResizeHandle } from "./components/layout/SidebarResizeHandle";
 import { FolderSourceList } from "./components/layout/FolderSourceList";
 import { LibraryDnd } from "./components/layout/LibraryDnd";
 import { FOLDER_SIDEBAR_PX, SIDEBAR_DEFAULT_PX } from "./lib/sidebar";
-import { PANEL_TRANSITION_MS, useOpenTransition } from "./lib/presence";
+import { useOpenTransition } from "./lib/presence";
 import { cn } from "./lib/utils";
 import {
+  isHomeTab,
   isMoneyTab,
   isProjectsTab,
   notesInScope,
@@ -24,6 +25,12 @@ import {
   selectionAfterScopeChange,
   type NotesScope,
 } from "./lib/notesScope";
+import {
+  panelForScope,
+  readSession,
+  rememberSession,
+  shouldShowFolderPicker,
+} from "./lib/startupSurface";
 import { startOfLocalDay } from "./lib/journal";
 import { Editor } from "./components/editor/Editor";
 import { JournalPage } from "./components/journal/JournalPage";
@@ -33,7 +40,7 @@ import { ProjectsHub } from "./components/kanban/ProjectsHub";
 import { FinancePage } from "./components/finance/FinancePage";
 import type { Editor as TiptapEditor } from "@tiptap/react";
 import { FolderPicker } from "./components/layout/FolderPicker";
-import { SettingsPage } from "./components/settings";
+import { HomePage } from "./components/home/HomePage";
 import { PreviewApp } from "./components/preview/PreviewApp";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { isMac, isWindows } from "./lib/platform";
@@ -56,8 +63,6 @@ function getWindowMode(): {
     previewFile: file,
   };
 }
-
-type ViewState = "notes" | "settings";
 
 function AppContent() {
   const {
@@ -82,29 +87,21 @@ function AppContent() {
   const { interfaceZoom, setInterfaceZoom, reloadSettings } = useTheme();
   const interfaceZoomRef = useRef(interfaceZoom);
   const currentNoteRef = useRef(currentNote);
-  const [view, setView] = useState<ViewState>("notes");
   const [sidebarVisible, setSidebarVisible] = useState(true);
-  const [sidebarPanel, setSidebarPanel] = useState<SidebarPanel>("notes");
-  const [notesScope, setNotesScope] = useState<NotesScope>({ type: "all" });
+  const [notesScope, setNotesScope] = useState<NotesScope>(
+    () => readSession()?.scope ?? { type: "all" },
+  );
+  const [sidebarPanel, setSidebarPanel] = useState<SidebarPanel>(
+    () => panelForScope(readSession()?.scope ?? { type: "all" }),
+  );
   const [openProjectCardId, setOpenProjectCardId] = useState<string | null>(null);
   const [focusMode, setFocusMode] = useState(false);
   const editorRef = useRef<TiptapEditor | null>(null);
-  const workspaceTab = isProjectsTab(notesScope) || isMoneyTab(notesScope);
   const foldersOpen = sidebarVisible && !focusMode;
-  const notesListOpen = !focusMode && !workspaceTab;
+  const notesListOpen = !focusMode && !isHomeTab(notesScope);
   const folderRail = useOpenTransition(foldersOpen);
   const notesRail = useOpenTransition(notesListOpen);
-  const folderWidth = workspaceTab ? SIDEBAR_DEFAULT_PX : FOLDER_SIDEBAR_PX;
-  const [folderWidthAnimating, setFolderWidthAnimating] = useState(false);
-  const folderWidthRef = useRef(folderWidth);
-
-  useEffect(() => {
-    if (folderWidthRef.current === folderWidth) return;
-    folderWidthRef.current = folderWidth;
-    setFolderWidthAnimating(true);
-    const timeout = window.setTimeout(() => setFolderWidthAnimating(false), PANEL_TRANSITION_MS);
-    return () => window.clearTimeout(timeout);
-  }, [folderWidth]);
+  const folderWidth = FOLDER_SIDEBAR_PX;
 
   useEffect(() => {
     interfaceZoomRef.current = interfaceZoom;
@@ -159,9 +156,14 @@ function AppContent() {
     else if (decision.type === "clear") clearSelection();
   }, [clearSelection, notes, selectNote, selectProject, selectedNoteId]);
 
+  const notesHydratedRef = useRef(false);
   const notesScopeRef = useRef(notesScope);
   const pendingNewProjectRef = useRef(false);
   notesScopeRef.current = notesScope;
+
+  useEffect(() => {
+    rememberSession({ scope: notesScope });
+  }, [notesScope]);
 
   useEffect(() => {
     const onCreate = () => {
@@ -213,11 +215,14 @@ function AppContent() {
     if (isLoading) return;
     if (notesScope.type !== "all" && notesScope.type !== "folder") return;
 
+    const hydrating = !notesHydratedRef.current;
+    notesHydratedRef.current = true;
     const scoped = notesInScope(notes, notesScope);
     const decision = selectionAfterNotesChange({
       selectedNoteId,
       noteIds: notes.map((note) => note.id),
       scopedIds: scoped.map((note) => note.id),
+      hydrating,
     });
     if (decision.type === "select") void selectNote(decision.id);
     else if (decision.type === "clear") clearSelection();
@@ -227,11 +232,10 @@ function AppContent() {
     const onCreated = (event: Event) => {
       const id = (event as CustomEvent<string>).detail;
       if (!id) return;
-      setView("notes");
       setFocusMode(false);
       const next = scopeForNote(id);
       setNotesScope(next);
-      setSidebarPanel(next.type === "journal" ? "journal" : "notes");
+      setSidebarPanel(panelForScope(next));
       setSidebarVisible(true);
     };
     window.addEventListener("spell-note-created", onCreated);
@@ -264,6 +268,9 @@ function AppContent() {
       setSidebarPanel("journal");
       void openJournal(startOfLocalDay());
       return;
+    }
+    if (notesScope.type === "home") {
+      setNotesScope({ type: "all" });
     }
     setSidebarPanel("notes");
     void createNote();
@@ -323,13 +330,21 @@ function AppContent() {
     };
   }, [createFromTemplate, importNotes]);
 
-  const openSettings = useCallback(() => setView("settings"), []);
+  const [homeSettingsToken, setHomeSettingsToken] = useState(0);
+
+  const openHome = useCallback(() => {
+    selectScope({ type: "home" });
+  }, [selectScope]);
+
+  const openAccount = useCallback(() => {
+    setHomeSettingsToken((token) => token + 1);
+    openHome();
+  }, [openHome]);
 
   useEffect(() => {
-    const openAccount = () => setView("settings");
     window.addEventListener("open-account-settings", openAccount);
     return () => window.removeEventListener("open-account-settings", openAccount);
-  }, []);
+  }, [openAccount]);
 
   const toggleFocusMode = useCallback(() => {
     if (!focusMode && !selectedNoteId) return;
@@ -338,13 +353,10 @@ function AppContent() {
     if (!nextFocusMode) setSidebarVisible(true);
   }, [focusMode, selectedNoteId]);
 
-  const toggleSettings = useCallback(() => {
-    setView((prev) => (prev === "settings" ? "notes" : "settings"));
-  }, []);
-
-  const closeSettings = useCallback(() => {
-    setView("notes");
-  }, []);
+  const toggleHome = useCallback(() => {
+    if (isHomeTab(notesScope)) selectScope({ type: "all" });
+    else openAccount();
+  }, [notesScope, openAccount, selectScope]);
 
   const displayItems = notes;
 
@@ -369,7 +381,7 @@ function AppContent() {
 
       if ((e.metaKey || e.ctrlKey) && e.key === ",") {
         e.preventDefault();
-        toggleSettings();
+        toggleHome();
         return;
       }
 
@@ -393,10 +405,6 @@ function AppContent() {
         e.preventDefault();
         setInterfaceZoom(1.0);
         toast("Zoom 100%", { id: "zoom", duration: 1500 });
-        return;
-      }
-
-      if (view === "settings") {
         return;
       }
 
@@ -526,20 +534,15 @@ function AppContent() {
     reloadCurrentNote,
     selectedNoteId,
     selectNote,
-    toggleSettings,
+    toggleHome,
     toggleSidebar,
     toggleFocusMode,
     focusMode,
-    view,
     setInterfaceZoom,
     notesScope,
   ]);
 
-  if (isLoading) {
-    return <div className="h-full min-h-0 bg-bg" />;
-  }
-
-  if (!notesFolder) {
+  if (shouldShowFolderPicker(isLoading, notesFolder)) {
     return <FolderPicker />;
   }
 
@@ -547,22 +550,20 @@ function AppContent() {
     onToggleSidebar: toggleSidebar,
     onNewNote: createNoteInContext,
     showWindowControls: true,
+    foldersVisible: foldersOpen,
   };
 
   return (
     <>
       <CloudSync />
       <div className="h-full min-h-0 flex bg-bg text-text overflow-hidden">
-        {view === "settings" ? (
-          <SettingsPage onBack={closeSettings} />
-        ) : (
-          <LibraryDnd>
+        <LibraryDnd>
             <div
               data-sidebar
               data-state={folderRail.state}
               className={cn(
                 "app-workspace-panel relative h-full shrink-0 overflow-hidden",
-                (folderRail.animating || folderWidthAnimating) && "is-animating",
+                folderRail.animating && "is-animating",
               )}
               style={{ "--panel-width": `${folderWidth}px` } as CSSProperties}
               inert={folderRail.state === "closed" ? true : undefined}
@@ -572,9 +573,7 @@ function AppContent() {
                 <FolderSourceList
                   scope={notesScope}
                   onSelectScope={selectScope}
-                  onToggle={toggleSidebar}
                   onNewFolder={() => undefined}
-                  onOpenSettings={openSettings}
                 />
               </div>
             </div>
@@ -593,14 +592,22 @@ function AppContent() {
                 <Sidebar
                   panel={sidebarPanel}
                   onSelectPanel={selectSidebarPanel}
-                  onToggle={toggleSidebar}
-                  foldersVisible={foldersOpen || folderRail.animating}
+                  foldersVisible={foldersOpen}
                   scope={notesScope}
+                  onSelectScope={selectScope}
                 />
                 {notesRail.state === "open" && <SidebarResizeHandle />}
               </div>
             </div>
-            {notesScope.type === "projects" ? (
+            {notesScope.type === "home" ? (
+              <HomePage
+                sidebarVisible={notesListOpen || foldersOpen}
+                focusMode={focusMode}
+                onSelectScope={selectScope}
+                openSettingsToken={homeSettingsToken}
+                {...editorChrome}
+              />
+            ) : notesScope.type === "projects" ? (
               <ProjectsHub
                 sidebarVisible={notesListOpen || foldersOpen}
                 focusMode={focusMode}
@@ -641,7 +648,6 @@ function AppContent() {
               />
             )}
           </LibraryDnd>
-        )}
       </div>
 
       <AppContextMenu

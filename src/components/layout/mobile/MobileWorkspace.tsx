@@ -13,12 +13,8 @@ import { AddMonthButton } from "../../finance/MoneyList";
 import type { NotesScope } from "../../../lib/notesScope";
 import type { ProjectIconId } from "../../../types/note";
 import {
-  CalendarIcon,
   CheckIcon,
-  FinanceIcon,
-  KanbanIcon,
   PlusIcon,
-  SubscriptionIcon,
   TrashIcon,
 } from "../../icons/velocity";
 import {
@@ -30,8 +26,12 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
+  MoneyGlyph,
+  MoneyKindGlyph,
+  OverviewGlyph,
+  ProjectsGlyph,
+  InlineNameInput,
 } from "../../ui";
-import { InlineNameInput } from "../../ui";
 import {
   MobileActionSheet,
   MobileBottomBar,
@@ -111,7 +111,7 @@ export const MobileWorkspace = memo(function MobileWorkspace({ onBackToDaily, on
           if (view !== "hub") setView("hub");
         }}
       >
-        <KanbanIcon />
+        <ProjectsGlyph />
       </button>
       <button
         type="button"
@@ -124,7 +124,7 @@ export const MobileWorkspace = memo(function MobileWorkspace({ onBackToDaily, on
           if (view !== "hub") setView("hub");
         }}
       >
-        <FinanceIcon />
+        <MoneyGlyph />
       </button>
     </div>
   );
@@ -195,7 +195,7 @@ export const MobileWorkspace = memo(function MobileWorkspace({ onBackToDaily, on
                   onClick={() => setView("overview")}
                 >
                   <span className="mobile-folder-icon">
-                    <KanbanIcon />
+                    <OverviewGlyph />
                   </span>
                   <span className="mobile-folder-label">Overview</span>
                   {openCount > 0 && <span className="mobile-folder-count">{openCount}</span>}
@@ -401,12 +401,6 @@ function MoneyIndex({
     <section className="mobile-group">
       <div className="mobile-group-card">
           {items.map((item) => {
-            const Icon =
-              item.kind === "overview"
-                ? FinanceIcon
-                : item.kind === "subscriptions"
-                  ? SubscriptionIcon
-                  : CalendarIcon;
             return (
               <button
                 key={item.id}
@@ -419,7 +413,7 @@ function MoneyIndex({
                 }}
               >
                 <span className="mobile-folder-icon">
-                  <Icon />
+                  <MoneyKindGlyph kind={item.kind} />
                 </span>
                 <span className="mobile-folder-copy">
                   <span className="mobile-folder-label">{item.title}</span>

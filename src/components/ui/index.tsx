@@ -16,7 +16,24 @@ export { AppPopover } from "./AppPopover";
 export { AnchoredPopover } from "./AnchoredPopover";
 export { Button } from "./Button";
 export { CodeCopyButton } from "./CodeCopyButton";
-export { CheckmarkIcon, DisclosureIcon, FolderGlyph, PanelToggleIcon } from "./StateIcon";
+export {
+  CheckmarkIcon,
+  DisclosureIcon,
+  FolderGlyph,
+  HomeGlyph,
+  JournalGlyph,
+  ProjectsGlyph,
+  MoneyGlyph,
+  AllNotesGlyph,
+  ArchiveGlyph,
+  OverviewGlyph,
+  SubscriptionsGlyph,
+  MoneyKindGlyph,
+  PanelToggleIcon,
+} from "./StateIcon";
+export { GlideMenu } from "./GlideMenu";
+export { PixelLoader } from "./PixelLoader";
+export { SegmentedControl } from "./SegmentedControl";
 export { Input } from "./Input";
 export { SpellDateField, SpellMonthPicker } from "./SpellCalendar";
 export { InlineNameInput } from "./InlineNameInput";
@@ -175,6 +192,7 @@ export function ListItem({
         "focus:outline-none",
         (isSelected || isMultiSelected) && "note-row-selected",
       )}
+      data-row
       data-selected={isSelected || isMultiSelected ? "true" : "false"}
     >
       <div className="note-row-title-line">
@@ -218,11 +236,12 @@ export function CommandItem({
   return (
     <button
       type="button"
+      aria-selected={isSelected}
       onClick={onClick}
       className={cn(
-        "flex w-full cursor-pointer items-center justify-between rounded-lg border-0 bg-transparent px-2 py-1.5 text-left",
+        "relative z-[1] flex w-full cursor-pointer items-center justify-between rounded-lg border-0 bg-transparent px-2 py-1.5 text-left",
         "focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40",
-        isSelected ? "bg-bg-selected text-text" : "text-text hover:bg-bg-hover",
+        "text-text",
       )}
     >
       <div className="flex items-center gap-3 min-w-0">

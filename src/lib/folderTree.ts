@@ -124,6 +124,18 @@ export function getVisibleItems(
   return items;
 }
 
+export function findFolderNode(
+  folders: FolderNode[],
+  path: string,
+): FolderNode | undefined {
+  for (const folder of folders) {
+    if (folder.path === path) return folder;
+    const nested = findFolderNode(folder.children, path);
+    if (nested) return nested;
+  }
+  return undefined;
+}
+
 export function ancestorFolderPaths(path: string): string[] {
   const parts = path.split("/").filter(Boolean);
   return parts.slice(0, -1).map((_, index) => parts.slice(0, index + 1).join("/"));
@@ -135,4 +147,32 @@ export function countNotesInFolder(folder: FolderNode): number {
     count += countNotesInFolder(child);
   }
   return count;
+}
+
+/** Keep folders whose name matches, or who have a matching descendant. */
+export function filterFolderTree(folders: FolderNode[], query: string): FolderNode[] {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return folders;
+
+  const match = (folder: FolderNode): FolderNode | null => {
+    const self = folder.name.toLowerCase().includes(needle);
+    if (self) return folder;
+    const children = folder.children.flatMap((child) => {
+      const next = match(child);
+      return next ? [next] : [];
+    });
+    if (children.length === 0) return null;
+    return { ...folder, children };
+  };
+
+  return folders.flatMap((folder) => {
+    const next = match(folder);
+    return next ? [next] : [];
+  });
+}
+
+export function filterNotesByTitle<T extends { title: string }>(notes: T[], query: string): T[] {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return notes;
+  return notes.filter((note) => note.title.toLowerCase().includes(needle));
 }

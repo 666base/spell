@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  isHomeTab,
   isJournalOnlyLibrary,
   notesInScope,
   noteMoveDestinations,
@@ -15,6 +16,17 @@ const notes = [
   { id: "Inbox/Todo", title: "Todo", preview: "", modified: 2 },
   { id: "journals/2026-08-31", title: "31", preview: "", modified: 3 },
 ];
+
+describe("notesInScope", () => {
+  it("lists regular notes in All and none on Home", () => {
+    expect(notesInScope(notes, { type: "all" }).map((note) => note.id)).toEqual([
+      "Untitled",
+      "Inbox/Todo",
+    ]);
+    expect(notesInScope(notes, { type: "home" })).toEqual([]);
+    expect(isHomeTab({ type: "home" })).toBe(true);
+  });
+});
 
 describe("scopeForNote", () => {
   it("opens a root note in All Notes", () => {
@@ -65,6 +77,16 @@ describe("selectionAfterNotesChange", () => {
       scopedIds: ["Untitled"],
     });
     expect(decision).toEqual({ type: "select", id: "Untitled" });
+  });
+
+  it("does not steal an empty selection toward the first row while hydrating", () => {
+    const decision = selectionAfterNotesChange({
+      selectedNoteId: null,
+      noteIds: ["Untitled"],
+      scopedIds: ["Untitled"],
+      hydrating: true,
+    });
+    expect(decision).toEqual({ type: "keep" });
   });
 });
 

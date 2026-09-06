@@ -1,18 +1,23 @@
-import { useCallback, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { toast } from "sonner";
 import * as ContextMenu from "@radix-ui/react-context-menu";
+import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { useDraggable, useDroppable } from "@dnd-kit/core";
 import { arrayMove } from "@dnd-kit/sortable";
 import { cleanTitle, cn } from "../../lib/utils";
+import { windowDragRegionProps } from "../../lib/windowDrag";
 import { isMac } from "../../lib/platform";
 import { useNotes } from "../../context/NotesContext";
 import {
   ancestorFolderPaths,
   buildFolderTree,
   countNotesInFolder,
+  filterFolderTree,
+  filterNotesByTitle,
+  findFolderNode,
 } from "../../lib/folderTree";
 import type { FolderNode } from "../../types/note";
-import { isMoneyTab, isProjectsTab, type NotesScope } from "../../lib/notesScope";
+import { isHomeTab, isMoneyTab, isProjectsTab, type NotesScope } from "../../lib/notesScope";
 import * as notesService from "../../services/notes";
 import {
   folderItemId,
@@ -22,6 +27,7 @@ import {
   revealFolder,
   saveSidebarLibrary,
   toggleListValue,
+  togglePinned,
   type SidebarLibrary,
 } from "../../lib/sidebarLibrary";
 import {
@@ -41,34 +47,64 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
   FolderGlyph,
+  HomeGlyph,
+  JournalGlyph,
+  MoneyGlyph,
+  ProjectsGlyph,
+  GlideMenu,
   IconButton,
   InlineNameInput,
-  PanelToggleIcon,
 } from "../ui";
 import {
-  AllNotesIcon,
-  BookIcon,
   FolderPlusIcon,
   FinanceIcon,
   KanbanIcon,
   NoteIcon,
   PinIcon,
   PlusIcon,
-  SettingsIcon,
+  SearchIcon,
+  XIcon,
 } from "../icons/velocity";
-import { ProjectList } from "../kanban/ProjectList";
-import { AddMonthButton, MoneyList } from "../finance/MoneyList";
 
 interface FolderSourceListProps {
   scope: NotesScope;
   onSelectScope: (scope: NotesScope) => void;
-  onToggle?: () => void;
   onNewFolder?: () => void;
-  onOpenSettings?: () => void;
 }
 
 const menuItemClass = "spell-menu-item cursor-pointer";
 const menuSeparatorClass = "spell-menu-separator";
+const sourceListLucide = { size: 20, strokeWidth: 1.75 } as const;
+
+const WORKSPACE_ROWS: {
+  key: "journal" | "projects" | "money";
+  label: string;
+  icon: typeof JournalGlyph;
+  selected: (scope: NotesScope) => boolean;
+  scope: NotesScope;
+}[] = [
+  {
+    key: "journal",
+    label: "Journal",
+    icon: JournalGlyph,
+    selected: (scope) => scope.type === "journal",
+    scope: { type: "journal" },
+  },
+  {
+    key: "projects",
+    label: "Projects",
+    icon: ProjectsGlyph,
+    selected: isProjectsTab,
+    scope: { type: "projects" },
+  },
+  {
+    key: "money",
+    label: "Money",
+    icon: MoneyGlyph,
+    selected: isMoneyTab,
+    scope: { type: "money" },
+  },
+];
 
 type MenuEntry =
   | { type?: "item"; label: string; danger?: boolean; onSelect: () => void }
@@ -90,6 +126,43 @@ function pruneLibraryForFolder(library: SidebarLibrary, path: string): SidebarLi
   };
 }
 
+function CreateMenu({ onNewFolder }: { onNewFolder: () => void }) {
+  return (
+    <DropdownMenu.Root>
+      <DropdownMenu.Trigger asChild>
+        <IconButton size="md" title="New" className="folder-search-create">
+          <PlusIcon className="create-plus-icon" />
+        </IconButton>
+      </DropdownMenu.Trigger>
+      <DropdownMenu.Portal>
+        <DropdownMenu.Content className="spell-menu z-50 min-w-40" align="end" sideOffset={6}>
+          <DropdownMenu.Item
+            className={menuItemClass}
+            onSelect={() => onNewFolder()}
+          >
+            <FolderPlusIcon className="size-4" />
+            Folder
+          </DropdownMenu.Item>
+          <DropdownMenu.Item
+            className={menuItemClass}
+            onSelect={() => window.dispatchEvent(new CustomEvent("create-new-project"))}
+          >
+            <KanbanIcon className="size-4" />
+            Project
+          </DropdownMenu.Item>
+          <DropdownMenu.Item
+            className={menuItemClass}
+            onSelect={() => window.dispatchEvent(new CustomEvent("open-add-month"))}
+          >
+            <FinanceIcon className="size-4" />
+            Month
+          </DropdownMenu.Item>
+        </DropdownMenu.Content>
+      </DropdownMenu.Portal>
+    </DropdownMenu.Root>
+  );
+}
+
 function SourceRow({
   icon,
   label,
@@ -97,6 +170,7 @@ function SourceRow({
   selected,
   pinned = false,
   depth = 0,
+  lineIcon = false,
   onClick,
   onToggleExpand,
   expanded = false,
@@ -112,6 +186,7 @@ function SourceRow({
   selected: boolean;
   pinned?: boolean;
   depth?: number;
+  lineIcon?: boolean;
   onClick: () => void;
   onToggleExpand?: () => void;
   expanded?: boolean;
@@ -127,8 +202,10 @@ function SourceRow({
 
   return (
     <div
+      data-row
       data-selected={selected ? "true" : "false"}
       data-editing={editing ? "true" : undefined}
+      data-line-icon={lineIcon ? "true" : undefined}
       className="source-list-row"
       style={{ "--source-depth": depth } as CSSProperties}
     >
@@ -246,16 +323,16 @@ function NoteHit({
   );
 }
 
-function AllNotesDrop({ children }: { children: ReactNode }) {
+function AllNotesDrop({ children, className }: { children: ReactNode; className?: string }) {
   const { setNodeRef } = useDroppable({
     id: DROP_ALL_ID,
-    data: { type: "folder", path: "", label: "All Notes" },
+    data: { type: "folder", path: "", label: "Home" },
   });
   const drop = useLibraryDropState();
   return (
     <div
       ref={setNodeRef}
-      className="rounded-md"
+      className={cn("rounded-md", className)}
       data-drop={drop.overId === DROP_ALL_ID ? "true" : undefined}
     >
       {children}
@@ -266,7 +343,7 @@ function AllNotesDrop({ children }: { children: ReactNode }) {
 function RootDrop({ children }: { children: ReactNode }) {
   const { setNodeRef } = useDroppable({
     id: DROP_ROOT_ID,
-    data: { type: "folder", path: "", label: "Library" },
+    data: { type: "folder", path: "", label: "Folders" },
   });
   const drop = useLibraryDropState();
   return (
@@ -359,10 +436,11 @@ function FolderNoteRow({
   return (
     <NoteHit id={id} title={title}>
       <SourceRow
-        icon={<NoteIcon />}
+        icon={<NoteIcon {...sourceListLucide} />}
         label={cleanTitle(title)}
         selected={selected}
         depth={depth}
+        lineIcon
         onClick={onSelect}
       />
     </NoteHit>
@@ -375,6 +453,7 @@ function FolderRows({
   scope,
   onSelectScope,
   library,
+  searching = false,
   onPin,
   onHide,
   onToggleExpand,
@@ -393,6 +472,7 @@ function FolderRows({
   scope: NotesScope;
   onSelectScope: (scope: NotesScope) => void;
   library: SidebarLibrary;
+  searching?: boolean;
   onPin: (id: string) => void;
   onHide: (id: string) => void;
   onToggleExpand: (path: string) => void;
@@ -413,11 +493,17 @@ function FolderRows({
           return null;
         }
         const id = folderItemId(folder.path);
-        const hasChildren = folder.children.length > 0;
+        if (library.pinned.includes(id)) return null;
+        const visibleChildren = folder.children.filter(
+          (child) => !library.pinned.includes(folderItemId(child.path)),
+        );
+        const hasChildren = visibleChildren.length > 0;
         const creatingHere = creatingSubfolderPath === folder.path;
         const renamingHere = renamingPath === folder.path;
         const open =
-          (hasChildren && !library.collapsedFolders.includes(folder.path)) || creatingHere;
+          Boolean(searching) ||
+          (hasChildren && !library.collapsedFolders.includes(folder.path)) ||
+          creatingHere;
         const row = (
           <ItemMenu
             items={[
@@ -431,11 +517,7 @@ function FolderRows({
             ]}
           >
             <SourceRow
-              icon={
-                <FolderGlyph
-                  open={scope.type === "folder" && scope.path === folder.path}
-                />
-              }
+              icon={<FolderGlyph />}
               label={folder.name}
               count={countNotesInFolder(folder)}
               pinned={library.pinned.includes(id)}
@@ -469,11 +551,12 @@ function FolderRows({
                     />
                   )}
                   <FolderRows
-                    folders={folder.children}
+                    folders={visibleChildren}
                     depth={depth + 1}
                     scope={scope}
                     onSelectScope={onSelectScope}
                     library={library}
+                    searching={searching}
                     onPin={onPin}
                     onHide={onHide}
                     onToggleExpand={onToggleExpand}
@@ -500,9 +583,7 @@ function FolderRows({
 export function FolderSourceList({
   scope,
   onSelectScope,
-  onToggle,
   onNewFolder,
-  onOpenSettings,
 }: FolderSourceListProps) {
   const { notes, selectedNoteId, selectNote, createFolder, deleteFolder, renameFolder } =
     useNotes();
@@ -515,6 +596,9 @@ export function FolderSourceList({
   const [renaming, setRenaming] = useState<{ path: string; name: string } | null>(null);
   const [deleting, setDeleting] = useState<{ path: string; name: string } | null>(null);
   const [library, setLibrary] = useState<SidebarLibrary>(loadSidebarLibrary);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const searchRef = useRef<HTMLInputElement>(null);
 
   const persistLibrary = useCallback((next: SidebarLibrary) => {
     setLibrary(next);
@@ -598,14 +682,46 @@ export function FolderSourceList({
   const pinnedFolders = library.pinned.flatMap((id) => {
     if (!id.startsWith("folder:") || library.hidden.includes(id)) return [];
     const path = id.slice("folder:".length);
-    const folder = topFolders.find((item) => item.path === path);
+    const folder = findFolderNode(tree.folders, path);
     return folder
       ? [{ id, path, label: folder.name, count: countNotesInFolder(folder) }]
       : [];
   });
 
+  const searching = query.trim().length > 0;
+  const visiblePinnedFolders = searching
+    ? pinnedFolders.filter((item) => item.label.toLowerCase().includes(query.trim().toLowerCase()))
+    : pinnedFolders;
+  const searchedFolders = useMemo(
+    () => filterFolderTree(visibleFolders, query),
+    [visibleFolders, query],
+  );
+  const searchedRootNotes = useMemo(
+    () => filterNotesByTitle(tree.rootNotes, query),
+    [tree.rootNotes, query],
+  );
+  const visibleWorkspaceRows = WORKSPACE_ROWS.filter(
+    (row) => !searching || row.label.toLowerCase().includes(query.trim().toLowerCase()),
+  );
+  const noSearchHits =
+    searching &&
+    visiblePinnedFolders.length === 0 &&
+    searchedFolders.length === 0 &&
+    searchedRootNotes.length === 0 &&
+    visibleWorkspaceRows.length === 0 &&
+    !creatingFolder;
+
+  useEffect(() => {
+    if (searchOpen) searchRef.current?.focus();
+  }, [searchOpen]);
+
+  const closeSearch = useCallback(() => {
+    setSearchOpen(false);
+    setQuery("");
+  }, []);
+
   const togglePin = (id: string) => {
-    persistLibrary({ ...library, pinned: toggleListValue(library.pinned, id) });
+    persistLibrary(togglePinned(library, id));
   };
   const toggleHide = (id: string) => {
     persistLibrary({ ...library, hidden: toggleListValue(library.hidden, id) });
@@ -763,72 +879,70 @@ export function FolderSourceList({
   }, [library, persistLibrary, topFolders]);
 
   return (
-    <div className="app-sidebar-surface relative flex h-full w-full select-none flex-col">
-      <div
-        className={cn(
-          "app-titlebar flex shrink-0 items-center gap-1",
-          isMac && "pl-20",
-        )}
-        data-tauri-drag-region
-      >
-        <div className="titlebar-no-drag flex items-center gap-px" data-tauri-drag-region="false">
-          {onToggle && (
-            <IconButton size="sm" title="Hide folders" onClick={onToggle} aria-expanded>
-              <PanelToggleIcon side="left" open />
-            </IconButton>
-          )}
-          <AllNotesDrop>
-            <IconButton
-              size="sm"
-              title="All Notes"
-              pressed={scope.type === "all"}
-              onClick={() => onSelectScope({ type: "all" })}
-            >
-              <AllNotesIcon />
-            </IconButton>
-          </AllNotesDrop>
-          <IconButton
-            size="sm"
-            title="Journal"
-            pressed={scope.type === "journal"}
-            onClick={() => onSelectScope({ type: "journal" })}
+    <div
+      className="app-sidebar-surface relative flex h-full w-full select-none flex-col"
+      data-folder-nav
+    >
+      {isMac && (
+        <div
+          className="app-titlebar folder-titlebar"
+          {...windowDragRegionProps}
+        />
+      )}
+
+      <div className="folder-search" data-open={searchOpen ? "true" : "false"}>
+        <AllNotesDrop className="folder-home-wrap">
+          <button
+            type="button"
+            className="folder-home"
+            aria-label="Home"
+            data-selected={isHomeTab(scope) ? "true" : "false"}
+            onClick={() => onSelectScope({ type: "home" })}
           >
-            <BookIcon />
-          </IconButton>
-          <IconButton
-            size="sm"
-            title="Projects"
-            pressed={isProjectsTab(scope)}
-            onClick={() => onSelectScope({ type: "projects" })}
+            <HomeGlyph />
+            Home
+          </button>
+        </AllNotesDrop>
+        <div className="folder-search-actions">
+          <CreateMenu onNewFolder={startCreateFolder} />
+          <button
+            type="button"
+            className="folder-search-trigger"
+            aria-label="Search folders"
+            aria-expanded={searchOpen}
+            onClick={() => setSearchOpen(true)}
           >
-            <KanbanIcon />
-          </IconButton>
-          <IconButton
-            size="sm"
-            title="Money"
-            pressed={isMoneyTab(scope)}
-            onClick={() => onSelectScope({ type: "money" })}
+            <SearchIcon className="icon-search-nudge size-4" />
+          </button>
+        </div>
+        <div className="folder-search-field">
+          <span className="ml-2 flex shrink-0 items-center justify-center">
+            <SearchIcon className="size-3.5" />
+          </span>
+          <input
+            ref={searchRef}
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") closeSearch();
+            }}
+            placeholder="Search folders"
+            aria-label="Search folders"
+          />
+          <button
+            type="button"
+            className="folder-search-close"
+            aria-label="Close folder search"
+            onClick={closeSearch}
           >
-            <FinanceIcon />
-          </IconButton>
+            <XIcon className="size-4" />
+          </button>
         </div>
       </div>
 
-      {isProjectsTab(scope) ? (
-        <ProjectList
-          selectedId={scope.type === "project" ? scope.id : null}
-          overviewSelected={scope.type === "projects"}
-          onSelect={(id) => onSelectScope({ type: "project", id })}
-          onSelectOverview={() => onSelectScope({ type: "projects" })}
-          onCreated={(id) => onSelectScope({ type: "project", id })}
-          onDeletedSelected={() => onSelectScope({ type: "projects" })}
-        />
-      ) : isMoneyTab(scope) ? (
-        <MoneyList scope={scope} onSelect={onSelectScope} />
-      ) : (
       <RootDrop>
-          {pinnedFolders.length > 0 &&
-            pinnedFolders.map((item) => (
+          <GlideMenu activeSelector='[data-selected="true"]'>
+          {visiblePinnedFolders.map((item) => (
               <div key={item.id}>
                 <FolderHit path={item.path} name={item.label} disabled={renaming?.path === item.path}>
                 <ItemMenu
@@ -865,11 +979,7 @@ export function FolderSourceList({
                   ]}
                 >
                   <SourceRow
-                    icon={
-                      <FolderGlyph
-                        open={scope.type === "folder" && scope.path === item.path}
-                      />
-                    }
+                    icon={<FolderGlyph />}
                     label={item.label}
                     count={item.count}
                     pinned
@@ -892,11 +1002,12 @@ export function FolderSourceList({
               </div>
             ))}
           <FolderRows
-            folders={visibleFolders}
+            folders={searchedFolders}
             depth={0}
             scope={scope}
             onSelectScope={onSelectScope}
             library={library}
+            searching={searching}
             onPin={togglePin}
             onHide={toggleHide}
             onToggleExpand={toggleExpand}
@@ -916,7 +1027,7 @@ export function FolderSourceList({
               onCancel={() => setCreatingFolder(false)}
             />
           )}
-          {tree.rootNotes.map((note) => (
+          {searchedRootNotes.map((note) => (
             <FolderNoteRow
               key={note.id}
               id={note.id}
@@ -928,36 +1039,21 @@ export function FolderSourceList({
               }}
             />
           ))}
+          {visibleWorkspaceRows.map((row) => {
+            const Icon = row.icon;
+            return (
+              <SourceRow
+                key={row.key}
+                icon={<Icon />}
+                label={row.label}
+                selected={row.selected(scope)}
+                onClick={() => onSelectScope(row.scope)}
+              />
+            );
+          })}
+          {noSearchHits && <div className="folder-nav-empty">No folders found</div>}
+          </GlideMenu>
       </RootDrop>
-      )}
-
-      <div className="titlebar-no-drag flex items-center gap-px border-t border-border px-2 py-1.5">
-        {isProjectsTab(scope) ? (
-          <IconButton
-            size="sm"
-            title="New project"
-            onClick={() => window.dispatchEvent(new CustomEvent("create-new-project"))}
-          >
-            <PlusIcon />
-          </IconButton>
-        ) : isMoneyTab(scope) ? (
-          <AddMonthButton
-            onAdd={(month) => {
-              window.dispatchEvent(new CustomEvent("create-new-month", { detail: month }));
-            }}
-          />
-        ) : (
-          <IconButton size="sm" title="New folder" onClick={startCreateFolder}>
-            <FolderPlusIcon />
-          </IconButton>
-        )}
-        <div className="flex-1" />
-        {onOpenSettings && (
-          <IconButton size="sm" title="Settings" onClick={onOpenSettings}>
-            <SettingsIcon />
-          </IconButton>
-        )}
-      </div>
 
       <AlertDialog open={Boolean(deleting)} onOpenChange={(open) => !open && setDeleting(null)}>
         <AlertDialogContent>

@@ -17,10 +17,10 @@ import {
 import { cleanTitle, cn } from "../../lib/utils";
 import * as notesService from "../../services/notes";
 import { notesInScope, noteMoveDestinations, noteParentPath, type NoteMoveDestination } from "../../lib/notesScope";
-import { applyNoteListDrag, sortNotesForList } from "../../lib/noteListOrder";
+import { applyNoteListDrag, pinNoteIds, sortNotesForList } from "../../lib/noteListOrder";
 import { noteItemId } from "../../lib/sidebarLibrary";
 import { LIBRARY_NOTE_REORDER } from "../../lib/libraryDnd";
-import { VirtualizedNoteList } from "./VirtualizedNoteList";
+import { NOTE_LIST_ROW_INSET_CLASS, NOTE_ROW_ESTIMATE_PX, VirtualizedNoteList } from "./VirtualizedNoteList";
 import { NoNotesEmpty } from "./NoNotesEmpty";
 import type { NoteMetadata, Settings } from "../../types/note";
 import { useOpenJournal } from "../journal/useOpenJournal";
@@ -425,6 +425,35 @@ export function NoteList({
     notesService.getSettings().then(setSettings);
   }, []);
 
+  const handlePinNote = useCallback(
+    async (id: string) => {
+      setSettings((current) => {
+        if (!current) return current;
+        return {
+          ...current,
+          pinnedNoteIds: pinNoteIds(current.pinnedNoteIds || [], id),
+          noteOrder: (current.noteOrder || []).filter((noteId) => noteId !== id),
+        };
+      });
+      await pinNote(id);
+    },
+    [pinNote],
+  );
+
+  const handleUnpinNote = useCallback(
+    async (id: string) => {
+      setSettings((current) => {
+        if (!current) return current;
+        return {
+          ...current,
+          pinnedNoteIds: (current.pinnedNoteIds || []).filter((pinId) => pinId !== id),
+        };
+      });
+      await unpinNote(id);
+    },
+    [unpinNote],
+  );
+
   const handleMoveNote = useCallback(
     async (id: string, folder: string) => {
       try {
@@ -580,8 +609,19 @@ export function NoteList({
 
   if (isLoading && notes.length === 0) {
     return (
-      <div className="p-4 text-center text-text-muted select-none">
-        Loading...
+      <div
+        data-note-list
+        className="h-full overflow-hidden pt-3 pb-3"
+        aria-busy="true"
+        aria-label="Notes"
+      >
+        {Array.from({ length: 8 }, (_, index) => (
+          <div
+            key={index}
+            className={cn("pb-1.5", NOTE_LIST_ROW_INSET_CLASS)}
+            style={{ height: NOTE_ROW_ESTIMATE_PX }}
+          />
+        ))}
       </div>
     );
   }
@@ -663,8 +703,8 @@ export function NoteList({
                   isMultiSelected={isMultiSelected}
                   isPinned={pinnedIds.has(item.id)}
                   onSelect={handleNoteSelect}
-                  onPin={pinNote}
-                  onUnpin={unpinNote}
+                  onPin={handlePinNote}
+                  onUnpin={handleUnpinNote}
                   onDuplicate={duplicateNote}
                   onDelete={openDeleteDialogForNote}
                   onMove={handleMoveNote}
@@ -694,8 +734,7 @@ export function NoteList({
           <AlertDialogHeader>
             <AlertDialogTitle>Delete note?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will permanently delete the note and all its content. This
-              action cannot be undone.
+              This note will be moved to trash. You can restore it from Home.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

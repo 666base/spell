@@ -8,6 +8,7 @@ const host = process.env.TAURI_DEV_HOST;
 // https://vite.dev/config/
 export default defineConfig(async () => ({
   plugins: [react(), tailwindcss()],
+  assetsInclude: ["**/*.aff", "**/*.dic"],
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //
@@ -73,7 +74,11 @@ export default defineConfig(async () => ({
     // Enable source maps for debugging (optional, can disable for smaller builds)
     sourcemap: false,
     // Increase chunk size warning limit (TipTap is large)
-    chunkSizeWarningLimit: 1000,
+    chunkSizeWarningLimit: 2000,
+  },
+
+  worker: {
+    format: "es",
   },
 
   // Optimize dependencies
@@ -85,6 +90,7 @@ export default defineConfig(async () => ({
       "@tiptap/react",
       "@tiptap/starter-kit",
       "@tiptap/markdown",
+      "nspell",
     ],
   },
 

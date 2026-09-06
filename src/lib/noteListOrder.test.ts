@@ -1,11 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { applyNoteListDrag, applySavedNoteToList, holdOpenNotePosition, remapNoteIds, sortNotesForList } from "./noteListOrder";
+import { applyNoteListDrag, applySavedNoteToList, holdOpenNotePosition, pinNoteIds, remapNoteIds, sortNotesForList } from "./noteListOrder";
 
 const notes = [
   { id: "old", title: "Old", preview: "", modified: 1 },
   { id: "mid", title: "Mid", preview: "", modified: 2 },
   { id: "new", title: "New", preview: "", modified: 3 },
 ];
+
+describe("pinNoteIds", () => {
+  it("puts a newly pinned note first", () => {
+    expect(pinNoteIds(["old"], "new")).toEqual(["new", "old"]);
+  });
+});
 
 describe("sortNotesForList", () => {
   it("puts newly pinned notes first, not by date", () => {

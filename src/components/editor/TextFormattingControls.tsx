@@ -35,6 +35,7 @@ export const TextFormattingControls = memo(function TextFormattingControls({
         title="Bold"
         isActive={formatting.bold}
         onMouseDown={stopEditorBlur}
+        onPointerDown={stopEditorBlur}
         onClick={() => editor.chain().focus().toggleBold().run()}
       >
         <BoldIcon />
@@ -43,6 +44,7 @@ export const TextFormattingControls = memo(function TextFormattingControls({
         title="Italic"
         isActive={formatting.italic}
         onMouseDown={stopEditorBlur}
+        onPointerDown={stopEditorBlur}
         onClick={() => editor.chain().focus().toggleItalic().run()}
       >
         <ItalicIcon />
@@ -51,6 +53,7 @@ export const TextFormattingControls = memo(function TextFormattingControls({
         title="Underline"
         isActive={formatting.underline}
         onMouseDown={stopEditorBlur}
+        onPointerDown={stopEditorBlur}
         onClick={() => editor.chain().focus().toggleUnderline().run()}
       >
         <UnderlineIcon />
@@ -59,6 +62,7 @@ export const TextFormattingControls = memo(function TextFormattingControls({
         title="Strikethrough"
         isActive={formatting.strike}
         onMouseDown={stopEditorBlur}
+        onPointerDown={stopEditorBlur}
         onClick={() => editor.chain().focus().toggleStrike().run()}
       >
         <StrikethroughIcon />

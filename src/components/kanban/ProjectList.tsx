@@ -7,7 +7,7 @@ import {
   loadSidebarLibrary,
   projectItemId,
   saveSidebarLibrary,
-  toggleListValue,
+  togglePinned,
   type SidebarLibrary,
 } from "../../lib/sidebarLibrary";
 import {
@@ -19,9 +19,12 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
+  GlideMenu,
   InlineNameInput,
+  OverviewGlyph,
 } from "../ui";
-import { KanbanIcon, PinIcon } from "../icons/velocity";
+import { PinIcon } from "../icons/velocity";
+import { NOTE_LIST_ROW_INSET_CLASS } from "../notes/VirtualizedNoteList";
 import type { KanbanProject } from "../../types/note";
 
 const menuItemClass = "spell-menu-item cursor-pointer";
@@ -66,22 +69,28 @@ export function ProjectList({
   }, [createAndRename]);
 
   const ordered = useMemo(() => {
+    const byId = new Map(
+      workspace.projects.map((project) => [projectItemId(project.id), project]),
+    );
+    const remaining = new Set(workspace.projects.map((project) => project.id));
     const pinned: KanbanProject[] = [];
-    const rest: KanbanProject[] = [];
-    for (const project of workspace.projects) {
-      if (library.pinned.includes(projectItemId(project.id))) pinned.push(project);
-      else rest.push(project);
+    for (const itemId of library.pinned) {
+      const project = byId.get(itemId);
+      if (!project) continue;
+      pinned.push(project);
+      remaining.delete(project.id);
     }
-    return [...pinned, ...rest];
+    return [...pinned, ...workspace.projects.filter((project) => remaining.has(project.id))];
   }, [library.pinned, workspace.projects]);
 
   const deleting = workspace.projects.find((project) => project.id === deleteId) ?? null;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <nav className="min-h-0 flex-1 overflow-y-auto px-2 pt-3 pb-3">
+      <nav data-project-list className="min-h-0 flex-1 overflow-y-auto pt-3 pb-3">
+        <GlideMenu className="w-full" activeSelector='[data-selected="true"]'>
         {onSelectOverview && (
-          <div className="px-2 pb-1.5">
+          <div data-project-list-row className={cn("pb-1.5", NOTE_LIST_ROW_INSET_CLASS)}>
             <OverviewRow
               count={overviewOpenCount(workspace)}
               selected={overviewSelected}
@@ -94,7 +103,7 @@ export function ProjectList({
           const itemId = projectItemId(project.id);
           const pinned = library.pinned.includes(itemId);
           return (
-            <div key={project.id} className="px-2 pb-1.5">
+            <div key={project.id} data-project-list-row className={cn("pb-1.5", NOTE_LIST_ROW_INSET_CLASS)}>
               <ProjectRow
                 project={project}
                 selected={selectedId === project.id}
@@ -102,7 +111,7 @@ export function ProjectList({
                 renaming={renamingId === project.id}
                 onSelect={() => onSelect(project.id)}
                 onCreate={createAndRename}
-                onPin={() => persistLibrary({ ...library, pinned: toggleListValue(library.pinned, itemId) })}
+                onPin={() => persistLibrary(togglePinned(library, itemId))}
                 onRename={() => setRenamingId(project.id)}
                 onRenameConfirm={(name) => {
                   updateProject({ ...project, name });
@@ -114,6 +123,7 @@ export function ProjectList({
             </div>
           );
         })}
+        </GlideMenu>
       </nav>
 
       <AlertDialog open={Boolean(deleting)} onOpenChange={(open) => !open && setDeleteId(null)}>
@@ -163,12 +173,13 @@ const OverviewRow = memo(function OverviewRow({
             type="button"
             onClick={onSelect}
             data-selected={selected ? "true" : "false"}
+            data-row
             className={cn(
-              "note-row flex w-full items-center gap-2.5 rounded-[8px] px-3 py-[9px] text-left",
+              "note-row flex w-full items-center gap-2.5 rounded-[10px] px-3.5 py-2.5 text-left",
               selected && "note-row-selected",
             )}
           >
-            <KanbanIcon className="size-4 shrink-0 text-text-muted" />
+            <OverviewGlyph />
             <span className="flex min-w-0 flex-1 flex-col">
               <span className="note-row-title-line">
                 <span className="note-row-title">Overview</span>
@@ -221,7 +232,7 @@ const ProjectRow = memo(function ProjectRow({
       <ContextMenu.Trigger asChild>
         <div data-spell-context-menu>
           {renaming ? (
-            <div className="flex items-center rounded-[8px] px-3 py-[9px]">
+            <div className="flex items-center rounded-[10px] px-3.5 py-2.5">
               <InlineNameInput
                 label="Project name"
                 placeholder="Project name"
@@ -236,7 +247,8 @@ const ProjectRow = memo(function ProjectRow({
               type="button"
               onClick={onSelect}
               data-selected={selected ? "true" : "false"}
-              className={cn("note-row flex w-full items-start rounded-[8px] px-3 py-[9px] text-left", selected && "note-row-selected")}
+              data-row
+              className={cn("note-row flex w-full items-start rounded-[10px] px-3.5 py-2.5 text-left", selected && "note-row-selected")}
             >
               <span className="min-w-0 flex-1">
                 <span className="note-row-title-line">

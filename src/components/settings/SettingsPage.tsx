@@ -1,20 +1,19 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, type ReactNode } from "react";
 import {
   AccountIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
   DownloadIcon,
-  IntegrationsIcon,
   SettingsIcon,
   SwatchIcon,
 } from "../icons/velocity";
 import { IconButton } from "../ui";
 import { cn } from "../../lib/utils";
+import { windowDragRegionProps } from "../../lib/windowDrag";
 import { AccountSettingsSection } from "./AccountSettingsSection";
 import { AppUpdateSection } from "./AppUpdateSection";
 import { GeneralSettingsSection } from "./GeneralSettingsSection";
 import { AppearanceSettingsSection } from "./AppearanceSettingsSection";
-import { ToolsSettingsSection } from "./ToolsSettingsSection";
 import { isMac } from "../../lib/platform";
 import { WindowControls } from "../layout/WindowControls";
 import { MobileNavBar } from "../layout/mobile/MobileChrome";
@@ -22,9 +21,10 @@ import { MobileNavBar } from "../layout/mobile/MobileChrome";
 interface SettingsPageProps {
   onBack: () => void;
   compact?: boolean;
+  prefix?: ReactNode;
 }
 
-type SettingsTab = "account" | "general" | "appearance" | "plugins";
+type SettingsTab = "account" | "general" | "appearance";
 type MobileSection = SettingsTab | "update";
 
 const tabs: {
@@ -35,7 +35,6 @@ const tabs: {
   { id: "account", label: "Account", icon: AccountIcon },
   { id: "general", label: "General", icon: SettingsIcon },
   { id: "appearance", label: "Appearance", icon: SwatchIcon },
-  { id: "plugins", label: "Plugins", icon: IntegrationsIcon },
 ];
 
 const mobileRows: {
@@ -47,7 +46,7 @@ const mobileRows: {
   ...tabs,
 ];
 
-export function SettingsPage({ onBack, compact = false }: SettingsPageProps) {
+export function SettingsPage({ onBack, compact = false, prefix }: SettingsPageProps) {
   const [activeTab, setActiveTab] = useState<SettingsTab>("account");
   const [section, setSection] = useState<MobileSection | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -79,7 +78,6 @@ export function SettingsPage({ onBack, compact = false }: SettingsPageProps) {
       {tab === "account" && <AccountSettingsSection />}
       {tab === "general" && <GeneralSettingsSection />}
       {tab === "appearance" && <AppearanceSettingsSection />}
-      {tab === "plugins" && <ToolsSettingsSection />}
     </>
   );
 
@@ -88,16 +86,19 @@ export function SettingsPage({ onBack, compact = false }: SettingsPageProps) {
     return (
       <div className="mobile-settings">
         <MobileNavBar
-          backLabel={open ? "Settings" : "Folders"}
+          backLabel={open ? "Home" : "Folders"}
           onBack={open ? () => setSection(null) : onBack}
-          title={open ? open.label : "Settings"}
+          title={open ? open.label : "Home"}
         />
         <div ref={scrollContainerRef} className="mobile-scroll">
           {open ? (
             <div className="mobile-settings-section">{body(open.id)}</div>
           ) : (
-            <section className="mobile-group">
-              <div className="mobile-group-card">
+            <>
+              {prefix}
+              <section className="mobile-group">
+                {prefix && <h2 className="mobile-group-title">Settings</h2>}
+                <div className="mobile-group-card">
                 {mobileRows.map((tab) => {
                   const Icon = tab.icon;
                   return (
@@ -115,8 +116,9 @@ export function SettingsPage({ onBack, compact = false }: SettingsPageProps) {
                     </button>
                   );
                 })}
-              </div>
-            </section>
+                </div>
+              </section>
+            </>
           )}
         </div>
       </div>
@@ -131,14 +133,12 @@ export function SettingsPage({ onBack, compact = false }: SettingsPageProps) {
             "app-titlebar flex shrink-0 items-center gap-1",
             isMac && "pl-20",
           )}
-          data-tauri-drag-region
+          {...windowDragRegionProps}
         >
-          <div className="titlebar-no-drag flex items-center gap-1">
-            <IconButton size="sm" title="Back" onClick={onBack}>
-              <ChevronLeftIcon />
-            </IconButton>
-            <span className="text-[13px] font-semibold text-text">Settings</span>
-          </div>
+          <IconButton size="sm" className="titlebar-no-drag" title="Back" onClick={onBack}>
+            <ChevronLeftIcon />
+          </IconButton>
+          <span className="text-[13px] font-semibold text-text">Settings</span>
         </div>
 
         <nav className="flex flex-row gap-1 overflow-x-auto p-2 md:flex-col md:overflow-y-auto">
@@ -168,7 +168,7 @@ export function SettingsPage({ onBack, compact = false }: SettingsPageProps) {
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-bg">
         <div
           className="hidden h-11 shrink-0 items-center justify-end px-3 md:flex"
-          data-tauri-drag-region
+          {...windowDragRegionProps}
         >
           <WindowControls />
         </div>

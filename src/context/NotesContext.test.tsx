@@ -3,6 +3,7 @@ import { useEffect, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Note, NoteMetadata } from "../types/note";
 import { NotesProvider, useNotes } from "./NotesContext";
+import { SESSION_KEY } from "../lib/startupSurface";
 
 type Deferred<T> = {
   promise: Promise<T>;
@@ -41,6 +42,11 @@ const saveQueue: Array<{
   content: string;
   done: Deferred<Note>;
 }> = [];
+const settingsStore = vi.hoisted(() => ({
+  theme: { mode: "system" as const },
+  pinnedNoteIds: [] as string[],
+  noteOrder: [] as string[],
+}));
 
 vi.mock("../services/notes", () => ({
   getNotesFolder: vi.fn(async () => "/vault"),
@@ -77,11 +83,14 @@ vi.mock("../services/notes", () => ({
     return created;
   }),
   getSettings: vi.fn(async () => ({
-    theme: { mode: "system" as const },
-    pinnedNoteIds: [],
-    noteOrder: [],
+    theme: settingsStore.theme,
+    pinnedNoteIds: [...settingsStore.pinnedNoteIds],
+    noteOrder: [...settingsStore.noteOrder],
   })),
-  updateSettings: vi.fn(async () => undefined),
+  updateSettings: vi.fn(async (settings: { pinnedNoteIds?: string[]; noteOrder?: string[] }) => {
+    settingsStore.pinnedNoteIds = [...(settings.pinnedNoteIds || [])];
+    settingsStore.noteOrder = [...(settings.noteOrder || [])];
+  }),
   searchNotes: vi.fn(async () => []),
 }));
 
@@ -139,20 +148,48 @@ async function finishSave(index: number, saved: Note) {
   await item.done.promise;
 }
 
+function memoryStorage(): Storage {
+  const saved: Record<string, string> = {};
+  return {
+    get length() {
+      return Object.keys(saved).length;
+    },
+    clear() {
+      for (const key of Object.keys(saved)) delete saved[key];
+    },
+    getItem(key: string) {
+      return Object.prototype.hasOwnProperty.call(saved, key) ? saved[key] : null;
+    },
+    key(index: number) {
+      return Object.keys(saved)[index] ?? null;
+    },
+    removeItem(key: string) {
+      delete saved[key];
+    },
+    setItem(key: string, value: string) {
+      saved[key] = value;
+    },
+  };
+}
+
 describe("NotesContext save and create", () => {
   afterEach(() => {
     cleanup();
     api = null;
+    vi.unstubAllGlobals();
   });
 
   beforeEach(() => {
     disk.clear();
     catalog.clear();
     saveQueue.length = 0;
+    settingsStore.pinnedNoteIds = [];
+    settingsStore.noteOrder = [];
     createHold = null;
     api = null;
     catalog.set("A", noteOf("A", "# A\n\nold"));
     disk.set("A", "# A\n\nold");
+    vi.stubGlobal("localStorage", memoryStorage());
   });
 
   it("round-trips the latest save when a slower earlier write finishes last", async () => {
@@ -365,5 +402,37 @@ describe("NotesContext save and create", () => {
     });
     await waitFor(() => expect(view.getByTestId("creating").textContent).toBe("false"));
     expect(view.getByTestId("open").textContent).toBe("Untitled");
+  });
+
+  it("restores the remembered note on hydrate", async () => {
+    catalog.set("Inbox/Todo", noteOf("Inbox/Todo", "# Todo\n"));
+    disk.set("Inbox/Todo", "# Todo\n");
+    window.localStorage.setItem(
+      SESSION_KEY,
+      JSON.stringify({ noteId: "Inbox/Todo", scope: { type: "folder", path: "Inbox" } }),
+    );
+
+    const { view } = await ready();
+    expect(view.getByTestId("open").textContent).toBe("Inbox/Todo");
+  });
+
+  it("does not open a note when the remembered id is gone", async () => {
+    window.localStorage.setItem(
+      SESSION_KEY,
+      JSON.stringify({ noteId: "Missing", scope: { type: "all" } }),
+    );
+    const { view } = await ready();
+    expect(view.getByTestId("open").textContent).toBe("");
+  });
+
+  it("pins a note to the front of the pin list", async () => {
+    catalog.set("B", noteOf("B", "# B\n"));
+    disk.set("B", "# B\n");
+    settingsStore.pinnedNoteIds = ["A"];
+    const { notes } = await ready();
+    await act(async () => {
+      await notes.pinNote("B");
+    });
+    expect(settingsStore.pinnedNoteIds).toEqual(["B", "A"]);
   });
 });

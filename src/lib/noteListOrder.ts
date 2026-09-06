@@ -7,6 +7,11 @@ function moveItem<T>(items: T[], from: number, to: number): T[] {
   return next;
 }
 
+/** Newest pin goes first; pinning again is a no-op for the caller to decide. */
+export function pinNoteIds(pinnedIds: string[], id: string): string[] {
+  return [id, ...pinnedIds.filter((pinId) => pinId !== id)];
+}
+
 /** Pinned notes first (in pin order), then custom order, then newest modified. */
 export function sortNotesForList<T extends Pick<NoteMetadata, "id" | "modified">>(
   notes: T[],

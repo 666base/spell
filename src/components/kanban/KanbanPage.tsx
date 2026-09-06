@@ -64,6 +64,7 @@ import { bindOverflowPan } from "../../lib/overflowPan";
 
 interface KanbanPageProps {
   sidebarVisible?: boolean;
+  foldersVisible?: boolean;
   focusMode?: boolean;
   onToggleSidebar?: () => void;
   onNewNote?: () => void;
@@ -106,6 +107,7 @@ function newCard(): KanbanCard {
 
 export function KanbanPage({
   sidebarVisible = true,
+  foldersVisible,
   focusMode = false,
   onToggleSidebar,
   onNewNote,
@@ -344,13 +346,6 @@ export function KanbanPage({
     persist((current) => withCardInColumn(current, cardId, columnId));
   }, [persist]);
 
-  const renameProject = useCallback((name: string) => {
-    if (!activeProject) return;
-    const trimmed = name.trim();
-    if (!trimmed || trimmed === activeProject.name) return;
-    updateProject({ ...activeProject, name: trimmed });
-  }, [activeProject, updateProject]);
-
   const setProjectIcon = useCallback((icon: typeof PROJECT_ICON_IDS[number]) => {
     if (!activeProject || activeProject.icon === icon) return;
     updateProject({ ...activeProject, icon });
@@ -430,11 +425,11 @@ export function KanbanPage({
         {!hideTitleBar && (
           <NoteTitlebar
             sidebarVisible={sidebarVisible}
+            foldersVisible={foldersVisible}
             focusMode={focusMode}
             onToggleSidebar={onToggleSidebar}
             onNewNote={onNewNote}
             showWindowControls={showWindowControls}
-            showTools={false}
           />
         )}
         <div className="flex-1 bg-bg" />
@@ -445,13 +440,13 @@ export function KanbanPage({
   const titlebar = (
     <NoteTitlebar
       sidebarVisible={sidebarVisible}
+      foldersVisible={foldersVisible}
       focusMode={focusMode}
       onToggleSidebar={onToggleSidebar}
       onNewNote={onNewNote}
       showWindowControls={showWindowControls}
-      showTools={false}
       center={
-        <ProjectTitle name={activeProject?.name ?? "Untitled"} onRename={renameProject} />
+        <span className="titlebar-title">{activeProject?.name ?? "Untitled"}</span>
       }
       trailing={
         <div className="notes-toolbar relative flex items-center" role="toolbar" aria-label="Project">
@@ -725,36 +720,6 @@ function ProjectViewSwitcher({
     >
       {buttons}
     </div>
-  );
-}
-
-function ProjectTitle({ name, onRename }: { name: string; onRename: (name: string) => void }) {
-  const [value, setValue] = useState(name);
-
-  useEffect(() => {
-    setValue(name);
-  }, [name]);
-
-  return (
-    <input
-      value={value}
-      size={Math.max(value.length, 1)}
-      aria-label="Project title"
-      onChange={(event) => setValue(event.target.value)}
-      onBlur={() => {
-        const trimmed = value.trim();
-        if (trimmed) onRename(trimmed);
-        else setValue(name);
-      }}
-      onKeyDown={(event) => {
-        if (event.key === "Enter") event.currentTarget.blur();
-        if (event.key === "Escape") {
-          setValue(name);
-          event.currentTarget.blur();
-        }
-      }}
-      className="titlebar-title"
-    />
   );
 }
 

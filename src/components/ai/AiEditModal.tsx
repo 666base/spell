@@ -1,12 +1,12 @@
 import { useState, useRef, useEffect, type KeyboardEvent } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import {
-  SpinnerIcon,
   ClaudeIcon,
   CodexIcon,
   OpenCodeIcon,
   OllamaIcon,
 } from "../icons/velocity";
+import { PixelLoader } from "../ui";
 import * as aiService from "../../services/ai";
 import type { AiProvider } from "../../services/ai";
 import type { Settings } from "../../types/note";
@@ -186,19 +186,13 @@ export function AiEditModal({
               spellCheck={false}
               className="flex-1 text-[17px] bg-transparent outline-none text-text placeholder-text-muted/50 disabled:opacity-50"
             />
-            {isExecuting && (
-              <SpinnerIcon className="w-5 h-5 animate-spin text-text-muted shrink-0" />
-            )}
           </div>
         </div>
 
         {/* Instructions */}
         <div className="p-4.5 space-y-3">
           {isExecuting ? (
-            <div className="flex items-center gap-2 text-sm text-text-muted">
-              <SpinnerIcon className="w-4 h-4 animate-spin" />
-              <span>{providerName} is editing your note...</span>
-            </div>
+            <PixelLoader label={`${providerName} is editing your note`} />
           ) : cliInstalled === false ? (
             <>
               <div className="text-sm space-y-0.5 p-3 bg-orange-500/10 rounded-md ">
@@ -228,10 +222,7 @@ export function AiEditModal({
               </div>
             </>
           ) : cliInstalled === null ? (
-            <div className="flex items-center gap-2 text-sm text-text-muted">
-              <SpinnerIcon className="w-4 h-4 animate-spin" />
-              <span>Checking for {cliName}...</span>
-            </div>
+            <PixelLoader label={`Checking for ${cliName}`} />
           ) : (
             <>
               {provider === "ollama" && (

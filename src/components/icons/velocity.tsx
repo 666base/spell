@@ -85,7 +85,6 @@ export {
   Focus as ZenIcon,
   Info as InfoIcon,
   Workflow as WorkflowIcon,
-  Blocks as IntegrationsIcon,
   Pencil as PencilIcon,
   Replace as ReplaceIcon,
   ReplaceAll as ReplaceAllIcon,
@@ -122,4 +121,5 @@ export {
   CodeXml as OpenCodeIcon,
   Command as CodexIcon,
   Sparkles as ClaudeIcon,
+  SpellCheck as SpellCheckIcon,
 } from "lucide-react";

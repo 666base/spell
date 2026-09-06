@@ -75,4 +75,22 @@ describe("VirtualizedNoteList", () => {
     expect(row?.className).toContain(NOTE_LIST_ROW_INSET_CLASS);
     expect(container.querySelector("[data-note-list]")).not.toBeNull();
   });
+
+  it("glides the hover highlight across note rows the way the folder rail does", () => {
+    const { container } = render(
+      <div style={{ height: 600, width: 280 }}>
+        <VirtualizedNoteList
+          count={3}
+          renderRow={(index) => (
+            <button type="button" data-row data-selected={index === 1 ? "true" : "false"}>
+              {`Note ${index}`}
+            </button>
+          )}
+        />
+      </div>,
+    );
+
+    expect(container.querySelector("[data-note-list] [data-glide]")).not.toBeNull();
+    expect(container.querySelectorAll("[data-row]").length).toBeGreaterThan(0);
+  });
 });
