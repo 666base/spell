@@ -460,7 +460,7 @@ export function GeneralSettingsSection() {
                               handleOpenUrl(getRemoteWebUrl(status.remoteUrl)!)
                             }
                             className="flex items-center gap-0.75 text-sm text-text-muted hover:text-text truncate max-w-50 transition-colors cursor-pointer"
-                            title={status.remoteUrl || undefined}
+                            aria-label={status.remoteUrl || undefined}
                           >
                             <span className="truncate">
                               {formatRemoteUrl(status.remoteUrl)}
@@ -470,7 +470,7 @@ export function GeneralSettingsSection() {
                         ) : (
                           <span
                             className="text-sm text-text-muted truncate max-w-50"
-                            title={status.remoteUrl || undefined}
+                            aria-label={status.remoteUrl || undefined}
                           >
                             {formatRemoteUrl(status.remoteUrl)}
                           </span>

@@ -1,6 +1,7 @@
 import { useCallback, useMemo, memo, useEffect, useRef, useState, type ReactNode } from "react";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import { useDraggable, useDroppable } from "@dnd-kit/core";
+import { toast } from "sonner";
 import { useNotes } from "../../context/NotesContext";
 import {
   ListItem,
@@ -15,7 +16,7 @@ import {
 } from "../ui";
 import { cleanTitle, cn } from "../../lib/utils";
 import * as notesService from "../../services/notes";
-import { notesInScope } from "../../lib/notesScope";
+import { notesInScope, noteMoveDestinations, noteParentPath, type NoteMoveDestination } from "../../lib/notesScope";
 import { applyNoteListDrag, sortNotesForList } from "../../lib/noteListOrder";
 import { noteItemId } from "../../lib/sidebarLibrary";
 import { LIBRARY_NOTE_REORDER } from "../../lib/libraryDnd";
@@ -23,6 +24,7 @@ import { VirtualizedNoteList } from "./VirtualizedNoteList";
 import { NoNotesEmpty } from "./NoNotesEmpty";
 import type { NoteMetadata, Settings } from "../../types/note";
 import { useOpenJournal } from "../journal/useOpenJournal";
+import { ChevronRightIcon } from "../icons/velocity";
 import {
   journalIdForDate,
   journalTitleForDate,
@@ -152,6 +154,8 @@ export interface NoteItemWithMenuProps {
   onUnpin: (id: string) => Promise<void>;
   onDuplicate: (id: string) => void;
   onDelete: (id: string) => void;
+  onMove?: (id: string, folder: string) => void;
+  moveDestinations?: NoteMoveDestination[];
   onRefreshSettings: () => Promise<void> | void;
   showFolderPrefix?: boolean;
   metaLabel?: string;
@@ -170,6 +174,8 @@ export const NoteItemWithMenu = memo(function NoteItemWithMenu({
   onUnpin,
   onDuplicate,
   onDelete,
+  onMove,
+  moveDestinations = [],
   onRefreshSettings,
   showFolderPrefix = true,
   metaLabel,
@@ -212,6 +218,30 @@ export const NoteItemWithMenu = memo(function NoteItemWithMenu({
           >
             Duplicate
           </ContextMenu.Item>
+          {moveDestinations.length > 0 && onMove && (
+            <ContextMenu.Sub>
+              <ContextMenu.SubTrigger className={menuItemClass}>
+                Move to
+                <ChevronRightIcon className="spell-menu-item-caret" />
+              </ContextMenu.SubTrigger>
+              <ContextMenu.Portal>
+                <ContextMenu.SubContent
+                  data-spell-context-menu
+                  className="spell-menu z-50 max-h-72 min-w-40 overflow-y-auto"
+                >
+                  {moveDestinations.map((destination) => (
+                    <ContextMenu.Item
+                      key={destination.path || "notes"}
+                      className={menuItemClass}
+                      onSelect={() => onMove(id, destination.path)}
+                    >
+                      {destination.label}
+                    </ContextMenu.Item>
+                  ))}
+                </ContextMenu.SubContent>
+              </ContextMenu.Portal>
+            </ContextMenu.Sub>
+          )}
           <ContextMenu.Separator className={menuSeparatorClass} />
           <ContextMenu.Item
             className={
@@ -332,6 +362,7 @@ export function NoteList({
     duplicateNote,
     pinNote,
     unpinNote,
+    moveNote,
     reorderNotes,
     isLoading,
   } = useNotes();
@@ -340,6 +371,7 @@ export function NoteList({
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [noteToDelete, setNoteToDelete] = useState<string | null>(null);
   const [settings, setSettings] = useState<Settings | null>(null);
+  const [knownFolders, setKnownFolders] = useState<string[]>([]);
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Load settings when notes change
@@ -352,11 +384,25 @@ export function NoteList({
       });
   }, [notes]);
 
+  useEffect(() => {
+    notesService
+      .listFolders()
+      .then(setKnownFolders)
+      .catch(() => setKnownFolders([]));
+  }, [notes]);
+
   // Calculate pinned IDs set for efficient lookup
   const pinnedIds = useMemo(
     () => new Set(settings?.pinnedNoteIds || []),
     [settings]
   );
+
+  const folderPaths = useMemo(() => {
+    const fromNotes = notes
+      .map((note) => noteParentPath(note.id))
+      .filter((path) => path.length > 0);
+    return [...new Set([...knownFolders, ...fromNotes])];
+  }, [knownFolders, notes]);
 
   const handleDeleteConfirm = useCallback(async () => {
     if (noteToDelete) {
@@ -378,6 +424,18 @@ export function NoteList({
   const refreshSettings = useCallback(() => {
     notesService.getSettings().then(setSettings);
   }, []);
+
+  const handleMoveNote = useCallback(
+    async (id: string, folder: string) => {
+      try {
+        await moveNote(id, folder);
+      } catch (error) {
+        console.error("Failed to move note:", error);
+        toast.error("Could not move note");
+      }
+    },
+    [moveNote],
+  );
 
   const canReorder = filter !== "journal" && !query.trim();
 
@@ -609,6 +667,8 @@ export function NoteList({
                   onUnpin={unpinNote}
                   onDuplicate={duplicateNote}
                   onDelete={openDeleteDialogForNote}
+                  onMove={handleMoveNote}
+                  moveDestinations={noteMoveDestinations(item.id, folderPaths)}
                   onRefreshSettings={refreshSettings}
                   showFolderPrefix={!isJournal}
                   metaLabel={isTodayJournal ? "Today" : undefined}

@@ -1,9 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+  isJournalOnlyLibrary,
   notesInScope,
+  noteMoveDestinations,
+  parseCloudFolderIndex,
   scopeForNote,
   selectionAfterNotesChange,
   selectionAfterScopeChange,
+  serializeCloudFolderIndex,
 } from "./notesScope";
 
 const notes = [
@@ -83,5 +87,47 @@ describe("selectionAfterScopeChange", () => {
         scopedIds: scoped.map((note) => note.id),
       }),
     ).toEqual({ type: "keep" });
+  });
+});
+
+describe("isJournalOnlyLibrary", () => {
+  it("is true when the cloud vault only has daily journals", () => {
+    expect(
+      isJournalOnlyLibrary(["journals/2026-08-31", "journals/2026-09-01"]),
+    ).toBe(true);
+  });
+
+  it("is false when a phone folder note is present", () => {
+    expect(
+      isJournalOnlyLibrary(["journals/2026-09-01", "Projects/Task"]),
+    ).toBe(false);
+  });
+});
+
+describe("cloud folder index", () => {
+  it("round-trips folder names and skips the journals directory", () => {
+    expect(parseCloudFolderIndex(serializeCloudFolderIndex(["Projects", "journals"]))).toEqual([
+      "Projects",
+    ]);
+  });
+});
+
+describe("noteMoveDestinations", () => {
+  it("offers existing folders for a root note", () => {
+    expect(noteMoveDestinations("Meeting", ["Inbox", "Work/Ideas"])).toEqual([
+      { path: "Inbox", label: "Inbox" },
+      { path: "Work/Ideas", label: "Work/Ideas" },
+    ]);
+  });
+
+  it("offers Notes and other folders for a nested note", () => {
+    expect(noteMoveDestinations("Inbox/Todo", ["Inbox", "Work"])).toEqual([
+      { path: "", label: "Notes" },
+      { path: "Work", label: "Work" },
+    ]);
+  });
+
+  it("does not offer move targets for journals", () => {
+    expect(noteMoveDestinations("journals/2026-09-06", ["Inbox"])).toEqual([]);
   });
 });

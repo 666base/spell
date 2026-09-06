@@ -52,7 +52,7 @@ export function ToolbarButton({
   return (
     <button
       className={cn(
-        "app-control toolbar-button motion-interactive size-7 flex items-center justify-center text-sm rounded-md shrink-0",
+        "app-control toolbar-button motion-interactive size-7 flex items-center justify-center text-sm shrink-0",
         "focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)] focus-visible:ring-offset-1",
         isActive
           ? "bg-bg-selected text-text"
@@ -117,7 +117,7 @@ export const IconButton = React.forwardRef<HTMLButtonElement, IconButtonProps>(
         {...props}
         type={props.type ?? "button"}
         className={cn(
-          "app-control icon-button motion-interactive flex items-center justify-center rounded-md",
+          "app-control icon-button motion-interactive flex items-center justify-center",
           "focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)] focus-visible:ring-offset-1",
           "disabled:pointer-events-none cursor-pointer",
           iconButtonSizes[size],
@@ -126,8 +126,7 @@ export const IconButton = React.forwardRef<HTMLButtonElement, IconButtonProps>(
         )}
         data-size={size}
         data-active={active ? "true" : "false"}
-        title={title}
-        aria-label={title ?? props["aria-label"]}
+        aria-label={props["aria-label"] ?? title}
         aria-pressed={pressed || props["aria-pressed"] != null ? active : undefined}
       >
         {normalizeIconChildren(children)}
@@ -172,7 +171,7 @@ export function ListItem({
       onClick={onClick}
       onContextMenu={onContextMenu}
       className={cn(
-        "note-row w-full rounded-[8px] border-0 bg-transparent px-3 py-[9px] text-left cursor-pointer select-none",
+        "note-row w-full rounded-[10px] border-0 bg-transparent px-3.5 py-2.5 text-left cursor-pointer select-none",
         "focus:outline-none",
         (isSelected || isMultiSelected) && "note-row-selected",
       )}

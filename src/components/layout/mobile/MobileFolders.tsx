@@ -6,7 +6,7 @@ import {
   buildFolderTree,
   countNotesInFolder,
 } from "../../../lib/folderTree";
-import { notesInScope } from "../../../lib/notesScope";
+import { notesInScope, noteMoveDestinations, noteParentPath } from "../../../lib/notesScope";
 import { cleanTitle, cn } from "../../../lib/utils";
 import * as notesService from "../../../services/notes";
 import type { FolderNode, NoteMetadata } from "../../../types/note";
@@ -36,6 +36,8 @@ import {
   BookIcon,
   CheckIcon,
   CheckSquareIcon,
+  CopyIcon,
+  FolderIcon,
   FolderPlusIcon,
   PinIcon,
   SettingsIcon,
@@ -235,6 +237,8 @@ function ActionSheet({
   onSelectNotes,
   onNewNote,
   onNewFolder,
+  onDuplicate,
+  onMove,
   onDelete,
 }: {
   target: SheetTarget;
@@ -245,6 +249,8 @@ function ActionSheet({
   onSelectNotes?: () => void;
   onNewNote?: () => void;
   onNewFolder?: () => void;
+  onDuplicate?: () => void;
+  onMove?: () => void;
   onDelete: () => void;
 }) {
   return createPortal(
@@ -284,6 +290,18 @@ function ActionSheet({
             <FolderPlusIcon aria-hidden="true" />
           </button>
         )}
+        {onDuplicate && (
+          <button type="button" className="mobile-action-item" onClick={onDuplicate}>
+            <span>Duplicate</span>
+            <CopyIcon aria-hidden="true" />
+          </button>
+        )}
+        {onMove && (
+          <button type="button" className="mobile-action-item" onClick={onMove}>
+            <span>Move to…</span>
+            <FolderIcon aria-hidden="true" />
+          </button>
+        )}
         <button type="button" className="mobile-action-item is-danger" onClick={onDelete}>
           <span>Delete</span>
           <TrashIcon aria-hidden="true" />
@@ -311,6 +329,8 @@ export const MobileFolders = memo(function MobileFolders({
     deleteNote,
     deleteNotes,
     deleteFolder,
+    duplicateNote,
+    moveNote,
     isCreatingNote,
   } = useNotes();
   const [knownFolders, setKnownFolders] = useState<string[]>([]);
@@ -318,6 +338,7 @@ export const MobileFolders = memo(function MobileFolders({
   const [library, setLibrary] = useState<SidebarLibrary>(loadSidebarLibrary);
   const [pinnedNoteIds, setPinnedNoteIds] = useState<string[]>([]);
   const [sheet, setSheet] = useState<SheetTarget | null>(null);
+  const [movingNoteId, setMovingNoteId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<DeletingTarget | null>(null);
   const [selecting, setSelecting] = useState(false);
   const [selectedNoteIds, setSelectedNoteIds] = useState<Set<string>>(() => new Set());
@@ -366,8 +387,8 @@ export const MobileFolders = memo(function MobileFolders({
   const pinnedFolderIds = useMemo(() => new Set(library.pinned), [library.pinned]);
 
   const tree = useMemo(() => {
-    const filteredNotes = notes.filter((note) => !note.id.startsWith("journals/"));
-    const filteredFolders = knownFolders.filter((folder) => !folder.startsWith("journals"));
+    const filteredNotes = notes.filter((note) => !note.id.startsWith("journals/") && !note.id.startsWith("_spell/"));
+    const filteredFolders = knownFolders.filter((folder) => !folder.startsWith("journals") && !folder.startsWith("_spell"));
     const pinned = new Set([
       ...pinnedNoteIds,
       ...library.pinned.map((id) => id.replace(/^folder:/, "")),
@@ -376,6 +397,12 @@ export const MobileFolders = memo(function MobileFolders({
   }, [knownFolders, library.pinned, notes, pinnedNoteIds]);
 
   const folders = tree.folders.filter((folder) => folder.path !== "journals");
+  const folderPaths = useMemo(() => {
+    const fromNotes = notes
+      .map((note) => noteParentPath(note.id))
+      .filter((path) => path.length > 0);
+    return [...new Set([...knownFolders, ...fromNotes])];
+  }, [knownFolders, notes]);
   const journalCount = notesInScope(notes, { type: "journal" }).length;
   const collapsed = useMemo(() => new Set(library.collapsedFolders), [library.collapsedFolders]);
 
@@ -525,6 +552,31 @@ export const MobileFolders = memo(function MobileFolders({
     }
     setSheet(null);
   }, [library, persistLibrary, pinNote, pinOrder, refreshPins, sheet, unpinNote]);
+
+  const handleDuplicateNote = useCallback(async () => {
+    if (!sheet || sheet.kind !== "note") return;
+    const id = sheet.id;
+    setSheet(null);
+    try {
+      await duplicateNote(id);
+    } catch (error) {
+      console.error(error);
+      toast.error("Could not duplicate note");
+    }
+  }, [duplicateNote, sheet]);
+
+  const handleMoveNote = useCallback(
+    async (id: string, folder: string) => {
+      setMovingNoteId(null);
+      try {
+        await moveNote(id, folder);
+      } catch (error) {
+        console.error(error);
+        toast.error("Could not move note");
+      }
+    },
+    [moveNote],
+  );
 
   const handleDeleteConfirm = useCallback(async () => {
     if (!deleting) return;
@@ -746,12 +798,56 @@ export const MobileFolders = memo(function MobileFolders({
                 }
               : undefined
           }
+          onDuplicate={
+            sheet.kind === "note"
+              ? () => {
+                  void handleDuplicateNote();
+                }
+              : undefined
+          }
+          onMove={
+            sheet.kind === "note" &&
+            noteMoveDestinations(sheet.id, folderPaths).length > 0
+              ? () => {
+                  setMovingNoteId(sheet.id);
+                  setSheet(null);
+                }
+              : undefined
+          }
           onDelete={() => {
             setDeleting(sheet);
             setSheet(null);
           }}
         />
       )}
+      {movingNoteId &&
+        createPortal(
+          <div
+            className="mobile-action-layer"
+            onClick={() => setMovingNoteId(null)}
+            data-pager-ignore
+          >
+            <div
+              className="mobile-action-sheet"
+              role="dialog"
+              aria-label="Move to"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <p className="mobile-action-title">Move to</p>
+              {noteMoveDestinations(movingNoteId, folderPaths).map((destination) => (
+                <button
+                  key={destination.path || "notes"}
+                  type="button"
+                  className="mobile-action-item"
+                  onClick={() => void handleMoveNote(movingNoteId, destination.path)}
+                >
+                  <span>{destination.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>,
+          document.body,
+        )}
       <AlertDialog open={Boolean(deleting)} onOpenChange={(open) => !open && setDeleting(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>

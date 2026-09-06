@@ -3,7 +3,6 @@ import type { Editor } from "@tiptap/react";
 import { toast } from "sonner";
 import { SpellMonthPicker } from "../ui/SpellCalendar";
 import { parseTableGrid, tableContentFromGrid } from "../../lib/tablePaste";
-import { isMobileApp } from "../../lib/platform";
 
 interface MenuState {
   x: number;
@@ -16,16 +15,12 @@ interface AppContextMenuProps {
   getEditor: () => Editor | null;
   onCreateNote: () => void;
   onCreateFolder?: () => void;
-  onOpenSettings: () => void;
-  allowImport?: boolean;
 }
 
 export function AppContextMenu({
   getEditor,
   onCreateNote,
   onCreateFolder,
-  onOpenSettings,
-  allowImport = !isMobileApp,
 }: AppContextMenuProps) {
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [monthPickerOpen, setMonthPickerOpen] = useState(false);
@@ -38,15 +33,6 @@ export function AppContextMenu({
       window.dispatchEvent(new CustomEvent("create-new-folder"));
     }
   }, [onCreateFolder]);
-
-  const openMonthPicker = useCallback(() => {
-    const x = menu?.x ?? 0;
-    const y = menu?.y ?? 0;
-    setMonthAnchor({
-      getBoundingClientRect: () => new DOMRect(x, y, 0, 0),
-    });
-    setMonthPickerOpen(true);
-  }, [menu]);
 
   useEffect(() => {
     const onOpenMonthPicker = () => {
@@ -102,19 +88,11 @@ export function AppContextMenu({
   }, []);
 
   const runEdit = useCallback(
-    async (command: "undo" | "redo" | "cut" | "copy" | "paste" | "selectAll") => {
+    async (command: "cut" | "copy" | "paste" | "selectAll") => {
       if (!menu) return;
       const target = menu.target;
       const editor = target.closest(".ProseMirror") ? getEditor() : null;
 
-      if (command === "undo" && editor) {
-        editor.chain().focus().undo().run();
-        return;
-      }
-      if (command === "redo" && editor) {
-        editor.chain().focus().redo().run();
-        return;
-      }
       if (command === "selectAll" && editor) {
         editor.chain().focus().selectAll().run();
         return;
@@ -159,10 +137,9 @@ export function AppContextMenu({
     [getEditor, menu],
   );
 
-  const extraItems = Number(allowImport) * 2 + 1;
   const x = menu ? Math.min(menu.x, window.innerWidth - 176) : 0;
   const y = menu
-    ? Math.min(menu.y, window.innerHeight - (menu.editable ? 196 : 148 + extraItems * 28))
+    ? Math.min(menu.y, window.innerHeight - (menu.editable ? 168 : 80))
     : 0;
 
   return (
@@ -190,9 +167,6 @@ export function AppContextMenu({
         >
           {menu.editable ? (
             <>
-              <MenuItem label="Undo" onSelect={() => finish(() => runEdit("undo"))} />
-              <MenuItem label="Redo" onSelect={() => finish(() => runEdit("redo"))} />
-              <Separator />
               <MenuItem label="Cut" onSelect={() => finish(() => runEdit("cut"))} />
               <MenuItem label="Copy" onSelect={() => finish(() => runEdit("copy"))} />
               <MenuItem label="Paste" onSelect={() => finish(() => runEdit("paste"))} />
@@ -203,31 +177,6 @@ export function AppContextMenu({
             <>
               <MenuItem label="New Note" onSelect={() => finish(onCreateNote)} />
               <MenuItem label="New Folder" onSelect={() => finish(handleCreateFolder)} />
-              <MenuItem
-                label="New Project"
-                onSelect={() => finish(() => {
-                  window.dispatchEvent(new CustomEvent("create-new-project"));
-                })}
-              />
-              {allowImport && (
-                <>
-                  <MenuItem
-                    label="Import Notes…"
-                    onSelect={() => finish(() => {
-                      window.dispatchEvent(new CustomEvent("import-notes"));
-                    })}
-                  />
-                  <MenuItem
-                    label="Import Folder…"
-                    onSelect={() => finish(() => {
-                      window.dispatchEvent(new CustomEvent("import-notes-folder"));
-                    })}
-                  />
-                </>
-              )}
-              <MenuItem label="Add month" onSelect={() => finish(openMonthPicker)} />
-              <Separator />
-              <MenuItem label="Settings" onSelect={() => finish(onOpenSettings)} />
             </>
           )}
         </div>

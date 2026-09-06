@@ -36,6 +36,83 @@ export function noteParentPath(noteId: string): string {
   return slash === -1 ? "" : noteId.substring(0, slash);
 }
 
+export function isInternalNoteId(id: string): boolean {
+  return id.startsWith("journals/") || id.startsWith("_spell/");
+}
+
+export type NoteMoveDestination = { path: string; label: string };
+
+function isHiddenMoveFolder(path: string) {
+  return path === "journals" || path.startsWith("journals/") || path.startsWith("_spell");
+}
+
+/** Folders a note can move into, excluding its current parent. */
+export function noteMoveDestinations(
+  noteId: string,
+  folders: readonly string[],
+): NoteMoveDestination[] {
+  if (isInternalNoteId(noteId)) return [];
+  const current = noteParentPath(noteId);
+  const seen = new Set<string>();
+  const dest: NoteMoveDestination[] = [];
+  const add = (path: string) => {
+    if (path === current || isHiddenMoveFolder(path) || seen.has(path)) return;
+    seen.add(path);
+    dest.push({ path, label: path === "" ? "Notes" : path });
+  };
+  add("");
+  for (const folder of folders) add(folder);
+  dest.sort((a, b) => {
+    if (a.path === "") return -1;
+    if (b.path === "") return 1;
+    return a.path.localeCompare(b.path);
+  });
+  return dest;
+}
+
+/** True when the vault has daily journals but no regular notes or folders. */
+export function isJournalOnlyLibrary(noteIds: readonly string[]): boolean {
+  return (
+    noteIds.some((id) => id.startsWith("journals/")) &&
+    noteIds.every((id) => isInternalNoteId(id))
+  );
+}
+
+export const SPELL_FOLDERS_NOTE_ID = "_spell/folders";
+
+export function parseCloudFolderIndex(content: string): string[] {
+  try {
+    const parsed = JSON.parse(content) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return [
+      ...new Set(
+        parsed.filter(
+          (item): item is string =>
+            typeof item === "string" &&
+            item.length > 0 &&
+            item !== "journals" &&
+            !item.startsWith("journals/"),
+        ),
+      ),
+    ].sort();
+  } catch {
+    return [];
+  }
+}
+
+export function serializeCloudFolderIndex(folders: readonly string[]): string {
+  return JSON.stringify(
+    [
+      ...new Set(
+        folders.filter(
+          (folder) =>
+            folder.length > 0 && folder !== "journals" && !folder.startsWith("journals/"),
+        ),
+      ),
+    ].sort(),
+  );
+}
+
 /** Notes shown for the current Apple Notes-style folder/list scope. */
 export function notesInScope(notes: NoteMetadata[], scope: NotesScope): NoteMetadata[] {
   if (scope.type === "journal") {
@@ -45,7 +122,7 @@ export function notesInScope(notes: NoteMetadata[], scope: NotesScope): NoteMeta
     return notes.filter((note) => noteParentPath(note.id) === scope.path);
   }
   if (scope.type === "all") {
-    return notes.filter((note) => !note.id.startsWith("journals/"));
+    return notes.filter((note) => !isInternalNoteId(note.id));
   }
   return [];
 }

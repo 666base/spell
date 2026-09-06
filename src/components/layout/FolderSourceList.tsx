@@ -573,8 +573,8 @@ export function FolderSourceList({
   }, [scope]);
 
   const tree = useMemo(() => {
-    const filteredNotes = notes.filter((n) => !n.id.startsWith("journals/"));
-    const filteredFolders = knownFolders.filter((f) => !f.startsWith("journals"));
+    const filteredNotes = notes.filter((n) => !n.id.startsWith("journals/") && !n.id.startsWith("_spell/"));
+    const filteredFolders = knownFolders.filter((f) => !f.startsWith("journals") && !f.startsWith("_spell"));
     return buildFolderTree(filteredNotes, new Set(), filteredFolders);
   }, [notes, knownFolders]);
 
@@ -763,10 +763,10 @@ export function FolderSourceList({
   }, [library, persistLibrary, topFolders]);
 
   return (
-    <div className="relative flex h-full w-full select-none flex-col bg-bg-secondary">
+    <div className="app-sidebar-surface relative flex h-full w-full select-none flex-col">
       <div
         className={cn(
-          "app-titlebar flex h-11 shrink-0 items-center gap-1 px-2",
+          "app-titlebar flex shrink-0 items-center gap-1",
           isMac && "pl-20",
         )}
         data-tauri-drag-region
@@ -931,7 +931,7 @@ export function FolderSourceList({
       </RootDrop>
       )}
 
-      <div className="titlebar-no-drag flex items-center gap-px border-t border-border px-2 py-1">
+      <div className="titlebar-no-drag flex items-center gap-px border-t border-border px-2 py-1.5">
         {isProjectsTab(scope) ? (
           <IconButton
             size="sm"

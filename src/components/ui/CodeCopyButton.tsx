@@ -59,7 +59,6 @@ export function CodeCopyButton({
         className,
       )}
       type="button"
-      title={copied ? copiedA11yLabel : copyA11yLabel}
       aria-label={copied ? copiedA11yLabel : copyA11yLabel}
       disabled={isDisabled}
     >

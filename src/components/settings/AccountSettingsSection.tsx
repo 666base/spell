@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { toast } from "sonner";
@@ -6,6 +6,11 @@ import type { Session } from "@supabase/supabase-js";
 import { useNotes } from "../../context/NotesContext";
 import { useGit } from "../../context/GitContext";
 import { useTheme } from "../../context/ThemeContext";
+import {
+  cloudSyncPanel,
+  cloudUserIdForVaultSwitch,
+  nextCloudSignInAction,
+} from "../../lib/cloudAccount";
 import { cloudSyncErrorMessage } from "../../lib/cloudSyncError";
 import { isAndroid } from "../../lib/platform";
 import {
@@ -49,10 +54,10 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
   Button,
+  CheckmarkIcon,
   Input,
 } from "../ui";
 import {
-  CheckIcon,
   CloudCheckIcon,
   CloudPlusIcon,
   FolderIcon,
@@ -85,21 +90,19 @@ function accountInitial(email: string): string {
   return (email[0] ?? "S").toUpperCase();
 }
 
-function syncStatusLabel(
-  syncEnabled: boolean,
-  session: Session | null,
-  status: CloudSyncStatus,
-  online: boolean,
-): string {
-  if (!syncEnabled) return "Off for this vault";
-  if (!session) return "Sign in to keep syncing";
-  if (!online) return "Offline — changes will sync later";
-  if (status.lastError) return status.lastError;
-  if (status.isSyncing) return "Syncing…";
-  if (status.pendingCount > 0) {
-    return `${status.pendingCount} change${status.pendingCount === 1 ? "" : "s"} waiting`;
-  }
-  return "Synced";
+function Disclose({ open, children }: { open: boolean; children: ReactNode }) {
+  return (
+    <div
+      className="settings-disclose"
+      data-open={open ? "true" : "false"}
+      aria-hidden={!open}
+      inert={!open ? true : undefined}
+    >
+      <div className="settings-disclose-inner">
+        <div className="settings-disclose-body">{children}</div>
+      </div>
+    </div>
+  );
 }
 
 export function AccountSettingsSection() {
@@ -126,6 +129,7 @@ export function AccountSettingsSection() {
   const [isEnablingSync, setIsEnablingSync] = useState(false);
   const [isSyncingNow, setIsSyncingNow] = useState(false);
   const [confirmEnableSync, setConfirmEnableSync] = useState(false);
+  const pendingCloudUserIdRef = useRef<string | null>(null);
   const [pendingFolderKind, setPendingFolderKind] = useState<FolderSyncKind | null>(
     null,
   );
@@ -219,15 +223,16 @@ export function AccountSettingsSection() {
 
   const handleSignedIn = async (userId: string) => {
     setNeedsNewPassword(false);
+    pendingCloudUserIdRef.current = userId;
     const currentCloudId = await notesService.getCloudUserId();
-    if (currentCloudId === userId) {
+    const action = nextCloudSignInAction({
+      signedInUserId: userId,
+      currentCloudUserId: currentCloudId,
+      notesFolder,
+    });
+    if (action === "resume") {
       await reloadAccount();
       window.dispatchEvent(new CustomEvent("spell-cloud-session-ready"));
-      return;
-    }
-    if (notesFolder && !currentCloudId) {
-      await reloadAccount();
-      setConfirmEnableSync(true);
       return;
     }
     await activateCloudVault(userId, syncNotesFolder);
@@ -236,10 +241,19 @@ export function AccountSettingsSection() {
   };
 
   const handleEnableSync = async () => {
-    if (!session || isEnablingSync) return;
+    const userId = cloudUserIdForVaultSwitch(
+      session?.user.id,
+      pendingCloudUserIdRef.current,
+    );
+    if (!userId) {
+      toast.error("Sign in to Spell Cloud again");
+      return;
+    }
+    if (isEnablingSync) return;
     setIsEnablingSync(true);
     try {
-      await activateCloudVault(session.user.id, syncNotesFolder);
+      await activateCloudVault(userId, syncNotesFolder);
+      pendingCloudUserIdRef.current = null;
       await reloadSettings();
       await reloadAccount();
       toast.success("Spell Cloud is on");
@@ -361,6 +375,7 @@ export function AccountSettingsSection() {
         toast.message("Sign in above to use Spell Cloud.");
         return;
       }
+      pendingCloudUserIdRef.current = session?.user.id ?? pendingCloudUserIdRef.current;
       setConfirmEnableSync(true);
       return;
     }
@@ -422,7 +437,15 @@ export function AccountSettingsSection() {
     }
   };
 
-  const statusText = syncStatusLabel(syncEnabled, session, syncStatus, online);
+  const cloudPanel = cloudSyncPanel({
+    syncEnabled,
+    signedIn,
+    online,
+    isSyncing: syncStatus.isSyncing,
+    pendingCount: syncStatus.pendingCount,
+    lastError: syncStatus.lastError,
+    lastSyncedAt: syncStatus.lastSyncedAt,
+  });
 
   return (
     <div className="space-y-8 py-8">
@@ -435,8 +458,14 @@ export function AccountSettingsSection() {
         </p>
 
         {loadingAccount ? (
-          <div className="rounded-[10px] border border-border p-4 flex items-center justify-center">
-            <SpinnerIcon className="w-4.5 h-4.5 stroke-[1.5] animate-spin text-text-muted" />
+          <div className="settings-account-skeleton rounded-[10px] border border-border p-4">
+            <div className="flex items-center gap-3">
+              <div className="h-10 w-10 shrink-0 rounded-full bg-bg-muted" />
+              <div className="min-w-0 flex-1 space-y-1.5">
+                <div className="h-3.5 w-40 max-w-full rounded-sm bg-bg-muted" />
+                <div className="h-3 w-24 rounded-sm bg-bg-muted" />
+              </div>
+            </div>
           </div>
         ) : !cloudAvailable ? (
           <div className="rounded-[10px] border border-border p-4">
@@ -445,7 +474,7 @@ export function AccountSettingsSection() {
             </p>
           </div>
         ) : signedIn && !needsNewPassword ? (
-          <div className="rounded-[10px] border border-border p-4 space-y-3">
+          <div className="settings-account-card rounded-[10px] border border-border p-4">
             <div className="flex items-center gap-3">
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-bg-muted text-sm font-semibold text-text">
                 {accountInitial(email)}
@@ -467,7 +496,7 @@ export function AccountSettingsSection() {
             </div>
           </div>
         ) : (
-          <div className="rounded-[10px] border border-border p-4">
+          <div className="settings-account-card rounded-[10px] border border-border p-4">
             <CloudAuthForm onSignedIn={handleSignedIn} />
           </div>
         )}
@@ -484,7 +513,12 @@ export function AccountSettingsSection() {
         </p>
 
         <div className="rounded-[10px] border border-border divide-y divide-dashed divide-border">
-          <div className={cn("p-4 space-y-3", destination === "cloud" && "bg-bg-selected/40")}>
+          <div
+            className={cn(
+              "settings-sync-option p-4",
+              destination === "cloud" && "bg-bg-selected/40",
+            )}
+          >
             <button
               type="button"
               className="flex w-full items-start gap-2.5 text-left"
@@ -492,50 +526,60 @@ export function AccountSettingsSection() {
               disabled={isEnablingSync || isPickingFolder}
             >
               <div className="p-2 rounded-md bg-bg-muted">
-                {destination === "cloud" ? (
-                  <CloudCheckIcon className="w-4.5 h-4.5 stroke-[1.5] text-text-muted" />
-                ) : (
-                  <CloudPlusIcon className="w-4.5 h-4.5 stroke-[1.5] text-text-muted" />
-                )}
+                <span
+                  className="state-icon-swap h-4.5 w-4.5 text-text-muted"
+                  data-state={destination === "cloud" ? "complete" : "idle"}
+                >
+                  <CloudPlusIcon className="h-4.5 w-4.5 stroke-[1.5]" />
+                  <CloudCheckIcon className="h-4.5 w-4.5 stroke-[1.5]" />
+                </span>
               </div>
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-medium text-text">Spell Cloud</p>
-                <p className="text-xs text-text-muted">
-                  {cloudAvailable ? statusText : "Not configured in this build"}
+                <p
+                  className={cn(
+                    "text-xs",
+                    cloudPanel.tone === "error"
+                      ? "text-[var(--status-red-fg)]"
+                      : "text-text-muted",
+                  )}
+                >
+                  {cloudAvailable ? cloudPanel.label : "Not configured in this build"}
                 </p>
               </div>
-              {destination === "cloud" && (
-                <CheckIcon className="mt-1 h-4 w-4 shrink-0 stroke-[1.7] text-text" />
-              )}
+              <CheckmarkIcon
+                checked={destination === "cloud"}
+                className="mt-1 h-4 w-4 shrink-0 text-text"
+              />
             </button>
 
-            {destination === "cloud" && (
-              <>
-                <div className="flex items-center justify-between pt-1 border-t border-border border-dashed">
-                  <span className="text-sm text-text font-medium">Last sync</span>
+            <Disclose open={destination === "cloud" && (cloudPanel.showLastSync || signedIn)}>
+              {cloudPanel.showLastSync && (
+                <div className="flex items-center justify-between border-t border-border border-dashed pt-3">
+                  <span className="text-sm font-medium text-text">Last sync</span>
                   <span className="text-sm text-text-muted tabular-nums">
                     {formatRelativeTime(syncStatus.lastSyncedAt)}
                   </span>
                 </div>
-                {signedIn && (
-                  <Button
-                    onClick={handleSyncNow}
-                    variant="outline"
-                    size="md"
-                    disabled={isSyncingNow || syncStatus.isSyncing}
-                  >
-                    {isSyncingNow || syncStatus.isSyncing ? (
-                      <>
-                        <SpinnerIcon className="w-3.25 h-3.25 mr-2 animate-spin" />
-                        Syncing…
-                      </>
-                    ) : (
-                      "Sync now"
-                    )}
-                  </Button>
-                )}
-              </>
-            )}
+              )}
+              {signedIn && (
+                <Button
+                  onClick={handleSyncNow}
+                  variant="outline"
+                  size="md"
+                  disabled={isSyncingNow || syncStatus.isSyncing}
+                >
+                  {isSyncingNow || syncStatus.isSyncing ? (
+                    <>
+                      <SpinnerIcon className="w-3.25 h-3.25 mr-2 animate-spin" />
+                      Syncing…
+                    </>
+                  ) : (
+                    "Sync now"
+                  )}
+                </Button>
+              )}
+            </Disclose>
           </div>
 
           {folderOptions.map((option) => {
@@ -544,7 +588,10 @@ export function AccountSettingsSection() {
             return (
               <div
                 key={option.id}
-                className={cn("p-4 space-y-3", selected && "bg-bg-selected/40")}
+                className={cn(
+                  "settings-sync-option p-4",
+                  selected && "bg-bg-selected/40",
+                )}
               >
                 <button
                   type="button"
@@ -567,12 +614,13 @@ export function AccountSettingsSection() {
                           : option.description}
                     </p>
                   </div>
-                  {selected && (
-                    <CheckIcon className="mt-1 h-4 w-4 shrink-0 stroke-[1.7] text-text" />
-                  )}
+                  <CheckmarkIcon
+                    checked={selected}
+                    className="mt-1 h-4 w-4 shrink-0 text-text"
+                  />
                 </button>
 
-                {selected && !isAndroid && (
+                <Disclose open={selected && !isAndroid}>
                   <>
                     <div className="flex items-center gap-1 pt-1 border-t border-border border-dashed">
                       <Button
@@ -642,7 +690,7 @@ export function AccountSettingsSection() {
                         </div>
                       ))}
                   </>
-                )}
+                </Disclose>
               </div>
             );
           })}

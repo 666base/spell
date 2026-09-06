@@ -208,7 +208,7 @@ export function RightSidebar({
             <div
               className={cn(
                 "app-chrome flex shrink-0 items-center gap-px",
-                mobile ? "h-14 px-2" : "h-11 px-1.5",
+                mobile ? "h-14 px-2" : "h-11 px-2",
               )}
             >
               {showCloseButton && (
@@ -274,7 +274,7 @@ export function RightSidebar({
 
         {!chrome && showWindowControls && (
           <div
-            className="flex h-11 shrink-0 items-center justify-end px-1.5"
+            className="flex h-11 shrink-0 items-center justify-end px-3"
             data-tauri-drag-region
           >
             <WindowControls />

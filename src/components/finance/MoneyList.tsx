@@ -27,14 +27,14 @@ export function MoneyList({ scope, onSelect }: MoneyListProps) {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="min-h-0 flex-1 overflow-y-auto px-1 pt-2.5 pb-2">
+      <div className="min-h-0 flex-1 overflow-y-auto px-2 pt-3 pb-3">
         {items.map((item) => {
           const selected =
             item.kind === "overview" ? scope.type === "money"
               : item.kind === "subscriptions" ? scope.type === "subscriptions"
                 : scope.type === "moneyMonth" && scope.month === item.month;
           return (
-            <div key={item.id} className="px-1.5 pb-1">
+            <div key={item.id} className="px-2 pb-1.5">
               <MoneyRow
                 title={item.title}
                 subtitle={item.subtitle}

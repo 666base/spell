@@ -68,7 +68,6 @@ export function MobileTintButton({
   return (
     <button
       type="button"
-      title={title}
       aria-label={title}
       aria-pressed={pressed || undefined}
       aria-busy={disabled || undefined}

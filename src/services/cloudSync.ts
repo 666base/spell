@@ -3,6 +3,12 @@ import {
   CLOUD_SYNC_SIGN_IN_AGAIN,
   cloudSyncErrorMessage,
 } from "../lib/cloudSyncError";
+import { upsertCloudMutation } from "../lib/cloudAccount";
+import {
+  SPELL_FOLDERS_NOTE_ID,
+  parseCloudFolderIndex,
+  serializeCloudFolderIndex,
+} from "../lib/notesScope";
 import type { Note } from "../types/note";
 import * as notesService from "./notes";
 import { getCloudSession, getSupabase } from "./supabase";
@@ -26,6 +32,7 @@ interface CloudMutation {
 const queuePrefix = "spell-cloud-queue:";
 const lastSyncPrefix = "spell-cloud-last-sync:";
 let activeUserId: string | null = null;
+let pendingMutations: CloudMutation[] = [];
 let flushTimer: number | null = null;
 let flushPromise: Promise<void> | null = null;
 
@@ -75,7 +82,9 @@ function emitSyncStatus(patch: Partial<CloudSyncStatus> = {}): void {
 
 function beginSync(): void {
   syncOps += 1;
-  emitSyncStatus({ isSyncing: true, lastError: null });
+  // Keep lastError until this attempt succeeds so the status row does not
+  // flicker from error → "Syncing…" → error on every retry.
+  emitSyncStatus({ isSyncing: true });
 }
 
 function endSync(): void {
@@ -121,11 +130,11 @@ function writeQueue(userId: string, queue: CloudMutation[]): void {
 }
 
 function addMutation(mutation: CloudMutation): void {
-  if (!activeUserId) return;
-  const queue = readQueue(activeUserId).filter(
-    (queued) => queued.path !== mutation.path,
-  );
-  queue.push(mutation);
+  if (!activeUserId) {
+    pendingMutations = upsertCloudMutation(pendingMutations, mutation);
+    return;
+  }
+  const queue = upsertCloudMutation(readQueue(activeUserId), mutation);
   writeQueue(activeUserId, queue);
   emitSyncStatus();
   scheduleFlush();
@@ -147,6 +156,15 @@ export function reportCloudSignedOut(): void {
 
 export function setActiveCloudUser(userId: string | null): void {
   activeUserId = userId;
+  if (userId && pendingMutations.length > 0) {
+    let queue = readQueue(userId);
+    for (const mutation of pendingMutations) {
+      queue = upsertCloudMutation(queue, mutation);
+    }
+    writeQueue(userId, queue);
+    pendingMutations = [];
+    scheduleFlush();
+  }
   emitSyncStatus({
     lastSyncedAt: readLastSyncedAt(userId),
     lastError: userId ? syncStatus.lastError : null,
@@ -159,6 +177,9 @@ export async function activateCloudVault(
 ): Promise<void> {
   setActiveCloudUser(userId);
   const path = await notesService.setCloudNotesFolder(userId);
+  await notesService.importStrandedNotes().catch((error) => {
+    console.error("Failed to import local notes into Spell Cloud:", error);
+  });
   await syncNotesFolder(path);
   window.dispatchEvent(new CustomEvent("spell-cloud-session-ready"));
 }
@@ -203,6 +224,7 @@ export async function flushCloudQueue(): Promise<void> {
     }
     const supabase = await getSupabase();
 
+    let flushed = 0;
     for (const mutation of readQueue(userId)) {
       const { error } = await supabase.rpc("spell_sync_note", {
         p_path: mutation.path,
@@ -225,11 +247,14 @@ export async function flushCloudQueue(): Promise<void> {
           currentQueue.filter((queued) => queued !== unchanged),
         );
       }
+      flushed += 1;
     }
 
-    const syncedAt = Date.now();
-    writeLastSyncedAt(userId, syncedAt);
-    emitSyncStatus({ lastSyncedAt: syncedAt, lastError: null });
+    if (flushed > 0) {
+      const syncedAt = Date.now();
+      writeLastSyncedAt(userId, syncedAt);
+      emitSyncStatus({ lastSyncedAt: syncedAt, lastError: null });
+    }
   })()
     .catch((error) => {
       emitSyncStatus({ lastError: cloudSyncErrorMessage(error) });
@@ -260,8 +285,30 @@ async function applyRemoteRow(row: CloudNoteRow): Promise<boolean> {
   }
 
   if (localNote && localNote.modified === row.modified_at) return false;
+  if (row.path === SPELL_FOLDERS_NOTE_ID) {
+    await applyCloudFolders(row.content);
+  }
   await notesService.applyCloudNote(row.path, row.content, row.modified_at);
   return true;
+}
+
+async function applyCloudFolders(content: string): Promise<void> {
+  const localFolders = await notesService.listFolders();
+  for (const folder of parseCloudFolderIndex(content)) {
+    if (!localFolders.includes(folder)) {
+      await notesService.createFolder(folder);
+    }
+  }
+}
+
+function folderIndexNote(content: string, modifiedAt: number): Note {
+  return {
+    id: SPELL_FOLDERS_NOTE_ID,
+    title: "folders",
+    content,
+    path: SPELL_FOLDERS_NOTE_ID,
+    modified: modifiedAt,
+  };
 }
 
 export async function syncCloudNotes(userId: string): Promise<boolean> {
@@ -272,6 +319,10 @@ export async function syncCloudNotes(userId: string): Promise<boolean> {
     if (!session || session.user.id !== userId) {
       throw new Error(CLOUD_SYNC_SIGN_IN_AGAIN);
     }
+    const imported = await notesService.importStrandedNotes().catch((error) => {
+      console.error("Failed to import local notes into Spell Cloud:", error);
+      return 0;
+    });
     await flushCloudQueue();
 
     const supabase = await getSupabase();
@@ -284,7 +335,7 @@ export async function syncCloudNotes(userId: string): Promise<boolean> {
     const remoteRows = (data ?? []) as CloudNoteRow[];
     const remoteByPath = new Map(remoteRows.map((row) => [row.path, row]));
     const localNotes = await notesService.listNotes();
-    let localChanged = false;
+    let localChanged = imported > 0;
 
     for (const metadata of localNotes) {
       const remote = remoteByPath.get(metadata.id);
@@ -296,6 +347,15 @@ export async function syncCloudNotes(userId: string): Promise<boolean> {
 
     for (const remote of remoteRows) {
       localChanged = (await applyRemoteRow(remote)) || localChanged;
+    }
+
+    const localFolders = await notesService.listFolders();
+    const folderContent = serializeCloudFolderIndex(localFolders);
+    const remoteFolderContent = remoteByPath.get(SPELL_FOLDERS_NOTE_ID)?.content ?? "[]";
+    if (folderContent !== serializeCloudFolderIndex(parseCloudFolderIndex(remoteFolderContent))) {
+      queueCloudUpsert(
+        folderIndexNote(folderContent, Math.floor(Date.now() / 1000)),
+      );
     }
 
     await flushCloudQueue();

@@ -980,15 +980,15 @@ mod desktop {
         app: AppHandle,
         path: String,
         state: State<AppState>,
-    ) -> Result<(), String> {
+    ) -> Result<String, String> {
         let path_buf = normalize_notes_folder_path(&path)?;
-        initialize_notes_folder(&app, &path_buf, &state)?;
+        let normalized = initialize_notes_folder(&app, &path_buf, &state)?;
         {
             let mut app_config = state.app_config.write().expect("app_config write lock");
             app_config.cloud_user_id = None;
             save_app_config(&app, &app_config).map_err(|e| e.to_string())?;
         }
-        Ok(())
+        Ok(normalized)
     }
 
     #[tauri::command]
@@ -1016,8 +1016,22 @@ mod desktop {
         }
 
         let app_data = app.path().app_data_dir().map_err(|e| e.to_string())?;
+        let previous = state
+            .app_config
+            .read()
+            .expect("app_config read lock")
+            .notes_folder
+            .clone();
         let path = app_data.join("cloud-notes").join(&user_id);
         let normalized_path = initialize_notes_folder(&app, &path, &state)?;
+        if let Some(previous) = previous {
+            let from = PathBuf::from(&previous);
+            if from != path {
+                if let Err(error) = library::merge_notes_vault(&from, &path) {
+                    eprintln!("Failed to copy local notes into Spell Cloud vault: {error}");
+                }
+            }
+        }
 
         {
             let mut app_config = state.app_config.write().expect("app_config write lock");
@@ -1034,6 +1048,29 @@ mod desktop {
         app_config.cloud_user_id = None;
         save_app_config(&app, &app_config).map_err(|e| e.to_string())?;
         Ok(())
+    }
+
+    #[tauri::command]
+    fn import_stranded_notes(app: AppHandle, state: State<AppState>) -> Result<u32, String> {
+        let current = {
+            let app_config = state.app_config.read().expect("app_config read lock");
+            app_config
+                .notes_folder
+                .clone()
+                .ok_or("Notes folder not set")?
+        };
+        let current_path = PathBuf::from(&current);
+        let offline = app
+            .path()
+            .app_data_dir()
+            .map_err(|e| e.to_string())?
+            .join("offline-notes");
+        if !offline.exists() || offline == current_path {
+            return Ok(0);
+        }
+        library::merge_notes_vault(&offline, &current_path)
+            .map(|copied| copied as u32)
+            .map_err(|e| e.to_string())
     }
 
     #[tauri::command]
@@ -4468,9 +4505,10 @@ mod desktop {
                 get_notes_folder,
                 set_notes_folder,
                 get_cloud_user_id,
-                set_cloud_notes_folder,
-                disconnect_cloud,
-                apply_cloud_note,
+            set_cloud_notes_folder,
+            disconnect_cloud,
+            import_stranded_notes,
+            apply_cloud_note,
                 list_notes,
                 read_note,
                 save_note,

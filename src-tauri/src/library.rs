@@ -107,6 +107,104 @@ pub fn migrate_legacy_library(notes_folder: &Path) {
     }
 }
 
+/// Copy notes, boards, money, and attachments from one vault into another.
+/// Existing destination files that are newer are left alone. The source vault
+/// is not deleted — offline notes stay on disk after switching to Spell Cloud.
+pub fn merge_notes_vault(from: &Path, to: &Path) -> io::Result<usize> {
+    if !from.is_dir() {
+        return Ok(0);
+    }
+    fs::create_dir_all(to)?;
+    let from_canon = from.canonicalize().unwrap_or_else(|_| from.to_path_buf());
+    let to_canon = to.canonicalize().unwrap_or_else(|_| to.to_path_buf());
+    if from_canon == to_canon {
+        return Ok(0);
+    }
+
+    let mut copied = merge_markdown_tree(from, from, to, 0)?;
+    copied += merge_named_dir(&from.join(LIBRARY_DIR), &to.join(LIBRARY_DIR))?;
+    copied += merge_named_dir(&from.join(ATTACHMENTS_DIR), &to.join(ATTACHMENTS_DIR))?;
+    Ok(copied)
+}
+
+fn merge_markdown_tree(root: &Path, directory: &Path, to: &Path, depth: usize) -> io::Result<usize> {
+    if depth > 10 {
+        return Ok(0);
+    }
+    let mut copied = 0;
+    let entries = match fs::read_dir(directory) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(0),
+        Err(error) => return Err(error),
+    };
+    for entry in entries {
+        let entry = entry?;
+        let path = entry.path();
+        let name = entry.file_name();
+        let name_str = name.to_string_lossy();
+        if path.is_dir() {
+            if is_excluded_dir_name(&name_str) {
+                continue;
+            }
+            copied += merge_markdown_tree(root, &path, to, depth + 1)?;
+            continue;
+        }
+        if path.extension().and_then(|ext| ext.to_str()) != Some("md") {
+            continue;
+        }
+        let relative = path.strip_prefix(root).unwrap_or(&path);
+        copied += copy_file_if_newer(&path, &to.join(relative))?;
+    }
+    Ok(copied)
+}
+
+fn merge_named_dir(from: &Path, to: &Path) -> io::Result<usize> {
+    if !from.is_dir() {
+        return Ok(0);
+    }
+    copy_dir_if_newer(from, to)
+}
+
+fn copy_dir_if_newer(from: &Path, to: &Path) -> io::Result<usize> {
+    fs::create_dir_all(to)?;
+    let mut copied = 0;
+    for entry in fs::read_dir(from)? {
+        let entry = entry?;
+        let source = entry.path();
+        let dest = to.join(entry.file_name());
+        if source.is_dir() {
+            copied += copy_dir_if_newer(&source, &dest)?;
+        } else {
+            copied += copy_file_if_newer(&source, &dest)?;
+        }
+    }
+    Ok(copied)
+}
+
+fn copy_file_if_newer(from: &Path, to: &Path) -> io::Result<usize> {
+    if !should_replace_file(from, to) {
+        return Ok(0);
+    }
+    if let Some(parent) = to.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::copy(from, to)?;
+    Ok(1)
+}
+
+fn should_replace_file(from: &Path, to: &Path) -> bool {
+    let Ok(source) = fs::metadata(from) else {
+        return false;
+    };
+    let Ok(dest) = fs::metadata(to) else {
+        return true;
+    };
+    match (source.modified(), dest.modified()) {
+        (Ok(source_modified), Ok(dest_modified)) => source_modified > dest_modified,
+        _ => true,
+    }
+}
+
 pub fn rewrite_legacy_attachment_links(content: &str) -> String {
     const REPLACEMENTS: &[(&str, &str)] = &[
         ("(assets/", "(Attachments/"),
@@ -335,6 +433,50 @@ mod tests {
         );
 
         let _ = fs::remove_dir_all(&vault);
+    }
+
+    #[test]
+    fn merge_notes_vault_copies_markdown_and_library_without_deleting_source() {
+        let from = temp_vault("merge-from");
+        let to = temp_vault("merge-to");
+        fs::create_dir_all(from.join("Projects")).unwrap();
+        fs::write(from.join("Hello.md"), "# Hello\n").unwrap();
+        fs::write(from.join("Projects").join("Task.md"), "# Task\n").unwrap();
+        fs::create_dir_all(from.join(LIBRARY_DIR)).unwrap();
+        fs::write(boards_path(&from), "{\"projects\":[1]}").unwrap();
+        fs::create_dir_all(attachments_dir(&from)).unwrap();
+        fs::write(attachments_dir(&from).join("pic.png"), b"img").unwrap();
+        fs::create_dir_all(to.join("Projects")).unwrap();
+        fs::write(to.join("Projects").join("Task.md"), "# Older\n").unwrap();
+        fs::write(to.join("Keep.md"), "# Keep\n").unwrap();
+        fs::write(from.join("Keep.md"), "# From\n").unwrap();
+        let older = UNIX_EPOCH + std::time::Duration::from_secs(10);
+        let newer = UNIX_EPOCH + std::time::Duration::from_secs(50);
+        let _ = filetime_set(from.join("Hello.md"), newer);
+        let _ = filetime_set(from.join("Projects").join("Task.md"), newer);
+        let _ = filetime_set(from.join("Keep.md"), older);
+        let _ = filetime_set(to.join("Projects").join("Task.md"), older);
+        let _ = filetime_set(to.join("Keep.md"), newer);
+
+        let copied = merge_notes_vault(&from, &to).unwrap();
+        assert!(copied >= 3);
+        assert_eq!(fs::read_to_string(to.join("Hello.md")).unwrap(), "# Hello\n");
+        assert_eq!(
+            fs::read_to_string(to.join("Projects").join("Task.md")).unwrap(),
+            "# Task\n"
+        );
+        assert_eq!(fs::read_to_string(to.join("Keep.md")).unwrap(), "# Keep\n");
+        assert!(boards_path(&to).exists());
+        assert!(attachments_dir(&to).join("pic.png").exists());
+        assert!(from.join("Hello.md").exists());
+
+        let _ = fs::remove_dir_all(&from);
+        let _ = fs::remove_dir_all(&to);
+    }
+
+    fn filetime_set(path: PathBuf, when: SystemTime) -> std::io::Result<()> {
+        let file = fs::OpenOptions::new().write(true).open(path)?;
+        file.set_times(fs::FileTimes::new().set_modified(when))
     }
 
     #[test]

@@ -217,7 +217,6 @@ function ClusterButton({
   return (
     <button
       type="button"
-      title={label}
       aria-label={label}
       aria-pressed={active}
       data-active={active ? "true" : "false"}

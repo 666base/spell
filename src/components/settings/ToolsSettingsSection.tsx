@@ -246,7 +246,7 @@ export function ToolsSettingsSection() {
                       <button
                         type="button"
                         className="text-xs font-mono text-text-muted bg-bg-muted px-2 py-0.5 rounded max-w-48 truncate cursor-pointer hover:bg-bg-hover transition-colors"
-                        title="Click to copy path"
+                        aria-label="Copy path"
                         onClick={async () => {
                           try {
                             await invoke("copy_to_clipboard", { text: cli.status!.path! });

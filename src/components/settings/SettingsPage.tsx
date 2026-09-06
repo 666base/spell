@@ -125,10 +125,10 @@ export function SettingsPage({ onBack, compact = false }: SettingsPageProps) {
 
   return (
     <div className="flex h-full w-full bg-bg">
-      <aside className="flex w-full shrink-0 select-none flex-col border-b border-border bg-bg-secondary md:h-full md:w-64 md:border-b-0 md:border-r">
+      <aside className="app-sidebar-surface flex w-full shrink-0 select-none flex-col border-b border-border md:h-full md:w-64 md:border-b-0 md:border-r">
         <div
           className={cn(
-            "app-titlebar flex h-11 shrink-0 items-center gap-1 px-1.5",
+            "app-titlebar flex shrink-0 items-center gap-1",
             isMac && "pl-20",
           )}
           data-tauri-drag-region
@@ -167,7 +167,7 @@ export function SettingsPage({ onBack, compact = false }: SettingsPageProps) {
 
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-bg">
         <div
-          className="hidden h-11 shrink-0 items-center justify-end px-1.5 md:flex"
+          className="hidden h-11 shrink-0 items-center justify-end px-3 md:flex"
           data-tauri-drag-region
         >
           <WindowControls />

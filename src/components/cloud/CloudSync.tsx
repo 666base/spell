@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { toast } from "sonner";
 import { useNotes } from "../../context/NotesContext";
 import { CLOUD_SYNC_SIGN_IN_AGAIN, cloudSyncErrorMessage } from "../../lib/cloudSyncError";
+import { isJournalOnlyLibrary } from "../../lib/notesScope";
 import * as notesService from "../../services/notes";
 import {
   reportCloudSignedOut,
@@ -63,6 +64,18 @@ export function CloudSync() {
           const changed = await syncCloudNotes(cloudUserId);
           if (changed && !cancelled) await refreshNotes();
           if (cancelled) return;
+
+          const listed = await notesService.listNotes();
+          if (isJournalOnlyLibrary(listed.map((note) => note.id))) {
+            toast.message("Folders are still on your phone", {
+              id: "cloud-journal-only",
+              description:
+                "Sign in to Spell Cloud on the phone with this account, then tap Sync now here.",
+              duration: Infinity,
+            });
+          } else {
+            toast.dismiss("cloud-journal-only");
+          }
 
           unsubscribe = await subscribeToCloudNotes(cloudUserId, () => {
             void refreshNotes();

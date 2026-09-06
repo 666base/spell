@@ -109,12 +109,12 @@ export function FolderPicker() {
   };
 
   return (
-    <div className="h-full flex flex-col bg-bg-secondary">
+    <div className="app-sidebar-surface h-full flex flex-col">
       <CloudAuthListener />
       {/* Draggable title bar area */}
       <div
         className={cn(
-          "flex h-11 shrink-0 items-center justify-end px-1.5",
+          "flex h-11 shrink-0 items-center justify-end px-3",
           isMac && "pl-20",
         )}
         data-tauri-drag-region
@@ -130,7 +130,7 @@ export function FolderPicker() {
             </Suspense>
           </div>
         ) : (
-          <div className="app-sheet-surface w-[min(22rem,calc(100%-2rem))] p-7 select-none flex flex-col items-stretch gap-3 border border-border rounded-2xl">
+          <div className="app-sheet-surface w-[min(22rem,calc(100%-2rem))] p-7 select-none flex flex-col items-stretch gap-3 rounded-2xl">
             <div className="flex flex-col items-center text-center gap-3 mb-3">
               <div className="grid place-items-center w-12 h-12 rounded-2xl bg-bg-muted text-text">
                 <BookIcon className="w-6 h-6 stroke-[1.5]" />

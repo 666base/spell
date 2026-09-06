@@ -71,6 +71,15 @@ describe("cloudSyncErrorMessage", () => {
     ).toBe("Cloud notes aren't set up on this Spell Cloud project yet");
   });
 
+  it("maps a missing spell_notes table from the schema cache", () => {
+    expect(
+      cloudSyncErrorMessage({
+        message: "Could not find the table 'public.spell_notes' in the schema cache",
+        code: "PGRST205",
+      }),
+    ).toBe("Cloud notes aren't set up on this Spell Cloud project yet");
+  });
+
   it("maps network failures", () => {
     expect(cloudSyncErrorMessage(new TypeError("Failed to fetch"))).toBe(
       "Couldn't reach Spell Cloud. Check your connection.",

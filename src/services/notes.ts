@@ -5,7 +5,7 @@ export async function getNotesFolder(): Promise<string | null> {
   return invoke("get_notes_folder");
 }
 
-export async function setNotesFolder(path: string): Promise<void> {
+export async function setNotesFolder(path: string): Promise<string> {
   return invoke("set_notes_folder", { path });
 }
 
@@ -19,6 +19,10 @@ export async function setCloudNotesFolder(userId: string): Promise<string> {
 
 export async function disconnectCloud(): Promise<void> {
   return invoke("disconnect_cloud");
+}
+
+export async function importStrandedNotes(): Promise<number> {
+  return invoke("import_stranded_notes");
 }
 
 export async function applyCloudNote(

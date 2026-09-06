@@ -34,7 +34,9 @@ export function cloudSyncErrorMessage(error: unknown): string {
   if (
     lower.includes("spell_sync_note") ||
     lower.includes("could not find the function") ||
-    lower.includes("pgrst202")
+    lower.includes("could not find the table") ||
+    lower.includes("pgrst202") ||
+    lower.includes("pgrst205")
   ) {
     return "Cloud notes aren't set up on this Spell Cloud project yet";
   }

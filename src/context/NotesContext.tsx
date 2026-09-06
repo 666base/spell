@@ -677,8 +677,8 @@ export function NotesProvider({ children }: { children: ReactNode }) {
 
   const setNotesFolder = useCallback(async (path: string) => {
     try {
-      await notesService.setNotesFolder(path);
-      setNotesFolderState(path);
+      const resolved = await notesService.setNotesFolder(path);
+      setNotesFolderState(resolved || path);
       // Start file watcher after setting folder
       await notesService.startFileWatcher();
     } catch (err) {

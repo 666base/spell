@@ -27,21 +27,6 @@ export function getSupabaseUrl(): string | undefined {
   return supabaseUrl;
 }
 
-export async function isSpellCloudReachable(): Promise<boolean> {
-  if (!supabaseUrl) return false;
-  try {
-    const headers: Record<string, string> = {};
-    if (supabaseKey) headers.apikey = supabaseKey;
-    const response = await fetch(
-      `${supabaseUrl.replace(/\/$/, "")}/auth/v1/health`,
-      { headers },
-    );
-    return response.ok;
-  } catch {
-    return false;
-  }
-}
-
 export function getSupabase(): Promise<SupabaseClient> {
   if (!supabaseUrl || !supabaseKey) {
     return Promise.reject(new Error("Spell cloud is not configured"));

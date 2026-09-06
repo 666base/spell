@@ -275,7 +275,7 @@ function MobileAppContent() {
   }, [goTo, openJournal]);
 
   if (isLoading) {
-    return <div className="h-full min-h-dvh bg-bg-secondary" />;
+    return <div className="h-full min-h-dvh bg-bg" />;
   }
 
   if (!notesFolder) {

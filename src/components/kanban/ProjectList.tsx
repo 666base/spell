@@ -79,9 +79,9 @@ export function ProjectList({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <nav className="min-h-0 flex-1 overflow-y-auto px-1 pt-2.5 pb-2">
+      <nav className="min-h-0 flex-1 overflow-y-auto px-2 pt-3 pb-3">
         {onSelectOverview && (
-          <div className="px-1.5 pb-1">
+          <div className="px-2 pb-1.5">
             <OverviewRow
               count={overviewOpenCount(workspace)}
               selected={overviewSelected}
@@ -94,7 +94,7 @@ export function ProjectList({
           const itemId = projectItemId(project.id);
           const pinned = library.pinned.includes(itemId);
           return (
-            <div key={project.id} className="px-1.5 pb-1">
+            <div key={project.id} className="px-2 pb-1.5">
               <ProjectRow
                 project={project}
                 selected={selectedId === project.id}

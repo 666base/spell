@@ -1,7 +1,7 @@
 import { useCallback, memo } from "react";
 import { toast } from "sonner";
 import { useGit } from "../../context/GitContext";
-import { Button, IconButton, Tooltip } from "../ui";
+import { Button, IconButton } from "../ui";
 import {
   GitBranchIcon,
   GitBranchDeletedIcon,
@@ -68,15 +68,13 @@ export const Footer = memo(function Footer() {
     // Not a git repo - show init option
     if (status && !status.isRepo) {
       return (
-        <Tooltip content="Initialize Git repository">
-          <Button
-            onClick={handleEnableGit}
-            variant="ghost"
-            className="text-xs h-auto p-0 hover:bg-transparent"
-          >
-            Enable Git
-          </Button>
-        </Tooltip>
+        <Button
+          onClick={handleEnableGit}
+          variant="ghost"
+          className="text-xs h-auto p-0 hover:bg-transparent"
+        >
+          Enable Git
+        </Button>
       );
     }
 
@@ -88,40 +86,31 @@ export const Footer = memo(function Footer() {
     const hasChanges = status ? status.changedCount > 0 : false;
 
     return (
-      <div className="flex items-center gap-1.5">
-        {/* Branch icon with name on hover */}
+      <div className="flex min-w-0 items-center gap-1.5">
         {status?.currentBranch ? (
-          <Tooltip content={"Branch: " + status.currentBranch}>
-            <span className="text-text-muted flex items-center">
-              <GitBranchIcon className="w-4.5 h-4.5 stroke-[1.5]" />
-            </span>
-          </Tooltip>
+          <span className="flex min-w-0 items-center gap-1 text-xs text-text-muted">
+            <GitBranchIcon className="h-4.5 w-4.5 shrink-0 stroke-[1.5]" />
+            <span className="truncate">{status.currentBranch}</span>
+          </span>
         ) : status ? (
-          <Tooltip content="No branch (set up git in settings)">
-            <span className="text-text-muted flex items-center">
-              <GitBranchDeletedIcon className="w-4.5 h-4.5 stroke-[1.5] opacity-50" />
-            </span>
-          </Tooltip>
+          <span className="flex items-center text-text-muted">
+            <GitBranchDeletedIcon className="h-4.5 w-4.5 stroke-[1.5] opacity-50" />
+          </span>
         ) : null}
 
-        {/* Changes indicator — hidden when there's an error so we don't show a stale count alongside it */}
         {hasChanges && !lastError && (
-          <Tooltip content="You have uncommitted changes">
-            <span className="text-xs text-text-muted/70">Files changed</span>
-          </Tooltip>
+          <span className="shrink-0 text-xs text-text-muted/70">Files changed</span>
         )}
 
-        {/* Error indicator */}
         {lastError && (
-          <Tooltip content={lastError}>
-            <Button
-              onClick={clearError}
-              variant="link"
-              className="text-xs h-auto p-0 text-red-500 hover:text-red-600 hover:no-underline"
-            >
-              An error occurred
-            </Button>
-          </Tooltip>
+          <Button
+            onClick={clearError}
+            variant="link"
+            aria-label={lastError}
+            className="h-auto max-w-48 truncate p-0 text-xs text-red-500 hover:text-red-600 hover:no-underline"
+          >
+            {lastError}
+          </Button>
         )}
       </div>
     );
@@ -137,7 +126,7 @@ export const Footer = memo(function Footer() {
   const showSyncButton =
     gitEnabled && gitAvailable && status?.hasRemote && status?.hasUpstream;
 
-  const syncTooltip = isSyncing
+  const syncLabel = isSyncing
     ? "Syncing..."
     : behindCount > 0 && aheadCount > 0
       ? `${behindCount} to pull, ${aheadCount} to push`
@@ -157,36 +146,33 @@ export const Footer = memo(function Footer() {
   return (
     <div className="shrink-0 border-t border-border">
       {/* Footer bar with git status and action buttons */}
-      <div className="pl-4 pr-3 pt-2 pb-2.5 flex items-center justify-between">
+      <div className="flex items-center justify-between px-3 py-2">
         {renderGitStatus()}
         <div className="flex items-center gap-px">
-          {/* Sync button — pulls then pushes, always visible when upstream is configured */}
           {showSyncButton && (
-            <Tooltip content={syncTooltip}>
-              <IconButton
-                onClick={handleSync}
-                disabled={isSyncing}
-                aria-label="Sync"
-              >
-                {isSyncing ? (
-                  <SpinnerIcon className="w-4.5 h-4.5 stroke-[1.5] animate-spin" />
-                ) : (
-                  <span className="relative flex items-center">
-                    <RefreshCwIcon
-                      className={cn(
-                        "w-4.5 h-4.5 stroke-[1.5]",
-                        syncCount === 0 && "opacity-50",
-                      )}
-                    />
-                    {syncCount > 0 && (
-                      <span className="absolute -top-1.25 -right-1.25 min-w-3.5 h-3.5 flex items-center justify-center rounded-full bg-accent text-text-inverse text-[9px] font-bold leading-none px-0.5">
-                        {syncCount}
-                      </span>
+            <IconButton
+              onClick={handleSync}
+              disabled={isSyncing}
+              aria-label={syncLabel}
+            >
+              {isSyncing ? (
+                <SpinnerIcon className="w-4.5 h-4.5 stroke-[1.5] animate-spin" />
+              ) : (
+                <span className="relative flex items-center">
+                  <RefreshCwIcon
+                    className={cn(
+                      "w-4.5 h-4.5 stroke-[1.5]",
+                      syncCount === 0 && "opacity-50",
                     )}
-                  </span>
-                )}
-              </IconButton>
-            </Tooltip>
+                  />
+                  {syncCount > 0 && (
+                    <span className="absolute -top-1.25 -right-1.25 min-w-3.5 h-3.5 flex items-center justify-center rounded-full bg-accent text-text-inverse text-[9px] font-bold leading-none px-0.5">
+                      {syncCount}
+                    </span>
+                  )}
+                </span>
+              )}
+            </IconButton>
           )}
           {showCommitButton && (
             <IconButton

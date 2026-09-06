@@ -336,9 +336,9 @@ fn get_notes_folder(state: State<AppState>) -> Option<String> {
 }
 
 #[tauri::command]
-fn set_notes_folder(app: AppHandle, _path: String, state: State<AppState>) -> Result<(), String> {
+fn set_notes_folder(app: AppHandle, _path: String, state: State<AppState>) -> Result<String, String> {
     let vault = app_data_dir(&app)?.join("offline-notes");
-    ensure_vault(&app, &state, vault)?;
+    let normalized = ensure_vault(&app, &state, vault)?;
     let config = {
         let mut config = state
             .config
@@ -347,7 +347,8 @@ fn set_notes_folder(app: AppHandle, _path: String, state: State<AppState>) -> Re
         config.cloud_user_id = None;
         config.clone()
     };
-    save_config(&app, &config)
+    save_config(&app, &config)?;
+    Ok(normalized)
 }
 
 #[tauri::command]
@@ -370,7 +371,22 @@ fn set_cloud_notes_folder(
     }
 
     let vault = app_data_dir(&app)?.join("cloud-notes").join(&user_id);
-    let normalized = ensure_vault(&app, &state, vault)?;
+    let previous = state
+        .config
+        .lock()
+        .map_err(|_| "Spell storage is unavailable".to_string())?
+        .notes_folder
+        .clone();
+    let offline = app_data_dir(&app)?.join("offline-notes");
+    let normalized = ensure_vault(&app, &state, vault.clone())?;
+    let dest = PathBuf::from(&normalized);
+    for source in [previous.map(PathBuf::from), Some(offline)].into_iter().flatten() {
+        if source != dest {
+            if let Err(error) = library::merge_notes_vault(&source, &dest) {
+                eprintln!("Failed to copy local notes into Spell Cloud vault: {error}");
+            }
+        }
+    }
     let config = {
         let mut config = state
             .config
@@ -394,6 +410,18 @@ fn disconnect_cloud(app: AppHandle, state: State<AppState>) -> Result<(), String
         config.clone()
     };
     save_config(&app, &config)
+}
+
+#[tauri::command]
+fn import_stranded_notes(app: AppHandle, state: State<AppState>) -> Result<u32, String> {
+    let current = vault_path_from_config(&state)?;
+    let offline = app_data_dir(&app)?.join("offline-notes");
+    if !offline.exists() || offline == current {
+        return Ok(0);
+    }
+    library::merge_notes_vault(&offline, &current)
+        .map(|copied| copied as u32)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -740,6 +768,7 @@ pub fn run() {
             get_cloud_user_id,
             set_cloud_notes_folder,
             disconnect_cloud,
+            import_stranded_notes,
             apply_cloud_note,
             list_notes,
             read_note,

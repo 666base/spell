@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { toast } from "sonner";
 import {
   CLOUD_AUTH_ERROR_EVENT,
@@ -10,7 +10,6 @@ import {
 import {
   createCloudAccount,
   getCloudSession,
-  isSpellCloudReachable,
   requestCloudPasswordReset,
   resendCloudConfirmationEmail,
   signInToCloud,
@@ -44,6 +43,11 @@ export function CloudAuthForm({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isResending, setIsResending] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const focusOnMount = useRef(true);
+
+  useEffect(() => {
+    focusOnMount.current = false;
+  }, []);
 
   const showAuthError = (error: unknown) => {
     const message = cloudAuthErrorMessage(error);
@@ -70,20 +74,6 @@ export function CloudAuthForm({
     return () => {
       window.removeEventListener(CLOUD_PASSWORD_RECOVERY_EVENT, showReset);
       window.removeEventListener(CLOUD_AUTH_ERROR_EVENT, onAuthError);
-    };
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    void isSpellCloudReachable().then((reachable) => {
-      if (!cancelled && !reachable) {
-        setFormError(
-          "Spell Cloud is unreachable. Sign in, new accounts, and password reset need the server.",
-        );
-      }
-    });
-    return () => {
-      cancelled = true;
     };
   }, []);
 
@@ -286,7 +276,7 @@ export function CloudAuthForm({
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
                 required
-                autoFocus
+                autoFocus={focusOnMount.current}
               />
             </label>
             <Button type="submit" variant="primary" size="xl" disabled={isSubmitting}>
@@ -332,52 +322,64 @@ export function CloudAuthForm({
               value={email}
               onChange={(event) => setEmail(event.target.value)}
               required
-              autoFocus
+              autoFocus={focusOnMount.current}
             />
           </label>
-          <label className="flex flex-col gap-1.5">
-            <span className="text-xs font-medium text-text">Password</span>
-            <Input
-              id="cloud-password"
-              name={mode === "create" ? "new-password" : "current-password"}
-              type="password"
-              autoComplete={mode === "create" ? "new-password" : "current-password"}
-              placeholder={mode === "create" ? "At least 8 characters" : "Password"}
-              value={password}
-              onChange={(event) => {
-                setPassword(event.target.value);
-                setPasswordError(null);
-              }}
-              minLength={8}
-              required
-            />
-          </label>
-          {mode === "create" && (
+          <div>
             <label className="flex flex-col gap-1.5">
-              <span className="text-xs font-medium text-text">Confirm password</span>
+              <span className="text-xs font-medium text-text">Password</span>
               <Input
-                id="cloud-password-confirm"
-                name="new-password-confirm"
+                id="cloud-password"
+                name={mode === "create" ? "new-password" : "current-password"}
                 type="password"
-                autoComplete="new-password"
-                placeholder="Repeat password"
-                value={confirmPassword}
+                autoComplete={mode === "create" ? "new-password" : "current-password"}
+                placeholder={mode === "create" ? "At least 8 characters" : "Password"}
+                value={password}
                 onChange={(event) => {
-                  setConfirmPassword(event.target.value);
+                  setPassword(event.target.value);
                   setPasswordError(null);
                 }}
                 minLength={8}
                 required
-                aria-invalid={passwordError ? true : undefined}
-                aria-describedby={passwordError ? "cloud-password-error" : undefined}
               />
-              {passwordError && (
-                <p id="cloud-password-error" className="text-xs text-red-500" role="alert">
-                  {passwordError}
-                </p>
-              )}
             </label>
-          )}
+            <div
+              className="settings-disclose"
+              data-open={mode === "create" ? "true" : "false"}
+              aria-hidden={mode !== "create"}
+              inert={mode !== "create" ? true : undefined}
+            >
+              <div className="settings-disclose-inner">
+                <div className="settings-disclose-body">
+                  <label className="flex flex-col gap-1.5">
+                    <span className="text-xs font-medium text-text">Confirm password</span>
+                    <Input
+                      id="cloud-password-confirm"
+                      name="new-password-confirm"
+                      type="password"
+                      autoComplete="new-password"
+                      placeholder="Repeat password"
+                      value={confirmPassword}
+                      onChange={(event) => {
+                        setConfirmPassword(event.target.value);
+                        setPasswordError(null);
+                      }}
+                      minLength={8}
+                      required={mode === "create"}
+                      tabIndex={mode === "create" ? undefined : -1}
+                      aria-invalid={passwordError ? true : undefined}
+                      aria-describedby={passwordError ? "cloud-password-error" : undefined}
+                    />
+                    {passwordError && (
+                      <p id="cloud-password-error" className="text-xs text-red-500" role="alert">
+                        {passwordError}
+                      </p>
+                    )}
+                  </label>
+                </div>
+              </div>
+            </div>
+          </div>
           <Button type="submit" variant="primary" size="xl" disabled={isSubmitting}>
             {isSubmitting
               ? mode === "create"

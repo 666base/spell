@@ -34,7 +34,7 @@ const AlertDialogContent = React.forwardRef<
     <AlertDialogPrimitive.Content
       ref={ref}
       className={cn(
-        "app-sheet-surface fixed z-50 grid w-full gap-4 border border-border p-6",
+        "app-sheet-surface fixed z-50 grid w-full gap-4 p-6",
         isMobileApp
           ? "mobile-drawer inset-x-3 top-[calc(var(--safe-area-top)+10px)] bottom-auto max-w-none translate-x-0 translate-y-0 rounded-[14px] p-5"
           : "left-[50%] top-[50%] max-w-md translate-x-[-50%] translate-y-[-50%] rounded-xl",

@@ -49,7 +49,7 @@ export function Sidebar({
   const showFoldersToggle = Boolean(onToggle && !foldersVisible);
 
   return (
-    <div className={cn("relative flex h-full w-full flex-col select-none", mobile ? "app-sidebar-surface" : "bg-bg-secondary")}>
+    <div className="app-sidebar-surface relative flex h-full w-full flex-col select-none">
       {mobile ? (
         <div className="app-chrome flex h-14 shrink-0 items-center justify-between px-3">
           <span className="text-sm font-semibold tracking-[-0.012em] text-text">{panelLabel}</span>
@@ -68,7 +68,7 @@ export function Sidebar({
       ) : showFoldersToggle ? (
         <div
           className={cn(
-            "app-titlebar flex h-11 shrink-0 items-center gap-1 px-2",
+            "app-titlebar flex shrink-0 items-center gap-1",
             isMac && "pl-20",
           )}
           data-tauri-drag-region
@@ -80,7 +80,7 @@ export function Sidebar({
           </div>
         </div>
       ) : null}
-      <div className="flex min-h-0 flex-1 flex-col bg-bg-secondary">
+      <div className="flex min-h-0 flex-1 flex-col">
         <div className="min-h-0 flex-1">
           <NoteList
             filter={

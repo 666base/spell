@@ -14,30 +14,37 @@
 /* Theme color tokens - Light mode (default) */
 :root {
   --color-bg: #ffffff;
-  --color-bg-secondary: #f2f2f7;
+  --color-bg-secondary: #ffffff;
   --color-bg-muted: rgba(60, 60, 67, 0.08);
   --color-bg-hover: rgba(60, 60, 67, 0.08);
   --color-bg-emphasis: rgba(60, 60, 67, 0.12);
   --color-bg-selected: rgba(60, 60, 67, 0.14);
   --color-note-selected: #ffe08c;
   --color-check-on-accent: #1c1c1e;
-  --color-text: #1c1c1e;
-  --color-text-muted: #8e8e93;
+  --color-text: #252525;
+  --color-text-muted: #9a9a9a;
   --color-text-inverse: #fafafa;
-  --color-border: rgba(60, 60, 67, 0.12);
-  --color-accent: #1c1c1e;
+  --color-border: #ebebeb;
+  --color-accent: #252525;
   --color-overlay: rgba(0, 0, 0, 0.48);
   --color-selection: rgba(255, 204, 0, 0.38);
+  --notes-tint: #007aff;
+  --color-icon: #9b9b9b;
+  --color-icon-hover: #252525;
   --surface-edge: rgba(255, 255, 255, 0.72);
   --control-highlight: rgba(255, 255, 255, 0.42);
-  --material-chrome: var(--color-bg-secondary);
-  --material-panel: var(--color-bg-secondary);
+  --material-chrome: var(--color-bg);
+  --material-panel: var(--color-bg);
   --material-sheet: var(--color-bg);
   --border-strong: rgba(28, 25, 23, 0.15);
-  --focus-ring: rgba(59, 130, 246, 0.4);
+  --focus-ring: color-mix(in srgb, var(--notes-tint) 40%, transparent);
   --shadow-control: inset 0 1px 0 var(--surface-edge), 0 1px 1px rgba(28, 25, 23, 0.035);
   --shadow-menu: none;
-  --material-menu: #f6f6f6;
+  /* Velocity-style glass: a lifted fill and a lit top rim. No blur —
+     WebKitGTK and Android WebView tile if we use backdrop-filter. */
+  --glass-edge: #ebebeb;
+  --glass-edge-lit: #ebebeb;
+  --material-menu: #f2f2f2;
   --color-menu-danger: #ff3b30;
   --color-money-in: #34c759;
   --status-gray-fg: #6f6f73;
@@ -61,25 +68,26 @@
   --shadow-surface: none;
   --icon-size-meta: 0.75rem;
   --icon-size-dense: 0.875rem;
+  --icon-size-sm: 1.125rem;
   --icon-size-control: 1.25rem;
   --icon-size-touch: 1.375rem;
   --icon-stroke: 1.75;
 
   /* Shared interaction language. Keep dynamic UI quick and interruptible.
      JS counterparts live in src/lib/motion.ts — keep both in sync.
-     Press squash is 0.97 (inside 12-principles 0.95–1.05). Surfaces enter from 0.96. */
+     Ease-out is Linear/Apple (0.2, 0, 0, 1): settle without the expo punch
+     that reads as bounce on height. Press feedback is surface change, not
+     squash. Frequent menus fade; they do not scale. */
   --motion-fast: 140ms;
   --motion-base: 180ms;
   --motion-panel: 220ms;
   --motion-press: 100ms;
-  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
-  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --ease-out: cubic-bezier(0.2, 0, 0, 1);
+  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
   --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
-  --press-scale: 0.97;
-  --enter-scale: 0.96;
   --radius-control: 0.5rem;
-  --radius-surface: 0.5rem;
-  --radius-sheet: 0.75rem;
+  --radius-surface: 0.625rem;
+  --radius-sheet: 0.875rem;
 
   /* Editor font settings - simplified (overridden by ThemeContext) */
   --editor-font-family:
@@ -110,31 +118,36 @@
 
 /* Theme color tokens - Dark mode */
 .dark {
-  --color-bg: #1c1c1e;
-  --color-bg-secondary: #2c2c2e;
-  --color-bg-muted: rgba(235, 235, 245, 0.08);
-  --color-bg-hover: rgba(235, 235, 245, 0.1);
-  --color-bg-emphasis: rgba(235, 235, 245, 0.12);
-  --color-bg-selected: rgba(235, 235, 245, 0.16);
+  --color-bg: #171717;
+  --color-bg-secondary: #171717;
+  --color-bg-muted: rgba(255, 255, 255, 0.03);
+  --color-bg-hover: rgba(255, 255, 255, 0.05);
+  --color-bg-emphasis: rgba(255, 255, 255, 0.11);
+  --color-bg-selected: rgba(255, 255, 255, 0.05);
   --color-note-selected: #c9a227;
-  --color-check-on-accent: #1c1c1e;
-  --color-text: #f5f5f7;
-  --color-text-muted: #98989d;
-  --color-text-inverse: #1c1c1e;
-  --color-border: rgba(235, 235, 245, 0.12);
-  --color-accent: #f5f5f7;
+  --color-check-on-accent: #171717;
+  --color-text: #e1e1e1;
+  --color-text-muted: #a3a3a3;
+  --color-text-inverse: #171717;
+  --color-border: #292929;
+  --color-accent: #e1e1e1;
   --color-overlay: rgba(0, 0, 0, 0.72);
   --color-selection: rgba(255, 214, 10, 0.32);
-  --surface-edge: rgba(255, 255, 255, 0.06);
-  --control-highlight: rgba(255, 255, 255, 0.1);
-  --material-chrome: var(--color-bg-secondary);
-  --material-panel: var(--color-bg-secondary);
+  --notes-tint: #0a84ff;
+  --color-icon: #a09f92;
+  --color-icon-hover: #e1e1e1;
+  --surface-edge: rgba(255, 255, 255, 0.04);
+  --control-highlight: rgba(255, 255, 255, 0.06);
+  --material-chrome: var(--color-bg);
+  --material-panel: var(--color-bg);
   --material-sheet: var(--color-bg);
-  --border-strong: rgba(250, 249, 249, 0.16);
-  --focus-ring: rgba(96, 165, 250, 0.48);
-  --shadow-control: inset 0 1px 0 var(--surface-edge), 0 1px 1px rgba(0, 0, 0, 0.14);
+  --border-strong: #313131;
+  --focus-ring: color-mix(in srgb, var(--notes-tint) 45%, transparent);
+  --shadow-control: none;
   --shadow-menu: none;
-  --material-menu: #2c2c2e;
+  --glass-edge: #292929;
+  --glass-edge-lit: #313131;
+  --material-menu: #191919;
   --color-menu-danger: #ff453a;
   --color-money-in: #30d158;
   --status-gray-fg: #b0b0b5;
@@ -218,6 +231,7 @@ body,
   padding: 0;
   overflow: hidden;
   overscroll-behavior: none;
+  background: var(--color-bg);
 }
 
 /* Windows keeps its native title bar (no in-app titlebar spacer); a top border
@@ -238,15 +252,17 @@ body,
 /* Shared platform layers. Chrome frames the app; sidebars separate parallel
    workspaces; sheets rise only when an action needs focused attention. */
 .app-chrome {
-  background: var(--color-bg-secondary);
+  background: var(--color-bg);
 }
 
 .app-sidebar-surface {
-  background: var(--color-bg-secondary);
+  background: var(--color-bg);
 }
 
 .app-sheet-surface {
-  background: var(--color-bg);
+  background: var(--material-menu);
+  border: 1px solid var(--glass-edge);
+  border-top-color: var(--glass-edge-lit);
   border-radius: var(--radius-sheet);
 }
 
@@ -480,31 +496,30 @@ body,
 
 .icon-button,
 .toolbar-button {
-  color: var(--color-text-muted);
+  color: var(--color-icon, var(--color-text-muted));
 }
 
 @media (hover: hover) and (pointer: fine) {
   .icon-button:hover:not(:disabled):not([data-active="true"]),
   .toolbar-button:hover:not(:disabled):not([data-active="true"]) {
-    color: var(--color-text);
+    color: var(--color-icon-hover, var(--color-text));
     background-color: var(--color-bg-hover);
-    box-shadow: inset 0 1px 0 var(--control-highlight);
+    box-shadow: none;
   }
 }
 
 .icon-button:active:not(:disabled),
 .toolbar-button:active:not(:disabled) {
-  transform: scale(var(--press-scale));
   transition-duration: var(--motion-press);
   background-color: var(--color-bg-emphasis);
-  color: var(--color-text);
+  color: var(--color-icon-hover, var(--color-text));
 }
 
 .icon-button[data-active="true"],
 .toolbar-button[data-active="true"] {
   background-color: var(--color-bg-selected);
-  color: var(--color-text);
-  box-shadow: inset 0 1px 0 var(--control-highlight);
+  color: var(--color-icon-hover, var(--color-text));
+  box-shadow: none;
 }
 
 .icon-button:disabled,
@@ -515,7 +530,7 @@ body,
 
 .note-row {
   background: transparent;
-  transition: transform var(--motion-press) var(--ease-out);
+  transition: background-color var(--motion-fast) var(--ease-out);
 }
 
 .note-row-title-line {
@@ -530,7 +545,6 @@ body,
   min-width: 0;
   flex: 1;
   overflow: hidden;
-  padding: 2px 0 4px;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 13px;
@@ -568,13 +582,12 @@ body,
 
 @media (hover: hover) and (pointer: fine) {
   .note-row:hover {
-    background: color-mix(in srgb, var(--color-text) 8%, var(--color-bg-secondary));
+    background: var(--color-bg-hover);
   }
 }
 
 .note-row:active {
-  transform: scale(var(--press-scale));
-  background: color-mix(in srgb, var(--color-text) 12%, var(--color-bg-secondary));
+  background: var(--color-bg-emphasis);
 }
 
 .note-row-selected,
@@ -583,13 +596,16 @@ body,
 .note-row[data-selected="true"],
 .note-row[data-selected="true"]:hover,
 .note-row[data-selected="true"]:active {
-  background: color-mix(in srgb, var(--color-text) 14%, var(--color-bg-secondary));
+  background: var(--color-bg-selected);
 }
 
 /* Keep list paint in one stacking context so WebKit does not leave a
-   hover/menu shadow after a virtual row or context menu unmounts. */
+   hover/menu shadow after a virtual row or context menu unmounts.
+   Horizontal inset lives on the virtual row: absolute children ignore
+   the scroller's padding. Match the titlebar (12px). */
 [data-note-list] {
   isolation: isolate;
+  --note-list-inset-x: 0.75rem;
 }
 
 .folder-glyph {
@@ -604,27 +620,27 @@ body,
 
 .folder-glyph-tab,
 .folder-glyph-back {
-  fill: #64d2ff;
+  fill: #dcdcdc;
 }
 
 .folder-glyph-body,
 .folder-glyph-pocket {
-  fill: #007aff;
+  fill: #9b9b9b;
 }
 
 .dark .folder-glyph-tab,
 .dark .folder-glyph-back {
-  fill: #7ddcff;
+  fill: #414141;
 }
 
 .dark .folder-glyph-body,
 .dark .folder-glyph-pocket {
-  fill: #0a84ff;
+  fill: #737373;
 }
 
 .folder-glyph-open,
 .folder-glyph-closed {
-  transition: opacity var(--motion-base) var(--ease-out);
+  transition: opacity var(--motion-fast) var(--ease-out);
 }
 
 .folder-glyph-open {
@@ -649,12 +665,12 @@ body,
 /* Apple Notes source list: 32px rows, 20px two-tone folders.
    Nested rows indent the icon, not a chevron. */
 .source-list {
-  --source-list-row-height: 32px;
-  --source-list-inset: 8px;
-  --source-list-row-pad: 10px;
+  --source-list-row-height: 36px;
+  --source-list-inset: 4px;
+  --source-list-row-pad: 8px;
   --source-list-icon: 20px;
   --source-list-gap: 8px;
-  --source-list-radius: 8px;
+  --source-list-radius: 10px;
   --source-list-indent: 18px;
   padding: var(--source-list-inset);
 }
@@ -662,7 +678,7 @@ body,
 .source-list-header {
   display: flex;
   align-items: center;
-  padding: 10px 10px 4px;
+  padding: 8px 8px 4px;
   color: var(--color-text-muted);
   font-size: 11px;
   font-weight: 600;
@@ -671,7 +687,7 @@ body,
 }
 
 .source-list-header:first-child {
-  padding-top: 6px;
+  padding-top: 8px;
 }
 
 .source-list-row {
@@ -836,10 +852,6 @@ html[data-library-dragging] * {
   cursor: grabbing !important;
 }
 
-html[data-library-dragging] .note-row:active {
-  transform: none;
-}
-
 .source-list-icon {
   display: flex;
   width: var(--source-list-icon);
@@ -897,6 +909,10 @@ html[data-library-dragging] .note-row:active {
 }
 
 .app-titlebar {
+  box-sizing: border-box;
+  height: 2.75rem;
+  min-height: 2.75rem;
+  padding-inline: 0.75rem;
   overflow: visible;
   border-bottom: 1px solid var(--color-border);
 }
@@ -906,10 +922,14 @@ html[data-library-dragging] .note-row:active {
   border-bottom-color: transparent;
 }
 
+.window-controls .icon-button:last-child {
+  margin-inline-end: 0;
+}
+
 .note-titlebar .icon-button {
-  width: 30px;
-  height: 30px;
-  border-radius: 7px;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-control);
 }
 
 .no-notes-empty {
@@ -957,6 +977,17 @@ html[data-library-dragging] .note-row:active {
   font-weight: 600;
   line-height: 1.15;
   text-wrap: balance;
+}
+
+.no-notes-empty-hint {
+  margin: 0;
+  max-width: 22rem;
+  color: var(--color-text-muted);
+  font-size: 0.875rem;
+  font-weight: 400;
+  line-height: 1.45;
+  text-align: center;
+  text-wrap: pretty;
 }
 
 .source-list-main {
@@ -1016,6 +1047,51 @@ button.source-list-folder-toggle {
   overflow: hidden;
 }
 
+/* Occasional settings panels grow in place instead of popping extra rows. */
+.settings-disclose {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    grid-template-rows var(--motion-panel) var(--ease-out),
+    opacity var(--motion-fast) var(--ease-out);
+}
+
+.settings-disclose[data-open="true"] {
+  grid-template-rows: 1fr;
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.settings-disclose-inner {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.settings-disclose-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding-top: 0.75rem;
+}
+
+.settings-sync-option {
+  transition: background-color var(--motion-fast) var(--ease-out);
+}
+
+.settings-account-skeleton,
+.settings-account-card {
+  min-height: 4.5rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .settings-disclose,
+  .settings-sync-option {
+    transition: none;
+  }
+}
+
 .workspace-page {
   box-sizing: border-box;
   width: min(44rem, calc(100% - 3rem));
@@ -1072,8 +1148,7 @@ button.source-list-folder-toggle {
   text-align: left;
   transition:
     background-color var(--motion-fast) var(--ease-out),
-    border-color var(--motion-fast) var(--ease-out),
-    transform var(--motion-press) var(--ease-out);
+    border-color var(--motion-fast) var(--ease-out);
 }
 
 @media (hover: hover) and (pointer: fine) {
@@ -1083,7 +1158,7 @@ button.source-list-folder-toggle {
 }
 
 .workspace-card:active {
-  transform: scale(var(--press-scale));
+  background: var(--color-bg-emphasis);
 }
 
 .workspace-card-icon {
@@ -1192,10 +1267,6 @@ button.source-list-folder-toggle {
   .source-list-children {
     transition: none;
   }
-
-  .workspace-card:active {
-    transform: none;
-  }
 }
 
 /* Center the wordmark against the window, never against either sidebar or
@@ -1277,14 +1348,14 @@ select {
   font: inherit;
 }
 
-/* Apple Notes / macOS contextual menus: opaque surface, 13px labels,
-   28px rows, no shortcut column. Highlight is a rounded rect inside the
-   menu, not a full-bleed web hover. */
+/* Apple Notes / macOS contextual menus: 13px labels, 28px rows, no
+   shortcut column. Surface is Velocity glass — fill + lit rim, no blur. */
 .spell-menu {
   min-width: 10rem;
   padding: 5px;
-  border: 1px solid color-mix(in srgb, var(--color-text) 14%, transparent);
-  border-radius: 8px;
+  border: 1px solid var(--glass-edge);
+  border-top-color: var(--glass-edge-lit);
+  border-radius: 12px;
   background: var(--material-menu);
   box-shadow: none;
   color: var(--color-text);
@@ -1300,7 +1371,7 @@ select {
   min-height: 28px;
   align-items: center;
   gap: 8px;
-  border-radius: 5px;
+  border-radius: 8px;
   padding: 0 10px;
   color: var(--color-text);
   cursor: default;
@@ -1347,6 +1418,13 @@ select {
   }
 }
 
+.spell-menu-item-caret {
+  margin-left: auto;
+  width: 14px;
+  height: 14px;
+  opacity: 0.45;
+}
+
 .spell-menu-separator {
   height: 1px;
   margin: 5px 10px;
@@ -1374,13 +1452,13 @@ select {
 [data-sonner-toaster].spell-toaster {
   --normal-bg: var(--material-menu);
   --normal-bg-hover: var(--material-menu);
-  --normal-border: color-mix(in srgb, var(--color-text) 14%, transparent);
-  --normal-border-hover: color-mix(in srgb, var(--color-text) 14%, transparent);
+  --normal-border: var(--glass-edge);
+  --normal-border-hover: var(--glass-edge);
   --normal-text: var(--color-text);
   --gray1: var(--color-bg);
   --gray4: var(--color-border);
   --gray12: var(--color-text);
-  --border-radius: 8px;
+  --border-radius: 12px;
   font-family: inherit;
 }
 
@@ -1389,8 +1467,9 @@ select {
   gap: 10px;
   padding: 10px 12px;
   background: var(--material-menu);
-  border: 1px solid color-mix(in srgb, var(--color-text) 14%, transparent);
-  border-radius: 8px;
+  border: 1px solid var(--glass-edge);
+  border-top-color: var(--glass-edge-lit);
+  border-radius: 12px;
   box-shadow: none;
   color: var(--color-text);
   font-size: 13px;
@@ -1517,7 +1596,7 @@ select {
 }
 
 .format-cluster-btn:active {
-  transform: scale(var(--press-scale));
+  background: var(--color-bg-muted);
 }
 
 .format-cluster-btn[data-active="true"] {
@@ -1640,23 +1719,17 @@ select {
 .spell-popover {
   overflow: visible;
   opacity: 1;
-  transform: scale(1);
   transform-origin: var(--transform-origin, top center);
-  transition:
-    opacity var(--motion-base) var(--ease-out),
-    transform var(--motion-base) var(--ease-out);
+  transition: opacity var(--motion-fast) var(--ease-out);
 
   @starting-style {
     opacity: 0;
-    transform: scale(var(--enter-scale));
   }
 }
 
 .spell-popover[data-open="false"] {
   opacity: 0;
-  transform: scale(var(--enter-scale));
   pointer-events: none;
-  transition-duration: var(--motion-fast);
 }
 
 .spell-overlay {
@@ -1680,22 +1753,18 @@ select {
 @keyframes spell-popover-in {
   from {
     opacity: 0;
-    transform: scale(var(--enter-scale));
   }
   to {
     opacity: 1;
-    transform: scale(1);
   }
 }
 
 @keyframes spell-popover-out {
   from {
     opacity: 1;
-    transform: scale(1);
   }
   to {
     opacity: 0;
-    transform: scale(var(--enter-scale));
   }
 }
 
@@ -1746,13 +1815,9 @@ button,
 /* Controls acknowledge a pointer press without adding hover bounce. Their
    semantic state changes carry the more visible motion below. */
 .motion-interactive {
-  transition-property: background-color, border-color, color, box-shadow, opacity, transform;
+  transition-property: background-color, border-color, color, opacity;
   transition-duration: var(--motion-fast);
   transition-timing-function: var(--ease-out);
-}
-
-.motion-interactive svg:not(.state-disclosure):not(.panel-toggle-icon):not(.spell-select-chevron) {
-  transition: opacity var(--motion-fast) var(--ease-out);
 }
 
 /* Mobile WebViews repaint the editor beneath a live backdrop filter. Keep
@@ -2251,8 +2316,10 @@ html.mobile-app .mobile-tint-button:focus {
   max-width: 28rem;
   overflow: hidden;
   border-radius: 14px;
-  background: var(--color-bg);
-  box-shadow: 0 18px 48px color-mix(in srgb, var(--color-text) 22%, transparent);
+  background: var(--material-menu);
+  border: 1px solid var(--glass-edge);
+  border-top-color: var(--glass-edge-lit);
+  box-shadow: none;
   transform: translate3d(0, 0, 0);
   opacity: 1;
   transition:
@@ -2337,6 +2404,7 @@ html.mobile-app .mobile-tint-button:focus {
 .mobile-select-mark.is-on {
   border-color: var(--notes-tint);
   background: var(--notes-tint);
+  color: #fff;
 }
 
 .mobile-select-mark svg {
@@ -2940,8 +3008,7 @@ body:has([data-mobile-shell]) .spell-calendar-popover.mobile-drawer[data-open="f
   cursor: pointer;
   transition:
     background-color var(--motion-fast) var(--ease-out),
-    border-color var(--motion-fast) var(--ease-out),
-    transform var(--motion-press) var(--ease-out);
+    border-color var(--motion-fast) var(--ease-out);
 }
 
 .money-row-check:hover {
@@ -2949,7 +3016,7 @@ body:has([data-mobile-shell]) .spell-calendar-popover.mobile-drawer[data-open="f
 }
 
 .money-row-check:active {
-  transform: scale(var(--press-scale));
+  background: var(--color-bg-emphasis);
 }
 
 .money-row-check.is-checked {
@@ -3071,10 +3138,6 @@ button.money-row:active {
   .money-row-check {
     transition: none;
   }
-
-  .money-row-check:active {
-    transform: none;
-  }
 }
 
 [data-mobile-shell] .mobile-daily .ProseMirror > h1:first-child {
@@ -3092,8 +3155,8 @@ button.money-row:active {
   width: 16rem;
 }
 
-button.motion-interactive:not(:disabled):active,
-[role="button"].motion-interactive:not([aria-disabled="true"]):active {
+button.motion-interactive:not(:disabled):not(.icon-button):not(.toolbar-button):active,
+[role="button"].motion-interactive:not([aria-disabled="true"]):not(.icon-button):not(.toolbar-button):active {
   opacity: 0.82;
   transition-duration: var(--motion-press);
 }
@@ -3126,7 +3189,7 @@ button.motion-interactive:not(:disabled):active,
   }
 
   .nav-item-surface:active {
-    transform: scale(var(--press-scale));
+    background-color: color-mix(in srgb, var(--color-accent) 12%, var(--color-bg-muted));
   }
 
   .sidebar-row[data-selected="false"]:hover {
@@ -3565,8 +3628,7 @@ html[data-kanban-dragging] * {
   color: var(--status-fg, var(--color-check-on-accent));
   transition:
     background-color var(--motion-fast) var(--ease-out),
-    border-color var(--motion-fast) var(--ease-out),
-    transform var(--motion-press) var(--ease-out);
+    border-color var(--motion-fast) var(--ease-out);
 }
 
 .kanban-done-toggle:hover {
@@ -3574,7 +3636,7 @@ html[data-kanban-dragging] * {
 }
 
 .kanban-done-toggle:not(:disabled):active {
-  transform: scale(var(--press-scale));
+  background: var(--color-bg-emphasis);
 }
 
 .kanban-done-toggle.is-checked {
@@ -3607,13 +3669,11 @@ html[data-kanban-dragging] * {
   transition:
     background-color var(--motion-fast) var(--ease-out),
     border-color var(--motion-fast) var(--ease-out),
-    color var(--motion-fast) var(--ease-out),
-    transform var(--motion-press) var(--ease-out);
+    color var(--motion-fast) var(--ease-out);
 }
 
 .kanban-todo-toggle:not(:disabled):active {
-  /* A pressed control is feedback, not a bouncy state transition. */
-  transform: scale(var(--press-scale));
+  background: var(--color-bg-emphasis);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -3743,54 +3803,55 @@ html[data-kanban-dragging] * {
 
 .toolbar-button > .ui-icon,
 .icon-button[data-size="sm"] > .ui-icon {
-  width: 1.125rem;
-  height: 1.125rem;
+  width: var(--icon-size-sm);
+  height: var(--icon-size-sm);
   stroke-width: var(--icon-stroke);
 }
 
-/* Apple Notes titlebar tools: 30px squircles, grouped like the native
-   cluster (format + insert | share) on the trailing edge of the bar. */
+/* Apple Notes titlebar: one format/insert cluster, then share. */
 .notes-toolbar {
-  gap: 10px;
+  gap: 8px;
 }
 
 .notes-toolbar-group {
   display: flex;
   align-items: center;
-  gap: 1px;
+  gap: 0;
+  padding: 3px;
+  border-radius: 10px;
+  background: var(--color-bg-muted);
 }
 
 .notes-toolbar .icon-button {
-  width: 30px;
-  height: 30px;
+  width: 28px;
+  height: 28px;
   overflow: visible;
-  border-radius: 7px;
-  color: color-mix(in srgb, var(--color-text) 62%, transparent);
+  border-radius: var(--radius-control);
+  color: var(--color-icon, var(--color-text-muted));
 }
 
 .notes-toolbar .icon-button[data-size="sm"] > .ui-icon,
 .notes-toolbar .icon-button > .notes-glyph {
-  width: 19px;
-  height: 19px;
-  stroke-width: 2.05;
+  width: var(--icon-size-sm);
+  height: var(--icon-size-sm);
+  stroke-width: var(--icon-stroke);
 }
 
 .notes-toolbar .icon-button:hover:not(:disabled):not([data-active="true"]) {
-  color: var(--color-text);
-  background-color: color-mix(in srgb, var(--color-text) 8%, transparent);
+  color: var(--color-icon-hover, var(--color-text));
+  background-color: var(--color-bg-hover);
   box-shadow: none;
 }
 
 .notes-toolbar .icon-button:active:not(:disabled) {
-  color: var(--color-text);
-  background-color: color-mix(in srgb, var(--color-text) 12%, transparent);
+  color: var(--color-icon-hover, var(--color-text));
+  background-color: var(--color-bg-emphasis);
   box-shadow: none;
-  transform: scale(var(--press-scale));
 }
 
 .notes-toolbar .icon-button[data-active="true"] {
-  color: var(--color-text);
-  background-color: color-mix(in srgb, var(--color-text) 12%, transparent);
+  color: var(--color-icon-hover, var(--color-text));
+  background-color: var(--color-bg-selected);
   box-shadow: none;
 }
 
@@ -3806,31 +3867,6 @@ html[data-kanban-dragging] * {
   pointer-events: none;
 }
 
-.notes-mark {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  height: 18px;
-  min-width: 11px;
-  font-family: var(--font-sans);
-  font-weight: 700;
-  font-size: 15px;
-  line-height: 1;
-  user-select: none;
-  pointer-events: none;
-}
-
-.notes-mark-italic {
-  font-style: italic;
-  font-size: 16px;
-  padding-right: 1px;
-}
-
-.notes-mark-underline {
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
-
 .notes-aa span:first-child {
   font-size: 15px;
 }
@@ -3842,20 +3878,6 @@ html[data-kanban-dragging] * {
 
 .panel-toggle-icon {
   overflow: visible;
-}
-
-.panel-toggle-icon > path {
-  transform-box: view-box;
-  transform-origin: 0 0;
-  transition: transform var(--motion-fast) var(--ease-out);
-}
-
-.panel-toggle-icon[data-side="left"][data-open="false"] > path {
-  transform: translateX(25%);
-}
-
-.panel-toggle-icon[data-side="right"][data-open="false"] > path {
-  transform: translateX(-25%);
 }
 
 .icon-button[data-size="xs"] > .ui-icon {
@@ -3885,20 +3907,11 @@ details[open] > summary .state-disclosure {
 /* Folder rows stay visually quiet on hover. The disclosure nudges toward the
    content it controls, while the click state remains the clear open/close cue. */
 .folder-disclosure {
-  transition:
-    transform var(--motion-fast) var(--ease-out),
+  transition: transform var(--motion-fast) var(--ease-out),
     color var(--motion-fast) var(--ease-out);
 }
 
 @media (hover: hover) and (pointer: fine) {
-  .group:hover .folder-disclosure[data-open="false"] {
-    transform: translateX(1px);
-  }
-
-  .group:hover .folder-disclosure[data-open="true"] {
-    transform: translateX(1px) rotate(90deg);
-  }
-
   .group:hover .folder-label {
     color: var(--color-text);
   }
@@ -4097,6 +4110,14 @@ details[open] > summary .state-disclosure {
   opacity: 1;
 }
 
+/* Theme flips must not ride color transitions on every control. */
+html.theme-switching,
+html.theme-switching *,
+html.theme-switching *::before,
+html.theme-switching *::after {
+  transition: none !important;
+}
+
 /* Smooth theme transitions */
 html {
   color-scheme: light;
@@ -4131,7 +4152,7 @@ html.dark {
 }
 
 .app-workspace-panel.is-animating {
-  transition: width var(--motion-panel) var(--ease-drawer);
+  transition: width var(--motion-panel) var(--ease-out);
 }
 
 .app-workspace-panel.is-animating::after {
@@ -4391,7 +4412,7 @@ html.dark {
   touch-action: none;
   height: var(--journal-cal-week-h);
   padding-bottom: 0.45rem;
-  transition: height var(--motion-panel) var(--ease-drawer);
+  transition: height var(--motion-panel) var(--ease-out);
 }
 
 .journal-calendar[data-mode="month"] .journal-calendar-viewport {
@@ -4435,7 +4456,11 @@ html.dark {
 }
 
 .journal-calendar-day:active {
-  transform: scale(var(--press-scale));
+  background: var(--color-bg-muted);
+}
+
+.journal-calendar-day.is-selected:active {
+  background: var(--color-text);
 }
 
 .journal-calendar-day.is-outside {
@@ -4540,14 +4565,14 @@ html.dark {
   border: 0;
   border-radius: 999px;
   background: var(--color-note-selected);
-  color: #1c1c1e;
+  color: var(--color-text);
   font-size: 0.8125rem;
   font-weight: 650;
   cursor: pointer;
 }
 
 .journal-empty-create:active {
-  transform: scale(var(--press-scale));
+  opacity: 0.82;
 }
 
 .journal-empty-create:focus-visible {
@@ -4617,13 +4642,6 @@ html.dark {
   .journal-calendar-viewport,
   .journal-calendar-month-grid {
     transition: none;
-  }
-
-  .journal-calendar-day:active,
-  .journal-calendar-today:active,
-  .journal-calendar-handle:active,
-  .journal-empty-create:active {
-    transform: none;
   }
 }
 
@@ -4985,12 +5003,11 @@ ul[data-type="taskList"] li > label input[type="checkbox"] {
   pointer-events: none;
   transition:
     background-color var(--motion-fast) var(--ease-out),
-    border-color var(--motion-fast) var(--ease-out),
-    transform var(--motion-press) var(--ease-out);
+    border-color var(--motion-fast) var(--ease-out);
 }
 
 ul[data-type="taskList"] li > label:active input[type="checkbox"] {
-  transform: scale(var(--press-scale));
+  background-color: var(--color-bg-emphasis);
 }
 
 ul[data-type="taskList"] li > label > span {
@@ -5304,11 +5321,12 @@ table.not-prose th > * {
   }
 
   .spell-table-handle:active {
-    transform: translate(-50%, -50%) scale(var(--press-scale));
+    transform: translate(-50%, -50%);
+    background: var(--color-bg-emphasis);
   }
 
   .spell-table-add:active .spell-table-add-icon {
-    transform: scale(var(--press-scale));
+    background: var(--color-bg-emphasis);
   }
 }
 
@@ -5336,9 +5354,12 @@ table.not-prose th > * {
     transition: opacity var(--motion-press) var(--ease-out), background-color var(--motion-press) var(--ease-out), color var(--motion-press) var(--ease-out);
   }
 
-  .spell-table-add:active .spell-table-add-icon,
-  .spell-table-handle:active {
+  .spell-table-add:active .spell-table-add-icon {
     transform: none;
+  }
+
+  .spell-table-handle:active {
+    transform: translate(-50%, -50%);
   }
 
   .spell-table-handle.is-visible {
@@ -5617,7 +5638,7 @@ table.not-prose th {
   pointer-events: none;
   animation:
     radixMenuEnablePointer 100ms linear forwards,
-    spell-popover-in var(--motion-base) var(--ease-out);
+    spell-popover-in var(--motion-fast) var(--ease-out);
 }
 
 .spell-menu[data-state="closed"] {

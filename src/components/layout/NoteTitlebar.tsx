@@ -47,7 +47,7 @@ export function NoteTitlebar({
   return (
     <div
       className={cn(
-        "note-titlebar app-titlebar relative grid h-11 shrink-0 grid-cols-[minmax(0,1fr)_auto_minmax(min-content,1fr)] items-center gap-2 px-2",
+        "note-titlebar app-titlebar relative grid shrink-0 grid-cols-[minmax(0,1fr)_auto_minmax(min-content,1fr)] items-center gap-2",
         showCollapsedChrome && isMac && "pl-20",
       )}
       data-tauri-drag-region
@@ -90,7 +90,7 @@ export function NoteTitlebar({
           {tools}
           {trailing}
         </div>
-        {showWindowControls && <WindowControls className="notes-toolbar-group" />}
+        {showWindowControls && <WindowControls />}
       </div>
     </div>
   );

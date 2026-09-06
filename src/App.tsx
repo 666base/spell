@@ -536,7 +536,7 @@ function AppContent() {
   ]);
 
   if (isLoading) {
-    return <div className="h-full min-h-0 bg-bg-secondary" />;
+    return <div className="h-full min-h-0 bg-bg" />;
   }
 
   if (!notesFolder) {
@@ -647,7 +647,6 @@ function AppContent() {
       <AppContextMenu
         getEditor={() => editorRef.current}
         onCreateNote={createNoteInContext}
-        onOpenSettings={openSettings}
       />
     </>
   );

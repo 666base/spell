@@ -4,11 +4,13 @@ import {
   useState,
   useEffect,
   useCallback,
+  useRef,
   type ReactNode,
 } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getSettings, updateSettings } from "../services/notes";
 import { SIDEBAR_MIN_PX, SIDEBAR_MAX_PX } from "../lib/sidebar";
+import { applyResolvedTheme } from "../lib/themeSwitch";
 import type {
   ThemeSettings,
   EditorFontSettings,
@@ -53,29 +55,61 @@ const defaultEditorFontSettings: Required<EditorFontSettings> = {
 const defaultThemeColors: Record<"light" | "dark", Record<ThemeColorKey, string>> = {
   light: {
     bg: "#ffffff",
-    "bg-secondary": "#f2f2f7",
+    "bg-secondary": "#ffffff",
     "bg-muted": "rgba(60, 60, 67, 0.08)",
     "bg-emphasis": "rgba(60, 60, 67, 0.12)",
-    text: "#1c1c1e",
-    "text-muted": "#8e8e93",
-    border: "rgba(60, 60, 67, 0.12)",
-    accent: "#1c1c1e",
+    text: "#252525",
+    "text-muted": "#9a9a9a",
+    border: "#ebebeb",
+    accent: "#252525",
     selection: "rgba(255, 204, 0, 0.38)",
   },
   dark: {
-    bg: "#1c1c1e",
-    "bg-secondary": "#2c2c2e",
-    "bg-muted": "rgba(235, 235, 245, 0.08)",
-    "bg-emphasis": "rgba(235, 235, 245, 0.12)",
-    text: "#f5f5f7",
-    "text-muted": "#98989d",
-    border: "rgba(235, 235, 245, 0.12)",
-    accent: "#f5f5f7",
+    bg: "#171717",
+    "bg-secondary": "#171717",
+    "bg-muted": "rgba(255, 255, 255, 0.03)",
+    "bg-emphasis": "rgba(255, 255, 255, 0.11)",
+    text: "#e1e1e1",
+    "text-muted": "#a3a3a3",
+    border: "#292929",
+    accent: "#e1e1e1",
     selection: "rgba(255, 214, 10, 0.32)",
   },
 };
 
 export { defaultThemeColors };
+
+const SUPERSEDED_THEME_COLORS: Record<"light" | "dark", Partial<Record<ThemeColorKey, string[]>>> = {
+  light: {
+    "bg-secondary": ["#f2f2f7"],
+    text: ["#1c1c1e"],
+    "text-muted": ["#8e8e93"],
+    border: ["rgba(60, 60, 67, 0.12)"],
+    accent: ["#1c1c1e"],
+  },
+  dark: {
+    bg: ["#1c1c1e"],
+    "bg-secondary": ["#2c2c2e", "#191919"],
+    "bg-muted": ["rgba(235, 235, 245, 0.08)"],
+    "bg-emphasis": ["rgba(235, 235, 245, 0.12)"],
+    text: ["#f5f5f7"],
+    "text-muted": ["#98989d"],
+    border: ["rgba(235, 235, 245, 0.12)", "#313131"],
+    accent: ["#f5f5f7"],
+  },
+};
+
+export function resolveThemeColor(
+  mode: "light" | "dark",
+  key: ThemeColorKey,
+  custom: CustomColors,
+  defaults: Record<ThemeColorKey, string>,
+): string {
+  const value = custom[key];
+  if (!value) return defaults[key];
+  if (SUPERSEDED_THEME_COLORS[mode][key]?.includes(value)) return defaults[key];
+  return value;
+}
 
 // Normalize any CSS color string (hex, rgb(), rgba(), hsl(), named) to an RGB
 // triple by letting the browser parse it via getComputedStyle.
@@ -291,14 +325,16 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
   // Resolve the actual theme to use
   const resolvedTheme = theme === "system" ? systemTheme : theme;
 
+  const themePainted = useRef(false);
+
   // Apply theme to document (just toggle dark class)
   useEffect(() => {
-    const root = document.documentElement;
-    if (resolvedTheme === "dark") {
-      root.classList.add("dark");
-    } else {
-      root.classList.remove("dark");
-    }
+    applyResolvedTheme(
+      document.documentElement,
+      resolvedTheme,
+      themePainted.current,
+    );
+    themePainted.current = true;
   }, [resolvedTheme]);
 
   // Save theme mode to backend
@@ -520,13 +556,17 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
       "text", "text-muted", "border", "accent", "selection",
     ];
     for (const key of keys) {
-      const value = activeColors[key] ?? defaults[key];
+      const value = resolveThemeColor(resolvedTheme, key, activeColors, defaults);
       root.style.setProperty(`--color-${key}`, value);
     }
 
     // Sync the Windows title bar to match bg-secondary (no-op on other OSes).
-    const captionColor =
-      activeColors["bg-secondary"] ?? defaults["bg-secondary"];
+    const captionColor = resolveThemeColor(
+      resolvedTheme,
+      "bg-secondary",
+      activeColors,
+      defaults,
+    );
     const rgb = parseCssColorToRgb(captionColor);
     if (rgb) {
       invoke("set_title_bar_theme", {

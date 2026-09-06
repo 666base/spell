@@ -523,8 +523,8 @@ export function FolderTreeView({
 
   const tree = useMemo(
     () => {
-      const filteredNotes = notes.filter((n) => !n.id.startsWith("journals/"));
-      const filteredFolders = knownFolders.filter((f) => !f.startsWith("journals"));
+      const filteredNotes = notes.filter((n) => !n.id.startsWith("journals/") && !n.id.startsWith("_spell/"));
+      const filteredFolders = knownFolders.filter((f) => !f.startsWith("journals") && !f.startsWith("_spell"));
       return buildFolderTree(filteredNotes, pinnedIds, filteredFolders);
     },
     [notes, pinnedIds, knownFolders],
@@ -835,7 +835,7 @@ export function FolderTreeView({
         tabIndex={0}
         data-note-list
         data-folder-tree
-        className={`group/notelist flex min-h-full flex-col gap-px p-1.5 outline-none ${
+        className={`group/notelist flex min-h-full flex-col gap-px p-2.5 outline-none ${
           isOverRoot ? "ring-1 ring-inset ring-accent/50" : ""
         }`}
         onKeyDown={handleKeyDown}

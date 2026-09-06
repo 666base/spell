@@ -158,6 +158,26 @@ export function KanbanWorkspaceProvider({ children }: { children: ReactNode }) {
     };
   }, [storageKey]);
 
+  useEffect(() => {
+    const reload = () => {
+      notesService
+        .getKanbanData()
+        .then((data) => {
+          const nextWorkspace = normalizeWorkspace(
+            data,
+            data?.legacyBoard ?? undefined,
+          );
+          workspaceRef.current = nextWorkspace;
+          setWorkspace(nextWorkspace);
+        })
+        .catch((error) => {
+          console.warn("Using local project workspace storage:", error);
+        });
+    };
+    window.addEventListener("spell-cloud-session-ready", reload);
+    return () => window.removeEventListener("spell-cloud-session-ready", reload);
+  }, []);
+
   const persist = useCallback((nextWorkspace: KanbanWorkspace) => {
     workspaceRef.current = nextWorkspace;
     setWorkspace(nextWorkspace);

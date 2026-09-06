@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { render } from "@testing-library/react";
-import { VirtualizedNoteList } from "./VirtualizedNoteList";
+import { NOTE_LIST_ROW_INSET_CLASS, VirtualizedNoteList } from "./VirtualizedNoteList";
 
 function mockListMetrics() {
   Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
@@ -58,5 +58,21 @@ describe("VirtualizedNoteList", () => {
     expect(container.querySelectorAll('[data-testid="note-row"]').length).toBe(
       mounted.length,
     );
+  });
+
+  it("insets note cards from the list edges on the virtual row", () => {
+    const { container } = render(
+      <div style={{ height: 600, width: 280 }}>
+        <VirtualizedNoteList
+          count={3}
+          renderRow={(index) => <div>{`Note ${index}`}</div>}
+        />
+      </div>,
+    );
+
+    const row = container.querySelector("[data-note-list-row]");
+    expect(row).not.toBeNull();
+    expect(row?.className).toContain(NOTE_LIST_ROW_INSET_CLASS);
+    expect(container.querySelector("[data-note-list]")).not.toBeNull();
   });
 });

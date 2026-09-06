@@ -1,4 +1,12 @@
+import { useNotes } from "../../context/NotesContext";
+import { isJournalOnlyLibrary } from "../../lib/notesScope";
+
 export function NoNotesEmpty() {
+  const { notes } = useNotes();
+  const hint = isJournalOnlyLibrary(notes.map((note) => note.id))
+    ? "Folders from your phone appear after you sign in there with this Spell Cloud account."
+    : undefined;
+
   return (
     <div className="no-notes-empty" role="status">
       <svg
@@ -32,6 +40,7 @@ export function NoNotesEmpty() {
         <line className="no-notes-pad-rule" x1="18" y1="56" x2="40" y2="56" />
       </svg>
       <h1>No Notes</h1>
+      {hint ? <p className="no-notes-empty-hint">{hint}</p> : null}
     </div>
   );
 }
