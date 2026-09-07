@@ -40,3 +40,46 @@ export function resolveKeyboardInset(sources: readonly number[]): number {
 export function isKeyboardOpen(inset: number): boolean {
   return inset > KEYBOARD_OPEN_PX;
 }
+
+/** Layout-Y of the visible area's bottom — the top edge of the IME if it is open. */
+export function keyboardOcclusionTop(args: {
+  innerHeight: number;
+  visualOffsetTop: number;
+  visualHeight: number;
+  nativeIme: number;
+  virtualIme: number;
+}): number {
+  const visualBottom = args.visualOffsetTop + args.visualHeight;
+  const nativeTop = args.innerHeight - Math.max(0, args.nativeIme);
+  const virtualTop = args.innerHeight - Math.max(0, args.virtualIme);
+  return Math.max(0, Math.min(visualBottom, nativeTop, virtualTop));
+}
+
+/**
+ * `position:fixed; top:0; transform:translateY(y)` places the toolbar so its
+ * bottom edge sits on the keyboard, without using CSS `bottom` on the layout
+ * viewport (which stays full-screen while the IME overlays).
+ */
+export function pinToolbarAboveKeyboard(args: {
+  innerHeight: number;
+  visualOffsetTop: number;
+  visualHeight: number;
+  nativeIme: number;
+  virtualIme: number;
+  toolbarHeight: number;
+}): { y: number; inset: number; keyboardTop: number } {
+  const keyboardTop = keyboardOcclusionTop(args);
+  const inset = resolveKeyboardInset([
+    visualViewportGap(args.innerHeight, {
+      offsetTop: args.visualOffsetTop,
+      height: args.visualHeight,
+    }),
+    args.nativeIme,
+    args.virtualIme,
+  ]);
+  return {
+    keyboardTop,
+    inset,
+    y: Math.max(0, keyboardTop - Math.max(0, args.toolbarHeight)),
+  };
+}

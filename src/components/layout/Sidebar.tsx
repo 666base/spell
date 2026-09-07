@@ -8,7 +8,6 @@ import { windowDragRegionProps } from "../../lib/windowDrag";
 import { isMoneyTab, isProjectsTab, type NotesScope } from "../../lib/notesScope";
 import { useLibrarySelection } from "./LibraryDnd";
 import { ProjectList } from "../kanban/ProjectList";
-import { MoneyList } from "../finance/MoneyList";
 
 export type SidebarPanel = "notes" | "journal";
 
@@ -79,12 +78,7 @@ export function Sidebar({
               onCreated={(id) => onSelectScope?.({ type: "project", id })}
               onDeletedSelected={() => onSelectScope?.({ type: "projects" })}
             />
-          ) : isMoneyTab(current) ? (
-            <MoneyList
-              scope={current}
-              onSelect={(next) => onSelectScope?.(next)}
-            />
-          ) : (
+          ) : isMoneyTab(current) ? null : (
             <NoteList
               filter={
                 (current.type === "journal" ? "journal" : "all")

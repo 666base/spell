@@ -12,7 +12,7 @@ vi.mock("../../context/KanbanWorkspaceContext", () => ({
         {
           id: "p1",
           name: "Alpha",
-          client: "",
+          client: "Acme",
           icon: "kanban",
           view: "list",
           createdAt: 1,
@@ -115,5 +115,20 @@ describe("ProjectList", () => {
     const alpha = screen.getByRole("button", { name: /alpha/i });
     const beta = screen.getByRole("button", { name: /beta/i });
     expect(beta.compareDocumentPosition(alpha) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("shows the client on the project row", () => {
+    render(
+      <ProjectList
+        selectedId="p1"
+        overviewSelected={false}
+        onSelect={vi.fn()}
+        onSelectOverview={vi.fn()}
+        onCreated={vi.fn()}
+        onDeletedSelected={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: /alpha/i }).textContent).toContain("Acme");
   });
 });

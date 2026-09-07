@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import {
   closestCenter,
   DndContext,
@@ -19,7 +19,7 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import type { ColumnColorId, KanbanBoard, KanbanCard, KanbanColumn, KanbanPriority, KanbanTodo, ProjectViewId } from "../../types/note";
+import type { ColumnColorId, KanbanBoard, KanbanCard, KanbanColumn, KanbanPriority, KanbanTodo, ProjectIconId, ProjectViewId } from "../../types/note";
 import { useKanbanWorkspace } from "../../context/KanbanWorkspaceContext";
 import {
   appendCardToColumn,
@@ -27,6 +27,7 @@ import {
   createBoardFromTemplate,
   createEmptyBoard,
   formatDueDate,
+  knownClientNames,
   PROJECT_ICON_IDS,
   PROJECT_VIEWS,
   removeCardId,
@@ -58,6 +59,7 @@ import {
 } from "../icons/velocity";
 import { CheckmarkIcon } from "../ui/StateIcon";
 import { ProjectGlyph } from "./ProjectGlyph";
+import { ClientField } from "./ClientField";
 import { StatusPicker, StageEditor, checkStatusColor } from "./StatusChip";
 import { toast } from "sonner";
 import { bindOverflowPan } from "../../lib/overflowPan";
@@ -115,7 +117,7 @@ export function KanbanPage({
   hideTitleBar = false,
   openCardId = null,
 }: KanbanPageProps) {
-  const { activeProject, isLoading, updateProject, patchActiveBoard } = useKanbanWorkspace();
+  const { activeProject, isLoading, updateProject, patchActiveBoard, workspace } = useKanbanWorkspace();
   const [editing, setEditing] = useState<EditingCard | null>(null);
   const [activeCardId, setActiveCardId] = useState<string | null>(null);
   const [recentlyCreatedCardId, setRecentlyCreatedCardId] = useState<string | null>(null);
@@ -351,6 +353,11 @@ export function KanbanPage({
     updateProject({ ...activeProject, icon });
   }, [activeProject, updateProject]);
 
+  const setProjectClient = useCallback((client: string) => {
+    if (!activeProject || (activeProject.client ?? "") === client) return;
+    updateProject({ ...activeProject, client });
+  }, [activeProject, updateProject]);
+
   const exitBoardEditing = useCallback(() => {
     setBoardEditing(false);
     setSelectedColumnId(null);
@@ -402,6 +409,8 @@ export function KanbanPage({
     });
   }, [persist, reorderColumns]);
 
+  const clientNames = useMemo(() => knownClientNames(workspace), [workspace]);
+
   useEffect(() => {
     if (!boardEditing) return;
     const onKeyDown = (event: KeyboardEvent) => {
@@ -421,7 +430,7 @@ export function KanbanPage({
 
   if (isLoading) {
     return (
-      <div className="flex min-w-0 flex-1 flex-col overflow-hidden bg-bg">
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden bg-bg-secondary">
         {!hideTitleBar && (
           <NoteTitlebar
             sidebarVisible={sidebarVisible}
@@ -432,10 +441,26 @@ export function KanbanPage({
             showWindowControls={showWindowControls}
           />
         )}
-        <div className="flex-1 bg-bg" />
+        <div className="flex-1 bg-bg-muted" />
       </div>
     );
   }
+
+  const settingsMenu = (
+    <ProjectSettingsMenu
+      open={settingsOpen}
+      onClose={() => setSettingsOpen(false)}
+      anchorRef={settingsRef}
+      icon={activeProject?.icon}
+      client={activeProject?.client ?? ""}
+      suggestions={clientNames}
+      onIcon={(icon) => {
+        setProjectIcon(icon);
+        setSettingsOpen(false);
+      }}
+      onClient={setProjectClient}
+    />
+  );
 
   const titlebar = (
     <NoteTitlebar
@@ -484,32 +509,7 @@ export function KanbanPage({
             >
               <SettingsIcon />
             </IconButton>
-            <AnchoredPopover
-              open={settingsOpen}
-              onClose={() => setSettingsOpen(false)}
-              anchorRef={settingsRef}
-              align="end"
-              origin="top right"
-              className="spell-menu grid min-w-36 grid-cols-4 gap-0.5 p-1.5"
-            >
-              {PROJECT_ICON_IDS.map((icon) => (
-                <button
-                  key={icon}
-                  type="button"
-                  className={cn(
-                    "flex size-7 items-center justify-center rounded-md text-text-muted",
-                    activeProject?.icon === icon && "bg-bg-selected text-text",
-                  )}
-                  onClick={() => {
-                    setProjectIcon(icon);
-                    setSettingsOpen(false);
-                  }}
-                  aria-label={icon}
-                >
-                  <ProjectGlyph id={icon} className="size-4" />
-                </button>
-              ))}
-            </AnchoredPopover>
+            {settingsMenu}
           </div>
         </div>
       }
@@ -558,13 +558,50 @@ export function KanbanPage({
   );
 
   return (
-    <div className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-bg">
+    <div className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-bg-secondary">
       {!hideTitleBar && titlebar}
       {hideTitleBar && (
-        <ProjectViewSwitcher view={view} onChange={setProjectView} variant="mobile" />
+        <div className="mobile-project-chrome">
+          <ProjectViewSwitcher view={view} onChange={setProjectView} variant="mobile" />
+          {view === "board" && (
+            <>
+              {boardEditing && (
+                <IconButton
+                  size="sm"
+                  title="Delete column"
+                  disabled={!selectedColumnId}
+                  className={cn(!selectedColumnId && "opacity-30")}
+                  onClick={() => selectedColumnId && deleteColumn(selectedColumnId)}
+                >
+                  <TrashIcon />
+                </IconButton>
+              )}
+              <IconButton
+                size="sm"
+                title={boardEditing ? "Done" : "Edit board"}
+                pressed={boardEditing}
+                onClick={() => (boardEditing ? exitBoardEditing() : setBoardEditing(true))}
+              >
+                <PencilIcon />
+              </IconButton>
+            </>
+          )}
+          <div className="relative">
+            <IconButton
+              ref={settingsRef}
+              size="sm"
+              title="Project settings"
+              pressed={settingsOpen}
+              onClick={() => setSettingsOpen((open) => !open)}
+            >
+              <SettingsIcon />
+            </IconButton>
+            {settingsMenu}
+          </div>
+        </div>
       )}
       <div className="relative min-h-0 flex-1 overflow-hidden">
-        <div className="h-full overflow-hidden">
+        <div className="kanban-page">
           {view === "list" ? (
             <ProjectNoteList
               columns={board.columns}
@@ -670,6 +707,77 @@ const PROJECT_VIEW_ICONS = {
   gallery: GalleryIcon,
 } as const;
 
+function ProjectSettingsMenu({
+  open,
+  onClose,
+  anchorRef,
+  icon,
+  client,
+  suggestions,
+  onIcon,
+  onClient,
+}: {
+  open: boolean;
+  onClose: () => void;
+  anchorRef: RefObject<HTMLButtonElement | null>;
+  icon?: ProjectIconId;
+  client: string;
+  suggestions: string[];
+  onIcon: (icon: ProjectIconId) => void;
+  onClient: (client: string) => void;
+}) {
+  const [draft, setDraft] = useState(client);
+
+  useEffect(() => {
+    if (open) setDraft(client);
+  }, [client, open]);
+
+  const commit = (value = draft) => onClient(value.trim());
+
+  return (
+    <AnchoredPopover
+      open={open}
+      onClose={() => {
+        commit();
+        onClose();
+      }}
+      anchorRef={anchorRef}
+      align="end"
+      origin="top right"
+      className="spell-menu w-56 p-2"
+    >
+      <label className="mb-2 block">
+        <span className="mb-1 block px-0.5 text-[12px] leading-4 text-text-muted">Client</span>
+        <ClientField
+          value={draft}
+          suggestions={suggestions}
+          onChange={setDraft}
+          onCommit={(value) => commit(value)}
+        />
+      </label>
+      <div className="grid grid-cols-4 gap-0.5">
+        {PROJECT_ICON_IDS.map((id) => (
+          <button
+            key={id}
+            type="button"
+            className={cn(
+              "flex size-7 items-center justify-center rounded-md text-text-muted",
+              icon === id && "bg-bg-selected text-text",
+            )}
+            onClick={() => {
+              commit();
+              onIcon(id);
+            }}
+            aria-label={id}
+          >
+            <ProjectGlyph id={id} className="size-4" />
+          </button>
+        ))}
+      </div>
+    </AnchoredPopover>
+  );
+}
+
 function ProjectViewSwitcher({
   view,
   onChange,
@@ -693,7 +801,7 @@ function ProjectViewSwitcher({
           aria-pressed={selected}
           onClick={() => onChange(item.id)}
         >
-          <Icon className="size-4" />
+          <Icon />
         </button>
       );
     }
@@ -765,78 +873,76 @@ function ProjectNoteList({
   onCancelColumnCreator: () => void;
 }) {
   return (
-    <div
-      className="h-full overflow-y-auto"
-    >
-      <div
-        className="prose mx-auto w-full px-6 pt-8 pb-24"
-        style={{ maxWidth: "var(--editor-max-width, 48rem)" }}
-      >
-        {columns.length === 0 && <EmptyBoard onUseTemplate={onUseTemplate} />}
-        {columns.map((column, index) => (
-          <section key={column.id}>
-            <ColumnHeading
-              title={column.title}
-              color={column.color}
-              first={index === 0}
-              onRename={(title) => onRenameColumn(column.id, title)}
-              onColor={(color) => onColorColumn(column.id, color)}
-            />
-            {column.cardIds.map((id) => {
-              const card = cardsById.get(id);
-              if (!card) return null;
-              return (
-                <KanbanCardTile
-                  key={card.id}
-                  card={card}
-                  columnTitle={column.title}
-                  columnColor={column.color}
-                  onToggleDone={() => onToggleDone(card)}
-                  onToggleTodo={onToggleTodo}
-                  onRename={(title) => onRenameCard(card, title)}
-                  onOpen={() => onOpenCard(card, column.id)}
-                  recentlyCreated={card.id === recentlyCreatedCardId}
-                />
-              );
-            })}
-            <NoteAddLine
-              onAdd={(title) => onAddCard(column.id, title)}
-              autoFocus={focusCaptureId === column.id}
-              onFocused={onCaptureFocused}
-              className="kanban-list-composer pl-7"
-            />
+    <div className={cn("kanban-list", isMobileApp && "mobile-project-list")}>
+      <div className="kanban-list-inner">
+        {columns.length === 0 && <EmptyBoard layout="page" onUseTemplate={onUseTemplate} />}
+        {columns.map((column) => (
+          <section key={column.id} className="money-group">
+            <div className="money-group-title">
+              <StageEditor
+                title={column.title}
+                color={column.color}
+                onRename={(title) => onRenameColumn(column.id, title)}
+                onColor={(color) => onColorColumn(column.id, color)}
+              />
+            </div>
+            <div className="money-group-card">
+              {column.cardIds.map((id) => {
+                const card = cardsById.get(id);
+                if (!card) return null;
+                return (
+                  <KanbanCardTile
+                    key={card.id}
+                    card={card}
+                    columnTitle={column.title}
+                    columnColor={column.color}
+                    onToggleDone={() => onToggleDone(card)}
+                    onToggleTodo={onToggleTodo}
+                    onRename={(title) => onRenameCard(card, title)}
+                    onOpen={() => onOpenCard(card, column.id)}
+                    recentlyCreated={card.id === recentlyCreatedCardId}
+                  />
+                );
+              })}
+              <NoteAddLine
+                onAdd={(title) => onAddCard(column.id, title)}
+                autoFocus={focusCaptureId === column.id}
+                onFocused={onCaptureFocused}
+                className="kanban-list-composer"
+              />
+            </div>
           </section>
         ))}
         {columns.length > 0 && (
           isAddingColumn ? (
-            <input
-              autoFocus
-              value={newColumnTitle}
-              onChange={(event) => onColumnTitleChange(event.target.value)}
-              onBlur={() => {
-                if (newColumnTitle.trim()) onAddColumn();
-                else onCancelColumnCreator();
-              }}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  event.preventDefault();
-                  onAddColumn();
-                }
-                if (event.key === "Escape") {
-                  event.preventDefault();
-                  onCancelColumnCreator();
-                }
-              }}
-              placeholder="List"
-              aria-label="List name"
-              className="not-prose mt-6 w-full bg-transparent text-[length:var(--editor-h2-size)] font-semibold leading-[1.3] text-text outline-none placeholder:text-text-muted/45"
-            />
+            <section className="money-group">
+              <div className="money-group-card">
+                <input
+                  autoFocus
+                  value={newColumnTitle}
+                  onChange={(event) => onColumnTitleChange(event.target.value)}
+                  onBlur={() => {
+                    if (newColumnTitle.trim()) onAddColumn();
+                    else onCancelColumnCreator();
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      onAddColumn();
+                    }
+                    if (event.key === "Escape") {
+                      event.preventDefault();
+                      onCancelColumnCreator();
+                    }
+                  }}
+                  placeholder="List"
+                  aria-label="List name"
+                  className="kanban-add-input kanban-list-name"
+                />
+              </div>
+            </section>
           ) : (
-            <button
-              type="button"
-              className="not-prose mt-6 text-[length:var(--editor-base-font-size)] leading-[var(--editor-line-height)] text-text-muted hover:text-text"
-              onClick={onOpenColumnCreator}
-            >
+            <button type="button" className="kanban-list-add" onClick={onOpenColumnCreator}>
               Add a list
             </button>
           )
@@ -884,19 +990,21 @@ function ProjectGallery({
 
   return (
     <div className="kanban-gallery">
-      {columns.length === 0 && <EmptyBoard onUseTemplate={onUseTemplate} />}
-      {columns.length > 0 && (
-        <NoteAddLine
-          onAdd={onAddCard}
-          autoFocus={Boolean(focusCaptureId)}
-          onFocused={onCaptureFocused}
-          className="kanban-list-composer mb-4"
-        />
-      )}
-      <div className="kanban-gallery-grid">
-        {cards.map(({ card, columnId, columnTitle, columnColor }) => (
-          <div key={card.id} className="kanban-gallery-card">
-            <p className="mb-2">
+      <div className="kanban-gallery-inner">
+        {columns.length === 0 && <EmptyBoard layout="page" onUseTemplate={onUseTemplate} />}
+        {columns.length > 0 && (
+          <div className="kanban-gallery-composer">
+            <NoteAddLine
+              onAdd={onAddCard}
+              autoFocus={Boolean(focusCaptureId)}
+              onFocused={onCaptureFocused}
+              className="kanban-list-composer"
+            />
+          </div>
+        )}
+        <div className="kanban-gallery-grid">
+          {cards.map(({ card, columnId, columnTitle, columnColor }) => (
+            <div key={card.id} className="kanban-gallery-card">
               <StatusPicker
                 title={columnTitle}
                 color={columnColor}
@@ -905,52 +1013,49 @@ function ProjectGallery({
                 onChange={(nextColumnId) => onMoveCard(card, nextColumnId)}
                 size="sm"
               />
-            </p>
-            <KanbanCardTile
-              card={card}
-              columnTitle={columnTitle}
-              columnColor={columnColor}
-              onToggleDone={() => onToggleDone(card)}
-              onToggleTodo={onToggleTodo}
-              onRename={(title) => onRenameCard(card, title)}
-              onOpen={() => onOpenCard(card, columnId)}
-              recentlyCreated={card.id === recentlyCreatedCardId}
-            />
-          </div>
-        ))}
+              <KanbanCardTile
+                card={card}
+                columnTitle={columnTitle}
+                columnColor={columnColor}
+                onToggleDone={() => onToggleDone(card)}
+                onToggleTodo={onToggleTodo}
+                onRename={(title) => onRenameCard(card, title)}
+                onOpen={() => onOpenCard(card, columnId)}
+                recentlyCreated={card.id === recentlyCreatedCardId}
+              />
+            </div>
+          ))}
+        </div>
       </div>
-    </div>
-  );
-}
-
-function ColumnHeading({
-  title,
-  color,
-  first,
-  onRename,
-  onColor,
-}: {
-  title: string;
-  color?: ColumnColorId;
-  first: boolean;
-  onRename: (title: string) => void;
-  onColor: (color: ColumnColorId) => void;
-}) {
-  return (
-    <div className={cn("not-prose", first ? "mt-0 mb-3" : "mt-8 mb-3")}>
-      <StageEditor title={title} color={color} size="lg" onRename={onRename} onColor={onColor} />
     </div>
   );
 }
 
 function EmptyBoard({
   onUseTemplate,
+  layout = "inline",
 }: {
   onUseTemplate: (id: "week") => void;
+  layout?: "inline" | "page";
 }) {
+  if (layout === "page") {
+    return (
+      <section className="money-group">
+        <div className="money-group-card">
+          <button type="button" className="money-row" aria-label="This week" onClick={() => onUseTemplate("week")}>
+            <span className="money-row-main">
+              <span className="money-row-title">This week</span>
+              <span className="money-row-meta">Today, This week, Later, Done</span>
+            </span>
+          </button>
+        </div>
+      </section>
+    );
+  }
+
   return (
-    <div className="not-prose mb-4 text-[length:var(--editor-base-font-size)] leading-[var(--editor-line-height)] text-text-muted">
-      <button type="button" className="hover:text-text" onClick={() => onUseTemplate("week")}>
+    <div className="kanban-board-empty">
+      <button type="button" className="kanban-board-add" onClick={() => onUseTemplate("week")}>
         This week
       </button>
     </div>
@@ -1200,7 +1305,7 @@ function NoteAddLine({
         autoCorrect="on"
         placeholder="Add"
         aria-label="Add"
-        className="w-full min-w-0 bg-transparent py-1 text-[length:var(--editor-base-font-size)] leading-[var(--editor-line-height)] text-text outline-none placeholder:text-text-muted/45"
+        className="kanban-add-input"
       />
     </form>
   );
@@ -1287,7 +1392,7 @@ function DoneToggle({
         done && "is-checked",
       )}
     >
-      <CheckmarkIcon checked={done} className={size === "sm" ? "size-2.5" : "size-3"} />
+      <CheckmarkIcon checked={done} className={size === "sm" ? "size-3" : "size-3.5"} />
     </button>
   );
 }

@@ -29,6 +29,10 @@ export function isMoneyTab(scope: NotesScope) {
   return scope.type === "money" || scope.type === "moneyMonth" || scope.type === "subscriptions";
 }
 
+export function hidesNotesList(scope: NotesScope) {
+  return isHomeTab(scope) || isMoneyTab(scope);
+}
+
 export function notesScopeKey(scope: NotesScope) {
   if (scope.type === "folder") return `folder:${scope.path}`;
   if (scope.type === "project") return `project:${scope.id}`;

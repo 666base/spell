@@ -17,6 +17,7 @@ import { useOpenTransition } from "./lib/presence";
 import { cn } from "./lib/utils";
 import {
   isHomeTab,
+  hidesNotesList,
   isMoneyTab,
   isProjectsTab,
   notesInScope,
@@ -98,7 +99,7 @@ function AppContent() {
   const [focusMode, setFocusMode] = useState(false);
   const editorRef = useRef<TiptapEditor | null>(null);
   const foldersOpen = sidebarVisible && !focusMode;
-  const notesListOpen = !focusMode && !isHomeTab(notesScope);
+  const notesListOpen = !focusMode && !hidesNotesList(notesScope);
   const folderRail = useOpenTransition(foldersOpen);
   const notesRail = useOpenTransition(notesListOpen);
   const folderWidth = FOLDER_SIDEBAR_PX;
@@ -145,7 +146,6 @@ function AppContent() {
     setOpenProjectCardId(scope.type === "project" ? cardId ?? null : null);
     if (scope.type === "project") selectProject(scope.id);
     setSidebarPanel(scope.type === "journal" ? "journal" : "notes");
-    setSidebarVisible(true);
     if (scope.type !== "all" && scope.type !== "folder") return;
     const scoped = notesInScope(notes, scope);
     const decision = selectionAfterScopeChange({
@@ -182,7 +182,7 @@ function AppContent() {
       const month = (event as CustomEvent<string>).detail;
       if (!month) return;
       addMonth(month);
-      setNotesScope({ type: "moneyMonth", month });
+      setNotesScope({ type: "money" });
       setSidebarPanel("notes");
       setSidebarVisible(true);
     };
@@ -200,7 +200,6 @@ function AppContent() {
     setSidebarPanel(panel);
     const next: NotesScope = panel === "journal" ? { type: "journal" } : { type: "all" };
     setNotesScope(next);
-    setSidebarVisible(true);
     if (next.type !== "all") return;
     const scoped = notesInScope(notes, next);
     const decision = selectionAfterScopeChange({
@@ -251,11 +250,7 @@ function AppContent() {
       window.dispatchEvent(new CustomEvent("create-project-task"));
       return;
     }
-    if (notesScope.type === "subscriptions") {
-      window.dispatchEvent(new CustomEvent("create-money-subscription"));
-      return;
-    }
-    if (notesScope.type === "money" || notesScope.type === "moneyMonth") {
+    if (isMoneyTab(notesScope)) {
       window.dispatchEvent(new CustomEvent("create-money-record"));
       return;
     }

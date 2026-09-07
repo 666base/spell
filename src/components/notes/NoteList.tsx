@@ -22,6 +22,7 @@ import { noteItemId } from "../../lib/sidebarLibrary";
 import { LIBRARY_NOTE_REORDER } from "../../lib/libraryDnd";
 import { NOTE_LIST_ROW_INSET_CLASS, NOTE_ROW_ESTIMATE_PX, VirtualizedNoteList } from "./VirtualizedNoteList";
 import { NoNotesEmpty } from "./NoNotesEmpty";
+import { noteListEmptyLabel } from "../../lib/emptyNotes";
 import type { NoteMetadata, Settings } from "../../types/note";
 import { useOpenJournal } from "../journal/useOpenJournal";
 import { ChevronRightIcon } from "../icons/velocity";
@@ -634,18 +635,17 @@ export function NoteList({
         </div>
       );
     }
-    if (query.trim() || emptyLabel) {
-      return (
-        <div
-          ref={containerRef}
-          className="flex h-full items-center justify-center px-8 text-center text-[17px] text-text-muted"
-          tabIndex={-1}
-        >
-          {query.trim() ? "No Results" : emptyLabel}
-        </div>
-      );
-    }
-    return <div ref={containerRef} className="h-full" tabIndex={-1} />;
+    return (
+      <div
+        ref={containerRef}
+        data-note-list
+        className="flex h-full items-center justify-center px-8 text-center text-[17px] text-text-muted"
+        tabIndex={-1}
+        role="status"
+      >
+        {noteListEmptyLabel(query, emptyLabel)}
+      </div>
+    );
   }
 
   return (

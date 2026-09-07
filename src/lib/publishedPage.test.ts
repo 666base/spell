@@ -32,6 +32,13 @@ describe("publishedPage", () => {
     expect(html).toContain("Buy milk");
   });
 
+  it("draws a 14px tick inside the published checkbox without growing the 1.125rem button", () => {
+    const page = publishedPageHtml("Tasks", "<p>x</p>");
+    expect(page).toMatch(/ul\[data-type="taskList"\] input\[type="checkbox"\] \{[^}]*width: 1\.125rem;[^}]*height: 1\.125rem;/s);
+    expect(page).toContain("background-size: 14px;");
+    expect(page).not.toContain("background-size: 11px;");
+  });
+
   it("wraps the note in a self-contained page", () => {
     const page = publishedPageHtml(
       "Meeting notes",

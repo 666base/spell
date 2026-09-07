@@ -43,7 +43,7 @@ describe("Sidebar", () => {
     expect(screen.queryByTestId("note-list")).toBeNull();
   });
 
-  it("shows money items in the notes column when Money is selected", () => {
+  it("does not use a notes-style list for Money", () => {
     render(
       <Sidebar
         panel="notes"
@@ -52,7 +52,7 @@ describe("Sidebar", () => {
         onSelectScope={vi.fn()}
       />,
     );
-    expect(screen.getByTestId("money-list")).toBeTruthy();
+    expect(screen.queryByTestId("money-list")).toBeNull();
     expect(screen.queryByTestId("note-list")).toBeNull();
   });
 

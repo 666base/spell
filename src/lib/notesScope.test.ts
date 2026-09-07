@@ -9,6 +9,7 @@ import {
   selectionAfterNotesChange,
   selectionAfterScopeChange,
   serializeCloudFolderIndex,
+  hidesNotesList,
 } from "./notesScope";
 
 const notes = [
@@ -25,6 +26,11 @@ describe("notesInScope", () => {
     ]);
     expect(notesInScope(notes, { type: "home" })).toEqual([]);
     expect(isHomeTab({ type: "home" })).toBe(true);
+    expect(hidesNotesList({ type: "home" })).toBe(true);
+    expect(hidesNotesList({ type: "money" })).toBe(true);
+    expect(hidesNotesList({ type: "moneyMonth", month: "2026-09" })).toBe(true);
+    expect(hidesNotesList({ type: "subscriptions" })).toBe(true);
+    expect(hidesNotesList({ type: "all" })).toBe(false);
   });
 });
 

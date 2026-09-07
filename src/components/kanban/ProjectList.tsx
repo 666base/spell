@@ -2,7 +2,7 @@ import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import { cn } from "../../lib/utils";
 import { useKanbanWorkspace } from "../../context/KanbanWorkspaceContext";
-import { overviewOpenCount, projectListSubtitle } from "../../lib/kanban";
+import { overviewOpenCount, knownClientNames, projectListSubtitle } from "../../lib/kanban";
 import {
   loadSidebarLibrary,
   projectItemId,
@@ -26,6 +26,7 @@ import {
 import { PinIcon } from "../icons/velocity";
 import { NOTE_LIST_ROW_INSET_CLASS } from "../notes/VirtualizedNoteList";
 import type { KanbanProject } from "../../types/note";
+import { ClientField } from "./ClientField";
 
 const menuItemClass = "spell-menu-item cursor-pointer";
 
@@ -49,7 +50,9 @@ export function ProjectList({
   const { workspace, createProject, updateProject, deleteProject } = useKanbanWorkspace();
   const [library, setLibrary] = useState<SidebarLibrary>(loadSidebarLibrary);
   const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [clientingId, setClientingId] = useState<string | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const clients = useMemo(() => knownClientNames(workspace), [workspace]);
 
   const persistLibrary = useCallback((next: SidebarLibrary) => {
     setLibrary(next);
@@ -109,6 +112,8 @@ export function ProjectList({
                 selected={selectedId === project.id}
                 pinned={pinned}
                 renaming={renamingId === project.id}
+                clienting={clientingId === project.id}
+                clients={clients}
                 onSelect={() => onSelect(project.id)}
                 onCreate={createAndRename}
                 onPin={() => persistLibrary(togglePinned(library, itemId))}
@@ -118,6 +123,12 @@ export function ProjectList({
                   setRenamingId(null);
                 }}
                 onRenameCancel={() => setRenamingId(null)}
+                onEditClient={() => setClientingId(project.id)}
+                onClientConfirm={(client) => {
+                  updateProject({ ...project, client });
+                  setClientingId(null);
+                }}
+                onClientCancel={() => setClientingId(null)}
                 onDelete={() => setDeleteId(project.id)}
               />
             </div>
@@ -207,26 +218,42 @@ const ProjectRow = memo(function ProjectRow({
   selected,
   pinned,
   renaming,
+  clienting,
+  clients,
   onSelect,
   onCreate,
   onPin,
   onRename,
   onRenameConfirm,
   onRenameCancel,
+  onEditClient,
+  onClientConfirm,
+  onClientCancel,
   onDelete,
 }: {
   project: KanbanProject;
   selected: boolean;
   pinned: boolean;
   renaming: boolean;
+  clienting: boolean;
+  clients: string[];
   onSelect: () => void;
   onCreate: () => void;
   onPin: () => void;
   onRename: () => void;
   onRenameConfirm: (name: string) => void;
   onRenameCancel: () => void;
+  onEditClient: () => void;
+  onClientConfirm: (client: string) => void;
+  onClientCancel: () => void;
   onDelete: () => void;
 }) {
+  const [clientDraft, setClientDraft] = useState(project.client ?? "");
+
+  useEffect(() => {
+    if (clienting) setClientDraft(project.client ?? "");
+  }, [clienting, project.client]);
+
   return (
     <ContextMenu.Root>
       <ContextMenu.Trigger asChild>
@@ -240,6 +267,18 @@ const ProjectRow = memo(function ProjectRow({
                 onConfirm={onRenameConfirm}
                 onCancel={onRenameCancel}
                 className="min-w-0 flex-1"
+              />
+            </div>
+          ) : clienting ? (
+            <div className="flex items-center rounded-[10px] px-3.5 py-2.5">
+              <ClientField
+                value={clientDraft}
+                suggestions={clients}
+                onChange={setClientDraft}
+                onCommit={(client) => onClientConfirm(client.trim())}
+                onCancel={onClientCancel}
+                autoFocus
+                className="h-7 min-w-0 flex-1 rounded-md px-1.5 text-[13px] font-normal"
               />
             </div>
           ) : (
@@ -274,6 +313,9 @@ const ProjectRow = memo(function ProjectRow({
           </ContextMenu.Item>
           <ContextMenu.Item className={menuItemClass} onSelect={onRename}>
             Rename
+          </ContextMenu.Item>
+          <ContextMenu.Item className={menuItemClass} onSelect={onEditClient}>
+            Client
           </ContextMenu.Item>
           <ContextMenu.Separator className="spell-menu-separator" />
           <ContextMenu.Item className={cn(menuItemClass, "spell-menu-item-danger")} onSelect={onDelete}>

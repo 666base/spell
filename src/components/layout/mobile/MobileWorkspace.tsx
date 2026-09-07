@@ -1,16 +1,14 @@
-import { memo, useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { useKanbanWorkspace } from "../../../context/KanbanWorkspaceContext";
-import { useFinance } from "../../../context/FinanceContext";
 import { KanbanPage } from "../../kanban/KanbanPage";
 import { ProjectsHub } from "../../kanban/ProjectsHub";
 import { FinancePage } from "../../finance/FinancePage";
 import { ProjectGlyph } from "../../kanban/ProjectGlyph";
-import { overviewOpenCount, PROJECT_TEMPLATES, projectListSubtitle, type ProjectTemplateId } from "../../../lib/kanban";
+import { ClientField } from "../../kanban/ClientField";
+import { overviewOpenCount, knownClientNames, PROJECT_TEMPLATES, projectListSubtitle, type ProjectTemplateId } from "../../../lib/kanban";
 import { EASE_DRAWER, EASE_OUT, MOTION_FAST_S, MOTION_PANEL_S } from "../../../lib/motion";
-import { moneyListItems, monthTitle } from "../../../lib/finance";
-import { AddMonthButton } from "../../finance/MoneyList";
-import type { NotesScope } from "../../../lib/notesScope";
+import { isMoneyTab, type NotesScope } from "../../../lib/notesScope";
 import type { ProjectIconId } from "../../../types/note";
 import {
   CheckIcon,
@@ -26,10 +24,9 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-  MoneyGlyph,
-  MoneyKindGlyph,
   OverviewGlyph,
   ProjectsGlyph,
+  MoneyGlyph,
   InlineNameInput,
 } from "../../ui";
 import {
@@ -42,7 +39,7 @@ import {
 } from "./MobileChrome";
 import { useLongPress } from "./useLongPress";
 
-type WorkspaceView = "hub" | "create" | "overview" | "project" | "money";
+type WorkspaceView = "hub" | "create" | "overview" | "project";
 type HubPane = "projects" | "money";
 
 interface MobileWorkspaceProps {
@@ -52,13 +49,12 @@ interface MobileWorkspaceProps {
 
 export const MobileWorkspace = memo(function MobileWorkspace({ onBackToDaily, onOpenFolders }: MobileWorkspaceProps) {
   const { workspace, selectProject, activeProject, createProject, updateProject, deleteProject } = useKanbanWorkspace();
-  const { addMonth } = useFinance();
   const [view, setView] = useState<WorkspaceView>("hub");
   const [hubPane, setHubPane] = useState<HubPane>("projects");
-  const [moneyScope, setMoneyScope] = useState<NotesScope>({ type: "money" });
   const [openCardId, setOpenCardId] = useState<string | null>(null);
   const [projectSheetId, setProjectSheetId] = useState<string | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [clientingId, setClientingId] = useState<string | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const reduceMotion = useReducedMotion();
   const drillIn = view !== "hub";
@@ -77,26 +73,41 @@ export const MobileWorkspace = memo(function MobileWorkspace({ onBackToDaily, on
       event.preventDefault();
       setView("hub");
     };
+    const onWorkspace = (event: Event) => {
+      const scope = (event as CustomEvent<NotesScope>).detail;
+      if (!scope) return;
+      if (isMoneyTab(scope)) {
+        setHubPane("money");
+        setView("hub");
+        return;
+      }
+      setHubPane("projects");
+      if (scope.type === "project") {
+        selectProject(scope.id);
+        setOpenCardId(null);
+        setView("project");
+        return;
+      }
+      setView("hub");
+    };
     window.addEventListener("create-new-project", onCreate);
     window.addEventListener("spell-mobile-back", onBack);
+    window.addEventListener("spell-mobile-workspace", onWorkspace);
     return () => {
       window.removeEventListener("create-new-project", onCreate);
       window.removeEventListener("spell-mobile-back", onBack);
+      window.removeEventListener("spell-mobile-workspace", onWorkspace);
     };
-  }, [view]);
+  }, [selectProject, view]);
 
   const title =
     view === "project"
       ? activeProject?.name || "Project"
-      : view === "money"
-        ? moneyPageTitle(moneyScope)
-        : view === "create"
-          ? "New Project"
-          : view === "overview"
-            ? "Overview"
-            : hubPane === "money"
-              ? "Money"
-              : undefined;
+      : view === "create"
+        ? "New Project"
+        : view === "overview"
+          ? "Overview"
+          : undefined;
 
   const paneSwitch = (
     <div className="mobile-workspace-switch" role="tablist" aria-label="Workspace" data-pager-ignore>
@@ -129,7 +140,7 @@ export const MobileWorkspace = memo(function MobileWorkspace({ onBackToDaily, on
     </div>
   );
 
-  const backLabel = view === "hub" ? undefined : hubPane === "money" ? "Money" : "Projects";
+  const backLabel = view === "hub" ? undefined : "Projects";
 
   const onBack =
     view === "hub"
@@ -146,12 +157,9 @@ export const MobileWorkspace = memo(function MobileWorkspace({ onBackToDaily, on
         }
         backLabel={backLabel}
         onBack={onBack}
-        title={title}
+        title={view === "hub" ? paneSwitch : title}
         trailing={
-          <>
-            {paneSwitch}
-            <MobileSidebarToggle side="right" pressed={view === "hub"} onClick={onBackToDaily} />
-          </>
+          <MobileSidebarToggle side="right" pressed={view === "hub"} onClick={onBackToDaily} />
         }
       />
       <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -185,8 +193,8 @@ export const MobileWorkspace = memo(function MobileWorkspace({ onBackToDaily, on
               }
             >
           {view === "hub" ? (
+            hubPane === "projects" ? (
           <MobileScroll>
-            {hubPane === "projects" ? (
             <section className="mobile-group">
               <div className="mobile-group-card">
                 <button
@@ -206,7 +214,10 @@ export const MobileWorkspace = memo(function MobileWorkspace({ onBackToDaily, on
                     name={project.name}
                     subtitle={projectListSubtitle(project)}
                     icon={project.icon}
+                    client={project.client ?? ""}
+                    clients={knownClientNames(workspace)}
                     renaming={renamingId === project.id}
+                    clienting={clientingId === project.id}
                     onOpen={() => {
                       selectProject(project.id);
                       setOpenCardId(null);
@@ -218,6 +229,11 @@ export const MobileWorkspace = memo(function MobileWorkspace({ onBackToDaily, on
                       setRenamingId(null);
                     }}
                     onRenameCancel={() => setRenamingId(null)}
+                    onClient={(client) => {
+                      updateProject({ ...project, client });
+                      setClientingId(null);
+                    }}
+                    onClientCancel={() => setClientingId(null)}
                   />
                 ))}
                 <button
@@ -232,26 +248,18 @@ export const MobileWorkspace = memo(function MobileWorkspace({ onBackToDaily, on
                 </button>
               </div>
             </section>
-            ) : (
-              <MoneyIndex
-                onSelect={(scope) => {
-                  setMoneyScope(scope);
-                  setView("money");
-                }}
-                onAddMonth={(month) => {
-                  addMonth(month);
-                  setMoneyScope({ type: "moneyMonth", month });
-                  setView("money");
-                }}
-              />
-            )}
           </MobileScroll>
+            ) : (
+              <FinancePage scope={{ type: "money" }} sidebarVisible={false} hideTitleBar />
+            )
         ) : view === "create" ? (
           <CreateProjectPage
-            onCreate={(name, template) => {
+            clients={knownClientNames(workspace)}
+            onCreate={(name, template, client) => {
               const project = createProject({
                 name: name.trim() || "Untitled",
                 template,
+                client,
               });
               selectProject(project.id);
               setOpenCardId(null);
@@ -268,10 +276,8 @@ export const MobileWorkspace = memo(function MobileWorkspace({ onBackToDaily, on
               setView("project");
             }}
           />
-        ) : view === "project" ? (
-          <KanbanPage sidebarVisible={false} hideTitleBar openCardId={openCardId} />
         ) : (
-          <FinancePage scope={moneyScope} sidebarVisible={false} hideTitleBar />
+          <KanbanPage sidebarVisible={false} hideTitleBar openCardId={openCardId} />
         )}
             </motion.div>
           </AnimatePresence>
@@ -288,6 +294,16 @@ export const MobileWorkspace = memo(function MobileWorkspace({ onBackToDaily, on
             }}
           >
             Rename
+          </button>
+          <button
+            type="button"
+            className="mobile-action-item"
+            onClick={() => {
+              setClientingId(projectSheet.id);
+              setProjectSheetId(null);
+            }}
+          >
+            Client
           </button>
           <button
             type="button"
@@ -333,22 +349,37 @@ function ProjectRow({
   name,
   subtitle,
   icon,
+  client,
+  clients,
   renaming,
+  clienting,
   onOpen,
   onOpenSheet,
   onRename,
   onRenameCancel,
+  onClient,
+  onClientCancel,
 }: {
   name: string;
   subtitle: string;
   icon?: ProjectIconId;
+  client: string;
+  clients: string[];
   renaming: boolean;
+  clienting: boolean;
   onOpen: () => void;
   onOpenSheet: () => void;
   onRename: (name: string) => void;
   onRenameCancel: () => void;
+  onClient: (client: string) => void;
+  onClientCancel: () => void;
 }) {
   const press = useLongPress(onOpenSheet, onOpen);
+  const [clientDraft, setClientDraft] = useState(client);
+
+  useEffect(() => {
+    if (clienting) setClientDraft(client);
+  }, [client, clienting]);
 
   if (renaming) {
     return (
@@ -368,6 +399,25 @@ function ProjectRow({
     );
   }
 
+  if (clienting) {
+    return (
+      <div className="mobile-folder-row">
+        <span className="mobile-folder-icon">
+          <ProjectGlyph id={icon} />
+        </span>
+        <ClientField
+          value={clientDraft}
+          suggestions={clients}
+          onChange={setClientDraft}
+          onCommit={(value) => onClient(value.trim())}
+          onCancel={onClientCancel}
+          autoFocus
+          className="mobile-field h-auto min-w-0 flex-1 border-0 bg-transparent px-0 shadow-none"
+        />
+      </div>
+    );
+  }
+
   return (
     <button type="button" className="mobile-folder-row" {...press}>
       <span className="mobile-folder-icon">
@@ -381,59 +431,15 @@ function ProjectRow({
   );
 }
 
-function moneyPageTitle(scope: NotesScope) {
-  if (scope.type === "subscriptions") return "Subscriptions";
-  if (scope.type === "moneyMonth") return monthTitle(scope.month);
-  return "Money";
-}
-
-function MoneyIndex({
-  onSelect,
-  onAddMonth,
-}: {
-  onSelect: (scope: NotesScope) => void;
-  onAddMonth: (month: string) => void;
-}) {
-  const { workspace } = useFinance();
-  const items = useMemo(() => moneyListItems(workspace), [workspace]);
-
-  return (
-    <section className="mobile-group">
-      <div className="mobile-group-card">
-          {items.map((item) => {
-            return (
-              <button
-                key={item.id}
-                type="button"
-                className="mobile-folder-row"
-                onClick={() => {
-                  if (item.kind === "overview") onSelect({ type: "money" });
-                  else if (item.kind === "subscriptions") onSelect({ type: "subscriptions" });
-                  else onSelect({ type: "moneyMonth", month: item.month });
-                }}
-              >
-                <span className="mobile-folder-icon">
-                  <MoneyKindGlyph kind={item.kind} />
-                </span>
-                <span className="mobile-folder-copy">
-                  <span className="mobile-folder-label">{item.title}</span>
-                  <span className="mobile-folder-sub">{item.subtitle}</span>
-                </span>
-              </button>
-            );
-          })}
-          <AddMonthButton variant="row" onAdd={onAddMonth} />
-        </div>
-      </section>
-  );
-}
-
 function CreateProjectPage({
+  clients,
   onCreate,
 }: {
-  onCreate: (name: string, template: ProjectTemplateId) => void;
+  clients: string[];
+  onCreate: (name: string, template: ProjectTemplateId, client: string) => void;
 }) {
   const [name, setName] = useState("");
+  const [client, setClient] = useState("");
   const [template, setTemplate] = useState<ProjectTemplateId>("blank");
 
   return (
@@ -450,6 +456,18 @@ function CreateProjectPage({
               autoCapitalize="sentences"
               autoComplete="off"
               autoCorrect="on"
+            />
+          </div>
+        </section>
+        <section className="mobile-group">
+          <h2 className="mobile-group-title">Client</h2>
+          <div className="mobile-group-card">
+            <ClientField
+              value={client}
+              suggestions={clients}
+              onChange={setClient}
+              className="mobile-field h-auto border-0 bg-transparent px-3.5 shadow-none"
+              placeholder="Optional"
             />
           </div>
         </section>
@@ -478,7 +496,7 @@ function CreateProjectPage({
         <button
           type="button"
           className="mobile-nav-action"
-          onClick={() => onCreate(name, template)}
+          onClick={() => onCreate(name, template, client.trim())}
         >
           Create
         </button>

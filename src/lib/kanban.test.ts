@@ -1,15 +1,27 @@
 import { describe, expect, it } from "vitest";
-import type { KanbanBoard, KanbanCard } from "../types/note";
+import type { KanbanBoard, KanbanCard, KanbanProject, KanbanWorkspace } from "../types/note";
 import {
   appendCardToColumn,
+  clientListSubtitle,
   columnStatusKind,
   createBoardFromTemplate,
   doneColumn,
+  dueDateKeys,
+  formatUpdatedAt,
+  knownClientNames,
+  matchesActivity,
   normalizeBoard,
+  openByProject,
+  overdueTaskCount,
+  projectListSubtitle,
+  projectsForClient,
   resolvedColumnColor,
+  tasksOnDate,
   withCardCompleted,
   withCardInColumn,
   withProjectChrome,
+  workByStage,
+  workspaceClients,
 } from "./kanban";
 
 function card(id: string, extra: Partial<KanbanCard> = {}): KanbanCard {
@@ -123,6 +135,56 @@ describe("appendCardToColumn", () => {
   });
 });
 
+function project(id: string, extra: Partial<KanbanProject> = {}): KanbanProject {
+  return {
+    id,
+    name: id,
+    client: "",
+    icon: "briefcase",
+    view: "list",
+    createdAt: 1,
+    updatedAt: 1,
+    board: createBoardFromTemplate("blank"),
+    ...extra,
+  };
+}
+
+describe("project clients", () => {
+  it("puts the client on the project row, grouped case-insensitively", () => {
+    const alpha = project("alpha", {
+      client: "Acme",
+      updatedAt: 2,
+      board: weekBoard([card("a")], { today: ["a"], week: [], later: [], done: [] }),
+    });
+    const brand = project("brand", {
+      client: "acme",
+      updatedAt: 8,
+      board: weekBoard([card("b"), card("c")], { today: ["b"], week: ["c"], later: [], done: [] }),
+    });
+    const personal = project("personal", { client: "  ", updatedAt: 9 });
+    const workspace: KanbanWorkspace = {
+      version: 2,
+      activeProjectId: alpha.id,
+      projects: [alpha, brand, personal],
+    };
+
+    expect(projectListSubtitle(alpha)).toBe("Acme · 1 open");
+    expect(projectListSubtitle(personal)).toBe("Empty");
+
+    const clients = workspaceClients(workspace);
+    expect(clients).toEqual([
+      { name: "Acme", projectCount: 2, openCount: 3, updatedAt: 8 },
+    ]);
+    expect(clientListSubtitle(clients[0])).toBe("2 projects · 3 open");
+    expect(knownClientNames(workspace)).toEqual(["Acme"]);
+    expect(projectsForClient(workspace, "ACME").map((item) => item.id)).toEqual(["alpha", "brand"]);
+    expect(formatUpdatedAt(Number.NaN)).toBe("");
+    expect(formatUpdatedAt(Date.UTC(2026, 8, 5, 12)).length).toBeGreaterThan(0);
+    expect(matchesActivity("open", 0, true)).toBe(false);
+    expect(matchesActivity("due", 0, true)).toBe(true);
+  });
+});
+
 describe("withProjectChrome", () => {
   it("keeps the current board when a project is renamed", () => {
     const board = appendCardToColumn(
@@ -165,5 +227,45 @@ describe("normalizeBoard", () => {
     ));
     const board = normalizeBoard(source);
     expect(board.columns.find((column) => column.id === "today")?.color).toBe("purple");
+  });
+});
+
+describe("workByStage", () => {
+  it("groups open cards by column stage and ranks projects by load", () => {
+    const workspace: KanbanWorkspace = {
+      version: 2,
+      activeProjectId: "p1",
+      projects: [
+        {
+          id: "p1",
+          name: "Site",
+          client: "Acme",
+          createdAt: 1,
+          updatedAt: 2,
+          board: weekBoard(
+            [card("a"), card("b", { dueDate: "2020-01-01" })],
+            { today: ["a"], week: ["b"], later: [], done: [] },
+          ),
+        },
+        {
+          id: "p2",
+          name: "Brand",
+          createdAt: 1,
+          updatedAt: 1,
+          board: weekBoard([card("c")], { today: [], week: [], later: ["c"], done: [] }),
+        },
+      ],
+    };
+    expect(workByStage(workspace)).toEqual([
+      expect.objectContaining({ kind: "inbox", label: "Inbox", count: 1 }),
+      expect.objectContaining({ kind: "todo", label: "Ready", count: 2 }),
+    ]);
+    expect(openByProject(workspace).map((project) => project.name)).toEqual(["Site", "Brand"]);
+    expect(overdueTaskCount(workspace)).toBe(1);
+    expect(dueDateKeys(workspace)).toEqual(new Set(["2020-01-01"]));
+    expect(tasksOnDate(workspace, "2020-01-01").map((item) => item.card.id)).toEqual(["b"]);
+    expect(workByStage(workspace, new Set(["p2"]))).toEqual([
+      expect.objectContaining({ kind: "todo", count: 1 }),
+    ]);
   });
 });

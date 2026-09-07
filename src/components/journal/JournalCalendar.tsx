@@ -14,6 +14,7 @@ interface JournalCalendarProps {
   defaultMode?: JournalCalendarMode;
   mode?: JournalCalendarMode;
   onModeChange?: (mode: JournalCalendarMode) => void;
+  ariaLabel?: string;
 }
 
 const WEEK_STARTS_ON = 1 as const;
@@ -159,6 +160,7 @@ export function JournalCalendar({
   defaultMode = "week",
   mode: modeProp,
   onModeChange,
+  ariaLabel = "Journal calendar",
 }: JournalCalendarProps) {
   const viewportRef = useRef<HTMLDivElement>(null);
   const stripRef = useRef<HTMLDivElement>(null);
@@ -206,9 +208,9 @@ export function JournalCalendar({
     if (mode !== "month") return;
     const root = viewportRef.current;
     if (!root) return;
-    const page = root.closest("[data-journal-page]");
+    const page = root.closest("[data-journal-page], [data-calendar-page]");
     const scroller =
-      (page?.querySelector("[data-editor-scroll]") as HTMLElement | null) ??
+      (page?.querySelector("[data-editor-scroll], .project-hub") as HTMLElement | null) ??
       root.closest("[data-editor-scroll], .journal-empty");
     if (!scroller) return;
 
@@ -359,6 +361,8 @@ export function JournalCalendar({
       className="journal-calendar"
       data-mode={mode}
       data-pager-ignore
+      role="region"
+      aria-label={ariaLabel}
       style={{ "--pin-row": pinRow } as CSSProperties}
     >
       <div className="journal-calendar-weekdays">

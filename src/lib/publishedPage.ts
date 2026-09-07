@@ -172,7 +172,7 @@ ul[data-type="taskList"] input[type="checkbox"]:checked {
   background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'><path fill='none' stroke='%23fff' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round' d='M2.4 6.2 4.8 8.6 9.6 3.4'/></svg>");
   background-repeat: no-repeat;
   background-position: center;
-  background-size: 11px;
+  background-size: 14px;
 }
 table { width: 100%; border-collapse: collapse; font-size: 0.95em; }
 th, td {

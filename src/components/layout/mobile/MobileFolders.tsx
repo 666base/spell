@@ -5,6 +5,8 @@ import { useNotes } from "../../../context/NotesContext";
 import {
   buildFolderTree,
   countNotesInFolder,
+  filterFolderTree,
+  filterNotesByTitle,
 } from "../../../lib/folderTree";
 import { notesInScope, noteMoveDestinations, noteParentPath } from "../../../lib/notesScope";
 import { cleanTitle, cn } from "../../../lib/utils";
@@ -35,10 +37,12 @@ import {
   AddNoteIcon,
   CheckIcon,
   CheckSquareIcon,
+  ChevronRightIcon,
   CopyIcon,
   FolderIcon,
   FolderPlusIcon,
   PinIcon,
+  SearchIcon,
   TrashIcon,
 } from "../../icons/velocity";
 import { FolderNameDialog } from "../../notes/FolderNameDialog";
@@ -67,6 +71,25 @@ type SheetTarget =
   | { kind: "note"; id: string; name: string };
 
 type DeletingTarget = SheetTarget | { kind: "notes"; ids: string[] };
+
+type LibraryItem =
+  | { kind: "folder"; folder: FolderNode }
+  | { kind: "note"; note: NoteMetadata };
+
+function filterLibraryItems(items: LibraryItem[], query: string): LibraryItem[] {
+  const needle = query.trim();
+  if (!needle) return items;
+  const next: LibraryItem[] = [];
+  for (const item of items) {
+    if (item.kind === "note") {
+      if (filterNotesByTitle([item.note], needle).length > 0) next.push(item);
+      continue;
+    }
+    const folder = filterFolderTree([item.folder], needle)[0];
+    if (folder) next.push({ kind: "folder", folder });
+  }
+  return next;
+}
 
 function pinKey(target: SheetTarget) {
   return target.kind === "folder" ? folderItemId(target.path) : noteItemId(target.id);
@@ -341,6 +364,7 @@ export const MobileFolders = memo(function MobileFolders({
   const [selecting, setSelecting] = useState(false);
   const [selectedNoteIds, setSelectedNoteIds] = useState<Set<string>>(() => new Set());
   const [journalDrawerOpen, setJournalDrawerOpen] = useState(false);
+  const [query, setQuery] = useState("");
 
   const persistLibrary = useCallback((next: SidebarLibrary) => {
     setLibrary(next);
@@ -448,6 +472,11 @@ export const MobileFolders = memo(function MobileFolders({
       return item ? [item] : [];
     });
   }, [folders, library.folderOrder, library.itemOrder, pinOrder, tree.rootNotes]);
+
+  const shownPinned = useMemo(() => filterLibraryItems(pinnedItems, query), [pinnedItems, query]);
+  const shownRest = useMemo(() => filterLibraryItems(restItems, query), [query, restItems]);
+  const showJournal =
+    query.trim().length === 0 || "journal".includes(query.trim().toLowerCase());
 
   const handleOpenNote = useCallback(
     (id: string) => {
@@ -696,10 +725,32 @@ export const MobileFolders = memo(function MobileFolders({
           )
         }
       />
+      <label className="mobile-search-bar">
+        <SearchIcon />
+        <input
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Search"
+          aria-label="Search notes"
+          data-pager-ignore
+          autoCapitalize="none"
+          autoCorrect="off"
+        />
+      </label>
       <MobileScroll>
-        {pinnedItems.length > 0 && (
-          <Group>{pinnedItems.map((item) => renderItem(item))}</Group>
+        <Group>
+          <button type="button" className="mobile-folder-row" onClick={onOpenHome}>
+            <span className="mobile-folder-icon">
+              <HomeGlyph />
+            </span>
+            <span className="mobile-folder-label">Home</span>
+            <ChevronRightIcon className="mobile-folder-chevron" />
+          </button>
+        </Group>
+        {shownPinned.length > 0 && (
+          <Group>{shownPinned.map((item) => renderItem(item))}</Group>
         )}
+        {showJournal && (
         <Group>
           <button
             type="button"
@@ -713,17 +764,10 @@ export const MobileFolders = memo(function MobileFolders({
             <span className="mobile-folder-count">{journalCount}</span>
           </button>
         </Group>
-        {restItems.length > 0 && (
-          <Group>{restItems.map((item) => renderItem(item))}</Group>
         )}
-        <Group>
-          <button type="button" className="mobile-folder-row" onClick={onOpenHome}>
-            <span className="mobile-folder-icon">
-              <HomeGlyph />
-            </span>
-            <span className="mobile-folder-label">Home</span>
-          </button>
-        </Group>
+        {shownRest.length > 0 && (
+          <Group>{shownRest.map((item) => renderItem(item))}</Group>
+        )}
       </MobileScroll>
       <MobileJournalDrawer
         open={journalDrawerOpen}

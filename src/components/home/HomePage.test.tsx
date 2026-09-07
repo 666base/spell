@@ -183,4 +183,37 @@ describe("HomePage", () => {
     expect(screen.getByText("Account settings")).toBeTruthy();
     expect(screen.queryByText("Inbox")).toBeNull();
   });
+
+  it("keeps Home notes, icons, and destinations in grouped cards on a phone", () => {
+    const onSelectScope = vi.fn();
+    const onOpenNote = vi.fn();
+    render(<HomePage compact onSelectScope={onSelectScope} onOpenNote={onOpenNote} />);
+
+    expect(screen.queryByRole("tablist", { name: "Home" })).toBeNull();
+    expect(screen.getByText("Home")).toBeTruthy();
+    expect(screen.getByText("Inbox")).toBeTruthy();
+    expect(screen.getByText("Alpha")).toBeTruthy();
+    expect(screen.queryByText("Account settings")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Projects" }));
+    expect(onSelectScope).toHaveBeenCalledWith({ type: "projects" });
+    fireEvent.click(screen.getByText("Alpha"));
+    expect(onOpenNote).toHaveBeenCalledWith("Work/alpha");
+
+    fireEvent.click(screen.getByRole("button", { name: "Archive" }));
+    expect(screen.getByText("Nothing archived")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Home" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Account" }));
+    expect(screen.getByText("Account settings")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Projects" })).toBeNull();
+  });
+
+  it("opens Account settings directly from the compact account shortcut", () => {
+    render(<HomePage compact onSelectScope={vi.fn()} openSettingsToken={1} />);
+    expect(screen.queryByRole("tablist", { name: "Home" })).toBeNull();
+    expect(screen.getByText("Account")).toBeTruthy();
+    expect(screen.getByText("Account settings")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Journal" })).toBeNull();
+  });
 });

@@ -17,7 +17,7 @@ function isInteractive(target: EventTarget | null) {
     target instanceof Element &&
     Boolean(
       target.closest(
-        "button, a, input, textarea, select, [role='button'], [role='tab'], [role='dialog'], [contenteditable='true'], [data-pager-ignore], .kanban-board, .spell-table-scroll, .journal-calendar, .mobile-format-toolbar, .mobile-drawer, .mobile-action-layer, .mobile-scroll, .ProseMirror",
+        "button, a, input, textarea, select, [role='button'], [role='tab'], [role='radio'], [role='dialog'], [contenteditable='true'], [data-pager-ignore], .kanban-board, .spell-table-scroll, .journal-calendar, .mobile-format-toolbar, .mobile-drawer, .mobile-action-layer, .mobile-scroll, .segmented, .ProseMirror",
       ),
     )
   );

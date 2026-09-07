@@ -72,8 +72,8 @@ const defaultThemeColors: Record<"light" | "dark", Record<ThemeColorKey, string>
     selection: "rgba(255, 204, 0, 0.38)",
   },
   dark: {
-    bg: "#171717",
-    "bg-secondary": "#171717",
+    bg: "#121212",
+    "bg-secondary": "#121212",
     "bg-muted": "rgba(255, 255, 255, 0.03)",
     "bg-emphasis": "rgba(255, 255, 255, 0.11)",
     text: "#e1e1e1",
@@ -95,8 +95,8 @@ const SUPERSEDED_THEME_COLORS: Record<"light" | "dark", Partial<Record<ThemeColo
     accent: ["#1c1c1e"],
   },
   dark: {
-    bg: ["#1c1c1e"],
-    "bg-secondary": ["#2c2c2e", "#191919"],
+    bg: ["#1c1c1e", "#171717"],
+    "bg-secondary": ["#2c2c2e", "#191919", "#171717"],
     "bg-muted": ["rgba(235, 235, 245, 0.08)"],
     "bg-emphasis": ["rgba(235, 235, 245, 0.12)"],
     text: ["#f5f5f7"],

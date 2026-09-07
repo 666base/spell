@@ -26,6 +26,7 @@ import {
   DownloadIcon,
   SettingsIcon,
   SwatchIcon,
+  TrashIcon,
 } from "../icons/velocity";
 import {
   AlertDialog,
@@ -53,6 +54,7 @@ const HOME_TABS: { id: HomeTab; label: string }[] = [
 
 type SettingsTab = "account" | "general" | "appearance";
 type MobileSettingsSection = SettingsTab | "update";
+type CompactPane = "index" | "archive" | "trash" | MobileSettingsSection;
 
 const SETTINGS_TABS: {
   id: SettingsTab;
@@ -84,6 +86,7 @@ interface HomePageProps {
   compact?: boolean;
   onBack?: () => void;
   openSettingsToken?: number;
+  onOpenNote?: (id: string) => void;
 }
 
 export function HomePage({
@@ -97,11 +100,14 @@ export function HomePage({
   compact = false,
   onBack,
   openSettingsToken = 0,
+  onOpenNote,
 }: HomePageProps) {
   const { notes, selectNote, refreshNotes, reloadVersion } = useNotes();
   const [tab, setTab] = useState<HomeTab>(openSettingsToken > 0 ? "settings" : "library");
   const [settingsTab, setSettingsTab] = useState<SettingsTab>("account");
-  const [settingsSection, setSettingsSection] = useState<MobileSettingsSection | null>(null);
+  const [compactPane, setCompactPane] = useState<CompactPane>(
+    openSettingsToken > 0 ? "account" : "index",
+  );
   const [trash, setTrash] = useState<NoteMetadata[]>([]);
   const [confirm, setConfirm] = useState<{ type: "empty" } | { type: "delete"; id: string; title: string } | null>(
     null,
@@ -110,7 +116,7 @@ export function HomePage({
   useEffect(() => {
     if (openSettingsToken > 0) {
       setTab("settings");
-      setSettingsSection(null);
+      setCompactPane("account");
     }
   }, [openSettingsToken]);
 
@@ -131,16 +137,20 @@ export function HomePage({
   }, []);
 
   useEffect(() => {
-    if (tab !== "trash") return;
+    if (tab !== "trash" && compactPane !== "trash") return;
     void loadTrash();
-  }, [tab, reloadVersion, loadTrash]);
+  }, [tab, compactPane, reloadVersion, loadTrash]);
 
   const openNote = useCallback(
     (id: string) => {
+      if (onOpenNote) {
+        onOpenNote(id);
+        return;
+      }
       void selectNote(id);
       onSelectScope(scopeForNote(id));
     },
-    [onSelectScope, selectNote],
+    [onOpenNote, onSelectScope, selectNote],
   );
 
   const restoreNote = useCallback(
@@ -186,7 +196,9 @@ export function HomePage({
   }, [loadTrash]);
 
   const layout = compact ? "rows" : "cards";
-  const settingsOpen = compact ? MOBILE_SETTINGS_ROWS.find((row) => row.id === settingsSection) : null;
+  const compactSettings = compact
+    ? MOBILE_SETTINGS_ROWS.find((row) => row.id === compactPane)
+    : null;
 
   const tabs = (
     <nav className="home-tabs" role="tablist" aria-label="Home">
@@ -197,10 +209,7 @@ export function HomePage({
           role="tab"
           aria-selected={tab === item.id}
           className="home-tab"
-          onClick={() => {
-            setTab(item.id);
-            if (item.id !== "settings") setSettingsSection(null);
-          }}
+          onClick={() => setTab(item.id)}
         >
           {item.label}
         </button>
@@ -213,7 +222,6 @@ export function HomePage({
       {tab === "library" && (
         <LibraryPanel
           notes={allNotes}
-          layout={layout}
           onSelectScope={onSelectScope}
           onOpenNote={openNote}
         />
@@ -259,29 +267,6 @@ export function HomePage({
           </div>
         </section>
       )}
-      {tab === "settings" && compact && !settingsOpen && (
-        <section className="mobile-group">
-          <div className="mobile-group-card">
-            {MOBILE_SETTINGS_ROWS.map((item) => {
-              const Icon = item.icon;
-              return (
-                <button
-                  key={item.id}
-                  type="button"
-                  className="mobile-folder-row"
-                  onClick={() => setSettingsSection(item.id)}
-                >
-                  <span className="mobile-folder-icon">
-                    <Icon />
-                  </span>
-                  <span className="mobile-folder-label">{item.label}</span>
-                  <ChevronRightIcon className="mobile-folder-chevron" />
-                </button>
-              );
-            })}
-          </div>
-        </section>
-      )}
     </>
   );
 
@@ -315,24 +300,65 @@ export function HomePage({
   );
 
   if (compact) {
+    const onCompactBack =
+      compactPane === "index"
+        ? onBack
+        : () => setCompactPane("index");
+    const compactTitle = compactSettings
+      ? compactSettings.label
+      : compactPane === "archive"
+        ? "Archive"
+        : compactPane === "trash"
+          ? "Trash"
+          : "Home";
+    const compactBackLabel = compactPane === "index" ? "Folders" : "Home";
+
     return (
       <div className="mobile-settings">
         <MobileNavBar
-          backLabel={settingsOpen ? "Home" : "Folders"}
-          onBack={settingsOpen ? () => setSettingsSection(null) : onBack}
-          title={settingsOpen ? settingsOpen.label : "Home"}
+          backLabel={compactBackLabel}
+          onBack={onCompactBack}
+          title={compactTitle}
+          trailing={
+            compactPane === "trash" && trash.length > 0 ? (
+              <button
+                type="button"
+                className="mobile-nav-action is-danger"
+                onClick={() => setConfirm({ type: "empty" })}
+              >
+                Empty
+              </button>
+            ) : undefined
+          }
         />
-        {!settingsOpen && tabs}
         <div className="mobile-scroll">
-          {settingsOpen ? (
+          {compactSettings ? (
             <div className="mobile-settings-section">
-              {settingsOpen.id === "update" && <AppUpdateSection />}
-              {settingsOpen.id === "account" && <AccountSettingsSection />}
-              {settingsOpen.id === "general" && <GeneralSettingsSection />}
-              {settingsOpen.id === "appearance" && <AppearanceSettingsSection />}
+              {compactSettings.id === "update" && <AppUpdateSection />}
+              {compactSettings.id === "account" && <AccountSettingsSection />}
+              {compactSettings.id === "general" && <GeneralSettingsSection />}
+              {compactSettings.id === "appearance" && <AppearanceSettingsSection />}
             </div>
+          ) : compactPane === "archive" ? (
+            <ArchivePanel layout="rows" onSelectScope={onSelectScope} />
+          ) : compactPane === "trash" ? (
+            <TrashPanel
+              notes={trash}
+              layout="rows"
+              showToolbar={false}
+              onRestore={(id) => void restoreNote(id)}
+              onDelete={(note) => setConfirm({ type: "delete", id: note.id, title: note.title })}
+              onEmpty={() => setConfirm({ type: "empty" })}
+            />
           ) : (
-            body
+            <CompactHomeIndex
+              notes={allNotes}
+              onSelectScope={onSelectScope}
+              onOpenNote={openNote}
+              onOpenArchive={() => setCompactPane("archive")}
+              onOpenTrash={() => setCompactPane("trash")}
+              onOpenSettings={(id) => setCompactPane(id)}
+            />
           )}
         </div>
         {dialog}
@@ -359,40 +385,105 @@ export function HomePage({
   );
 }
 
+function CompactHomeIndex({
+  notes,
+  onSelectScope,
+  onOpenNote,
+  onOpenArchive,
+  onOpenTrash,
+  onOpenSettings,
+}: {
+  notes: NoteMetadata[];
+  onSelectScope: (scope: NotesScope) => void;
+  onOpenNote: (id: string) => void;
+  onOpenArchive: () => void;
+  onOpenTrash: () => void;
+  onOpenSettings: (id: MobileSettingsSection) => void;
+}) {
+  return (
+    <>
+      <section className="mobile-group">
+        <h2 className="mobile-group-title">Open</h2>
+        <div className="mobile-group-card">
+          <HomeRow
+            layout="rows"
+            icon={<JournalGlyph />}
+            title="Journal"
+            onClick={() => onSelectScope({ type: "journal" })}
+          />
+          <HomeRow
+            layout="rows"
+            icon={<ProjectsGlyph />}
+            title="Projects"
+            onClick={() => onSelectScope({ type: "projects" })}
+          />
+          <HomeRow
+            layout="rows"
+            icon={<MoneyGlyph />}
+            title="Money"
+            onClick={() => onSelectScope({ type: "money" })}
+          />
+        </div>
+      </section>
+      <section className="mobile-group">
+        <h2 className="mobile-group-title">All notes</h2>
+        <div className="mobile-group-card">
+          {notes.length === 0 ? (
+            <div className="mobile-folder-row">
+              <span className="mobile-folder-label text-text-muted">No notes yet</span>
+            </div>
+          ) : (
+            notes.map((note) => (
+              <button
+                key={note.id}
+                type="button"
+                className="mobile-folder-row"
+                onClick={() => onOpenNote(note.id)}
+              >
+                <span className="mobile-folder-label">{note.title}</span>
+              </button>
+            ))
+          )}
+        </div>
+      </section>
+      <section className="mobile-group">
+        <h2 className="mobile-group-title">Library</h2>
+        <div className="mobile-group-card">
+          <HomeRow layout="rows" icon={<ArchiveGlyph />} title="Archive" onClick={onOpenArchive} />
+          <HomeRow layout="rows" icon={<TrashIcon />} title="Trash" onClick={onOpenTrash} />
+        </div>
+      </section>
+      <section className="mobile-group">
+        <h2 className="mobile-group-title">Settings</h2>
+        <div className="mobile-group-card">
+          {MOBILE_SETTINGS_ROWS.map((item) => {
+            const Icon = item.icon;
+            return (
+              <HomeRow
+                key={item.id}
+                layout="rows"
+                icon={<Icon />}
+                title={item.label}
+                onClick={() => onOpenSettings(item.id)}
+              />
+            );
+          })}
+        </div>
+      </section>
+    </>
+  );
+}
+
 function LibraryPanel({
   notes,
-  layout,
   onSelectScope,
   onOpenNote,
 }: {
   notes: NoteMetadata[];
-  layout: "cards" | "rows";
   onSelectScope: (scope: NotesScope) => void;
   onOpenNote: (id: string) => void;
 }) {
-  const shortcuts =
-    layout === "rows" ? (
-      <>
-        <HomeRow
-          layout={layout}
-          icon={<JournalGlyph />}
-          title="Journal"
-          onClick={() => onSelectScope({ type: "journal" })}
-        />
-        <HomeRow
-          layout={layout}
-          icon={<ProjectsGlyph />}
-          title="Projects"
-          onClick={() => onSelectScope({ type: "projects" })}
-        />
-        <HomeRow
-          layout={layout}
-          icon={<MoneyGlyph />}
-          title="Money"
-          onClick={() => onSelectScope({ type: "money" })}
-        />
-      </>
-    ) : (
+  const shortcuts = (
       <>
         <button type="button" className="home-chip" onClick={() => onSelectScope({ type: "journal" })}>
           <JournalGlyph />
@@ -408,38 +499,6 @@ function LibraryPanel({
         </button>
       </>
     );
-
-  if (layout === "rows") {
-    return (
-      <>
-        <section className="mobile-group">
-          <h2 className="mobile-group-title">Open</h2>
-          <div className="mobile-group-card">{shortcuts}</div>
-        </section>
-        <section className="mobile-group">
-          <h2 className="mobile-group-title">All notes</h2>
-          <div className="mobile-group-card">
-            {notes.length === 0 ? (
-              <div className="mobile-folder-row">
-                <span className="mobile-folder-label text-text-muted">No notes yet</span>
-              </div>
-            ) : (
-              notes.map((note) => (
-                <button
-                  key={note.id}
-                  type="button"
-                  className="mobile-folder-row"
-                  onClick={() => onOpenNote(note.id)}
-                >
-                  <span className="mobile-folder-label">{note.title}</span>
-                </button>
-              ))
-            )}
-          </div>
-        </section>
-      </>
-    );
-  }
 
   return (
     <div className="home-library">
@@ -534,18 +593,20 @@ function ArchivePanel({
 function TrashPanel({
   notes,
   layout,
+  showToolbar = true,
   onRestore,
   onDelete,
   onEmpty,
 }: {
   notes: NoteMetadata[];
   layout: "cards" | "rows";
+  showToolbar?: boolean;
   onRestore: (id: string) => void;
   onDelete: (note: NoteMetadata) => void;
   onEmpty: () => void;
 }) {
   const toolbar =
-    notes.length > 0 ? (
+    showToolbar && notes.length > 0 ? (
       <div className="home-trash-toolbar">
         <button type="button" className="home-text-button" onClick={onEmpty}>
           Empty trash
@@ -568,7 +629,7 @@ function TrashPanel({
   }
 
   const rows = notes.map((note) => (
-    <div key={note.id} className={layout === "rows" ? "mobile-folder-row" : "money-row"}>
+    <div key={note.id} className={layout === "rows" ? "mobile-folder-row mobile-trash-row" : "money-row"}>
       <span className="min-w-0 flex-1 text-left">
         <span className={layout === "rows" ? "mobile-folder-label" : "money-row-title"}>{note.title}</span>
         {note.preview && layout !== "rows" && <span className="money-row-meta">{note.preview}</span>}
@@ -620,8 +681,11 @@ function HomeRow({
     return (
       <button type="button" className="mobile-folder-row" onClick={onClick}>
         <span className="mobile-folder-icon">{icon}</span>
-        <span className="mobile-folder-label">{title}</span>
-        {subtitle && <span className="mobile-folder-count">{subtitle}</span>}
+        <span className="mobile-folder-copy">
+          <span className="mobile-folder-label">{title}</span>
+          {subtitle && <span className="mobile-folder-sub">{subtitle}</span>}
+        </span>
+        <ChevronRightIcon className="mobile-folder-chevron" />
       </button>
     );
   }

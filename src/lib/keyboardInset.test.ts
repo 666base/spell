@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   isKeyboardOpen,
+  pinToolbarAboveKeyboard,
   readCssKeyboardInset,
   readNativeIme,
   resolveKeyboardInset,
@@ -57,5 +58,77 @@ describe("isKeyboardOpen", () => {
     expect(isKeyboardOpen(0)).toBe(false);
     expect(isKeyboardOpen(48)).toBe(false);
     expect(isKeyboardOpen(120)).toBe(true);
+  });
+});
+
+describe("pinToolbarAboveKeyboard", () => {
+  const toolbarHeight = 44;
+
+  it("sits on the visual viewport when the IME shrinks it", () => {
+    const pin = pinToolbarAboveKeyboard({
+      innerHeight: 800,
+      visualOffsetTop: 0,
+      visualHeight: 500,
+      nativeIme: 0,
+      virtualIme: 0,
+      toolbarHeight,
+    });
+    expect(pin.keyboardTop).toBe(500);
+    expect(pin.y).toBe(456);
+    expect(pin.inset).toBe(300);
+  });
+
+  it("uses native IME height when the visual viewport does not shrink", () => {
+    const pin = pinToolbarAboveKeyboard({
+      innerHeight: 800,
+      visualOffsetTop: 0,
+      visualHeight: 800,
+      nativeIme: 300,
+      virtualIme: 0,
+      toolbarHeight,
+    });
+    expect(pin.keyboardTop).toBe(500);
+    expect(pin.y).toBe(456);
+    expect(pin.inset).toBe(300);
+  });
+
+  it("does not double-count matching visual and native insets", () => {
+    const pin = pinToolbarAboveKeyboard({
+      innerHeight: 800,
+      visualOffsetTop: 0,
+      visualHeight: 500,
+      nativeIme: 300,
+      virtualIme: 0,
+      toolbarHeight,
+    });
+    expect(pin.keyboardTop).toBe(500);
+    expect(pin.y).toBe(456);
+  });
+
+  it("stays at the layout bottom when the keyboard is closed", () => {
+    const pin = pinToolbarAboveKeyboard({
+      innerHeight: 800,
+      visualOffsetTop: 0,
+      visualHeight: 800,
+      nativeIme: 0,
+      virtualIme: 0,
+      toolbarHeight,
+    });
+    expect(pin.keyboardTop).toBe(800);
+    expect(pin.y).toBe(756);
+    expect(pin.inset).toBe(0);
+  });
+
+  it("follows a panned visual viewport so the bar stays on screen", () => {
+    const pin = pinToolbarAboveKeyboard({
+      innerHeight: 800,
+      visualOffsetTop: 120,
+      visualHeight: 480,
+      nativeIme: 0,
+      virtualIme: 0,
+      toolbarHeight,
+    });
+    expect(pin.keyboardTop).toBe(600);
+    expect(pin.y).toBe(556);
   });
 });

@@ -5,6 +5,8 @@ export const MOTION_PANEL_MS = 220;
 export const MOTION_PRESS_MS = 100;
 /** Gliding list highlight. Matches Beautiful UI's hover pill, 220ms expo. */
 export const MOTION_GLIDE_MS = 220;
+/** BoardUI check-draw. Matches `--motion-check` in App.css. */
+export const MOTION_CHECK_MS = 200;
 
 export const MOTION_FAST_S = MOTION_FAST_MS / 1000;
 export const MOTION_BASE_S = MOTION_BASE_MS / 1000;

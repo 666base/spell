@@ -199,10 +199,75 @@ export function openTaskCount(project: { board: KanbanBoard }): number {
   return project.board.cards.filter((card) => !card.completed && !doneIds.has(card.id)).length;
 }
 
-export function projectListSubtitle(project: { board: KanbanBoard }): string {
+export function projectClient(project: { client?: string }): string {
+  return (project.client ?? "").trim();
+}
+
+function clientKey(name: string) {
+  return name.trim().toLocaleLowerCase();
+}
+
+function openLabel(project: { board: KanbanBoard }): string {
   const open = openTaskCount(project);
   if (open === 0 && project.board.cards.length === 0) return "Empty";
   return `${open} open`;
+}
+
+export function projectListSubtitle(project: { board: KanbanBoard; client?: string }): string {
+  const client = projectClient(project);
+  const open = openLabel(project);
+  return client ? `${client} · ${open}` : open;
+}
+
+export interface WorkspaceClient {
+  name: string;
+  projectCount: number;
+  openCount: number;
+  updatedAt: number;
+}
+
+export function workspaceClients(workspace: KanbanWorkspace): WorkspaceClient[] {
+  const byKey = new Map<string, WorkspaceClient>();
+  for (const project of workspace.projects) {
+    const name = projectClient(project);
+    if (!name) continue;
+    const key = clientKey(name);
+    const open = openTaskCount(project);
+    const current = byKey.get(key);
+    if (!current) {
+      byKey.set(key, {
+        name,
+        projectCount: 1,
+        openCount: open,
+        updatedAt: project.updatedAt,
+      });
+      continue;
+    }
+    current.projectCount += 1;
+    current.openCount += open;
+    current.updatedAt = Math.max(current.updatedAt, project.updatedAt);
+  }
+  return [...byKey.values()].sort(
+    (left, right) => right.updatedAt - left.updatedAt || left.name.localeCompare(right.name),
+  );
+}
+
+export function knownClientNames(workspace: KanbanWorkspace): string[] {
+  return workspaceClients(workspace).map((client) => client.name);
+}
+
+export function clientListSubtitle(client: WorkspaceClient): string {
+  const projects = client.projectCount === 1 ? "1 project" : `${client.projectCount} projects`;
+  return `${projects} · ${client.openCount} open`;
+}
+
+export function sameClient(left?: string, right?: string) {
+  const name = clientKey(right ?? "");
+  return name.length > 0 && clientKey(left ?? "") === name;
+}
+
+export function projectsForClient(workspace: KanbanWorkspace, client: string): KanbanProject[] {
+  return workspace.projects.filter((project) => sameClient(project.client, client));
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -298,6 +363,123 @@ export function overviewOpenCount(workspace: KanbanWorkspace): number {
 
 export function overviewDueCount(workspace: KanbanWorkspace): number {
   return openTasks(workspace).filter((item) => Boolean(item.card.dueDate) && item.card.completed !== true).length;
+}
+
+export function overdueTaskCount(workspace: KanbanWorkspace, projectIds?: Set<string> | null) {
+  return openTasks(workspace).filter((item) => {
+    if (projectIds && !projectIds.has(item.projectId)) return false;
+    if (item.card.completed === true || !item.card.dueDate) return false;
+    return formatDueDate(item.card.dueDate)?.tone === "overdue";
+  }).length;
+}
+
+export function dueDateKeys(workspace: KanbanWorkspace, projectIds?: Set<string> | null) {
+  const keys = new Set<string>();
+  for (const item of openTasks(workspace)) {
+    if (projectIds && !projectIds.has(item.projectId)) continue;
+    if (item.card.completed === true || !item.card.dueDate) continue;
+    keys.add(item.card.dueDate);
+  }
+  return keys;
+}
+
+export function tasksOnDate(
+  workspace: KanbanWorkspace,
+  date: string,
+  projectIds?: Set<string> | null,
+) {
+  return openTasks(workspace)
+    .filter((item) => {
+      if (projectIds && !projectIds.has(item.projectId)) return false;
+      return item.card.dueDate === date;
+    })
+    .sort((left, right) => (
+      left.card.updatedAt - right.card.updatedAt || left.card.title.localeCompare(right.card.title)
+    ));
+}
+
+export type WorkStageKind = Exclude<ColumnStatusKind, "done">;
+
+export interface WorkStage {
+  kind: WorkStageKind;
+  label: string;
+  count: number;
+  color: ResolvedColumnColor;
+}
+
+const STAGE_META: Record<WorkStageKind, { label: string; color: ResolvedColumnColor }> = {
+  inbox: { label: "Inbox", color: "gray" },
+  todo: { label: "Ready", color: "blue" },
+  progress: { label: "In progress", color: "blue" },
+  waiting: { label: "Waiting", color: "orange" },
+  other: { label: "Other", color: "purple" },
+};
+
+const STAGE_ORDER: WorkStageKind[] = ["inbox", "todo", "progress", "waiting", "other"];
+
+function inProjectScope(projectId: string, projectIds?: Set<string> | null) {
+  return !projectIds || projectIds.has(projectId);
+}
+
+export function workByStage(
+  workspace: KanbanWorkspace,
+  projectIds?: Set<string> | null,
+): WorkStage[] {
+  const counts = new Map<WorkStageKind, number>();
+  for (const item of openTasks(workspace)) {
+    if (!inProjectScope(item.projectId, projectIds) || item.card.completed === true) continue;
+    const kind = columnStatusKind(item.columnTitle);
+    if (kind === "done") continue;
+    counts.set(kind, (counts.get(kind) ?? 0) + 1);
+  }
+  return STAGE_ORDER.flatMap((kind) => {
+    const count = counts.get(kind) ?? 0;
+    if (count === 0) return [];
+    return [{ kind, count, ...STAGE_META[kind] }];
+  });
+}
+
+export function openByProject(
+  workspace: KanbanWorkspace,
+  projectIds?: Set<string> | null,
+  limit = 6,
+) {
+  return workspace.projects
+    .filter((project) => inProjectScope(project.id, projectIds))
+    .map((project) => ({
+      id: project.id,
+      name: project.name || "Untitled",
+      open: openTaskCount(project),
+    }))
+    .filter((project) => project.open > 0)
+    .sort((left, right) => right.open - left.open || left.name.localeCompare(right.name))
+    .slice(0, limit);
+}
+
+export type ProjectActivityFilter = "all" | "open" | "due";
+
+export function formatUpdatedAt(at: number): string {
+  const date = new Date(at);
+  if (Number.isNaN(date.valueOf())) return "";
+  return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+export function dueProjectIds(workspace: KanbanWorkspace): Set<string> {
+  return new Set(
+    openTasks(workspace)
+      .filter((item) => Boolean(item.card.dueDate) && item.card.completed !== true)
+      .map((item) => item.projectId),
+  );
+}
+
+export function matchesActivity(
+  activity: ProjectActivityFilter,
+  openCount: number,
+  hasDue: boolean,
+) {
+  if (activity === "open") return openCount > 0;
+  if (activity === "due") return hasDue;
+  return true;
 }
 
 export function createEmptyBoard(): KanbanBoard {

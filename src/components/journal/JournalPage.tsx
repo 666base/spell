@@ -112,6 +112,7 @@ export function JournalPage({
   const dateTitle = (
     <span className="journal-titlebar-date">{selectedTitle}</span>
   );
+  const showToday = !isSameLocalDay(selectedDate, today);
   const titlebar = !hideEditorTitleBar ? (
     <NoteTitlebar
       {...chrome}
@@ -131,6 +132,17 @@ export function JournalPage({
         ) : null
       }
       center={dateTitle}
+      trailing={
+        showToday ? (
+          <button
+            type="button"
+            className="journal-titlebar-today"
+            onClick={() => selectDate(today)}
+          >
+            Today
+          </button>
+        ) : null
+      }
     />
   ) : null;
   const calendar = !focusMode ? (
@@ -149,19 +161,20 @@ export function JournalPage({
     <div
       data-journal-page=""
       data-journal-editor={hideEditorTitleBar ? "" : undefined}
-      className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-bg"
+      className="editor-canvas relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
     >
       {titlebar}
-      {calendar}
       {isJournalOpen ? (
         <Editor
           hideTitleBar
+          header={calendar}
           onEditorReady={onEditorReady}
           showCompose={false}
           {...chrome}
         />
       ) : (
         <div className="journal-empty">
+          {calendar}
           {isOpeningJournal ? (
             <div className="flex flex-1 items-center justify-center text-sm text-text-muted">
               Opening {selectedTitle}…

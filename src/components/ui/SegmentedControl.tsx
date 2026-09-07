@@ -35,6 +35,7 @@ export function SegmentedControl<T extends string>({
       role="radiogroup"
       aria-label={ariaLabel}
       className={cn("segmented", className)}
+      data-pager-ignore
       style={
         {
           "--segmented-count": options.length,

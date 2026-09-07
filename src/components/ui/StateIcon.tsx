@@ -1,119 +1,28 @@
 import { useLayoutEffect, useRef, type ReactNode } from "react";
+import { MOTION_CHECK_MS } from "../../lib/motion";
 import { cn } from "../../lib/utils";
 import { ChevronRightIcon } from "../icons/velocity";
 
-export const CHECK_SHORT_PATH = "M6.2 12.4 10.1 16.4";
-export const CHECK_LONG_PATH = "M10.1 16.4 18.2 7.3";
-export const CHECK_DRAW_MS = 270;
-
-const CHECK_SHORT_MS = 90;
-const CHECK_LONG_MS = 210;
-const CHECK_LONG_DELAY_MS = 60;
-const CHECK_ERASE_MS = 140;
-const CHECK_ERASE_SHORT_DELAY_MS = 50;
-
-type CheckSignal = { cancelled: boolean };
-const running = new WeakMap<HTMLElement, CheckSignal>();
+/** One continuous stroke — BoardUI's check-draw, scaled to the 24 viewBox. */
+export const CHECK_PATH =
+  "M6 11.55 9.97 15.52C10.26 15.81 10.74 15.81 11.03 15.52L18 8.55";
+/** Keep in sync with `--motion-check` in App.css. */
+export const CHECK_DRAW_MS = MOTION_CHECK_MS;
 
 function prefersReducedMotion() {
   return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
-function checkPaths(span: HTMLElement) {
-  return {
-    short: span.querySelector<SVGPathElement>(".state-checkmark-short"),
-    long: span.querySelector<SVGPathElement>(".state-checkmark-long"),
-  };
-}
-
-function cancelCheck(span: HTMLElement) {
-  const current = running.get(span);
-  if (current) current.cancelled = true;
-}
-
-function preparePath(path: SVGPathElement) {
-  path.setAttribute("pathLength", "1");
-  path.setAttribute("stroke-dasharray", "1");
-}
-
-function writeOffset(path: SVGPathElement, offset: number) {
-  path.style.removeProperty("stroke-dashoffset");
-  path.setAttribute("stroke-dashoffset", String(offset));
-}
-
-function readOffset(path: SVGPathElement, fallback: number) {
-  const raw = path.getAttribute("stroke-dashoffset");
-  if (raw == null || raw === "") return fallback;
-  const value = Number(raw);
-  return Number.isFinite(value) ? value : fallback;
-}
-
-function snapCheck(span: HTMLElement, checked: boolean) {
-  cancelCheck(span);
-  const { short, long } = checkPaths(span);
-  const offset = checked ? 0 : 1;
-  if (short) {
-    preparePath(short);
-    writeOffset(short, offset);
-  }
-  if (long) {
-    preparePath(long);
-    writeOffset(long, offset);
-  }
-}
-
-function tweenOffset(
-  path: SVGPathElement,
-  from: number,
-  to: number,
-  duration: number,
-  delay: number,
-  signal: CheckSignal,
-) {
-  preparePath(path);
-  writeOffset(path, from);
-  const begin = performance.now() + delay;
-  const scaled = duration * Math.abs(to - from);
-  const tick = (now: number) => {
-    if (signal.cancelled) return;
-    if (now < begin) {
-      requestAnimationFrame(tick);
-      return;
-    }
-    const t = scaled <= 0 ? 1 : Math.min(1, (now - begin) / scaled);
-    writeOffset(path, from + (to - from) * t);
-    if (t < 1) requestAnimationFrame(tick);
-  };
-  requestAnimationFrame(tick);
-}
-
-function playCheck(span: HTMLElement, checked: boolean) {
-  const { short, long } = checkPaths(span);
-  if (!short || !long) return;
-  cancelCheck(span);
-  const signal = { cancelled: false };
-  running.set(span, signal);
-  if (checked) {
-    tweenOffset(short, readOffset(short, 1), 0, CHECK_SHORT_MS, 0, signal);
-    tweenOffset(long, readOffset(long, 1), 0, CHECK_LONG_MS, CHECK_LONG_DELAY_MS, signal);
-    return;
-  }
-  tweenOffset(long, readOffset(long, 0), 1, CHECK_ERASE_MS, 0, signal);
-  tweenOffset(short, readOffset(short, 0), 1, CHECK_SHORT_MS, CHECK_ERASE_SHORT_DELAY_MS, signal);
-}
-
-function appendCheckPath(svg: SVGSVGElement, className: string, d: string) {
+function appendCheckPath(svg: SVGSVGElement) {
   const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-  path.setAttribute("class", className);
-  path.setAttribute("d", d);
+  path.setAttribute("class", "state-checkmark-mark");
+  path.setAttribute("d", CHECK_PATH);
   path.setAttribute("fill", "none");
   path.setAttribute("stroke", "currentColor");
   path.setAttribute("stroke-width", "3");
   path.setAttribute("stroke-linecap", "round");
   path.setAttribute("stroke-linejoin", "round");
   path.setAttribute("pathLength", "1");
-  path.setAttribute("stroke-dasharray", "1");
-  path.setAttribute("stroke-dashoffset", "1");
   svg.append(path);
 }
 
@@ -123,26 +32,27 @@ export function createCheckmarkSvg(): SVGSVGElement {
   svg.setAttribute("fill", "none");
   svg.setAttribute("class", "state-checkmark-svg");
   svg.setAttribute("aria-hidden", "true");
-  appendCheckPath(svg, "state-checkmark-short", CHECK_SHORT_PATH);
-  appendCheckPath(svg, "state-checkmark-long", CHECK_LONG_PATH);
+  appendCheckPath(svg);
   return svg;
 }
 
 export function paintCheckmark(span: HTMLElement, checked: boolean, animate = true) {
   span.classList.add("state-checkmark");
-  span.dataset.motion = "js";
-  if (!span.querySelector(".state-checkmark-svg")) {
+  if (!span.querySelector(".state-checkmark-mark")) {
+    span.querySelector(".state-checkmark-svg")?.remove();
     span.append(createCheckmarkSvg());
   }
   const next = checked ? "checked" : "unchecked";
   const prev = span.dataset.state;
-  if (prev === next) return;
-  span.dataset.state = next;
-  if (!animate || !prev || prefersReducedMotion()) {
-    snapCheck(span, checked);
+  if (prev === next) {
+    if (!span.dataset.motion) span.dataset.motion = "snap";
     return;
   }
-  playCheck(span, checked);
+  const snap = !animate || !prev || prefersReducedMotion();
+  // Motion before state: enabling the CSS transition must land in the same
+  // style flush as the dashoffset change, or the stroke snaps.
+  span.dataset.motion = snap ? "snap" : "draw";
+  span.dataset.state = next;
 }
 
 interface DisclosureIconProps {
@@ -216,18 +126,8 @@ export function CheckmarkIcon({ checked, className }: CheckmarkIconProps) {
     <span ref={ref} aria-hidden="true" className={cn("state-checkmark", className)}>
       <svg viewBox="0 0 24 24" fill="none" className="state-checkmark-svg" aria-hidden="true">
         <path
-          className="state-checkmark-short"
-          d={CHECK_SHORT_PATH}
-          fill="none"
-          stroke="currentColor"
-          strokeWidth={3}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          pathLength={1}
-        />
-        <path
-          className="state-checkmark-long"
-          d={CHECK_LONG_PATH}
+          className="state-checkmark-mark"
+          d={CHECK_PATH}
           fill="none"
           stroke="currentColor"
           strokeWidth={3}

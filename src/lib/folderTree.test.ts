@@ -31,6 +31,27 @@ describe("filterFolderTree", () => {
   it("returns nothing when nothing matches", () => {
     expect(filterFolderTree(tree, "zzz")).toEqual([]);
   });
+
+  it("keeps a folder that contains a matching note", () => {
+    const withNote: FolderNode[] = [
+      {
+        name: "Work",
+        path: "Work",
+        children: [],
+        notes: [
+          {
+            id: "Work/alpha",
+            title: "Alpha",
+            preview: "",
+            modified: 1,
+          },
+        ],
+      },
+    ];
+    const next = filterFolderTree(withNote, "alp");
+    expect(next.map((item) => item.path)).toEqual(["Work"]);
+    expect(next[0].notes.map((note) => note.title)).toEqual(["Alpha"]);
+  });
 });
 
 describe("findFolderNode", () => {

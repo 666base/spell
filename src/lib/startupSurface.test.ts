@@ -31,6 +31,28 @@ describe("first-paint surfaces", () => {
     expect(html).not.toContain("#f7f7f5");
   });
 
+  it("keeps App.css dark canvas tokens on the same hex", () => {
+    const css = readFileSync(resolve(process.cwd(), "src/App.css"), "utf8");
+    expect(css).toContain(`--color-bg: ${defaultThemeColors.dark.bg};`);
+    expect(css).toContain(`--color-bg-secondary: ${defaultThemeColors.dark["bg-secondary"]};`);
+  });
+
+  it("keeps the writing well darker than sidebar chrome in dark mode", () => {
+    const css = readFileSync(resolve(process.cwd(), "src/App.css"), "utf8");
+    const editor = readFileSync(resolve(process.cwd(), "src/components/editor/Editor.tsx"), "utf8");
+    const journal = readFileSync(resolve(process.cwd(), "src/components/journal/JournalPage.tsx"), "utf8");
+    const sidebar = readFileSync(resolve(process.cwd(), "src/components/layout/Sidebar.tsx"), "utf8");
+
+    expect(css).toContain("--color-editor-bg: #000000;");
+    expect(css).toMatch(/\.editor-canvas \{[^}]*background: var\(--color-editor-bg\);/s);
+    expect(css).toMatch(/\.app-sidebar-surface \{[^}]*background: var\(--color-bg\);/s);
+    expect(css).toMatch(/\.mobile-editor-body \{[^}]*background: var\(--color-editor-bg\);/s);
+    expect(editor).toContain("editor-canvas");
+    expect(editor).not.toMatch(/flex-1 flex flex-col bg-bg/);
+    expect(journal).toContain("editor-canvas");
+    expect(sidebar).toContain("app-sidebar-surface");
+  });
+
   it("keeps the Android window behind the WebView on the same dark canvas", () => {
     const xml = readFileSync(
       resolve(process.cwd(), "src-tauri/gen/android/app/src/main/res/values/colors.xml"),

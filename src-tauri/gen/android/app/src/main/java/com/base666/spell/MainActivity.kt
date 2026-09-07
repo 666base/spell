@@ -2,6 +2,7 @@ package com.base666.spell
 
 import android.content.Intent
 import android.content.res.Configuration
+import android.graphics.Rect
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -99,8 +100,18 @@ class MainActivity : TauriActivity() {
     ViewCompat.requestApplyInsets(target)
   }
 
+  private fun keyboardHeightPx(insets: WindowInsetsCompat): Int {
+    val ime = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom
+    if (ime > 0) return ime
+    val visible = Rect()
+    window.decorView.getWindowVisibleDisplayFrame(visible)
+    val obscured = (window.decorView.rootView.height - visible.bottom).coerceAtLeast(0)
+    val minKeyboard = (80 * resources.displayMetrics.density).toInt()
+    return if (obscured >= minKeyboard) obscured else 0
+  }
+
   private fun pushInsets(insets: WindowInsetsCompat) {
-    val imePx = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom
+    val imePx = keyboardHeightPx(insets)
     val status =
       insets.getInsetsIgnoringVisibility(
         WindowInsetsCompat.Type.statusBars() or WindowInsetsCompat.Type.displayCutout(),

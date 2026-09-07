@@ -1,8 +1,8 @@
-import { type ReactNode, type RefObject, useEffect, useRef } from "react";
+import { type ReactNode, type RefObject, useEffect, useLayoutEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import {
   isKeyboardOpen,
-  readCssKeyboardInset,
+  pinToolbarAboveKeyboard,
   readNativeIme,
   resolveKeyboardInset,
   visualViewportGap,
@@ -208,14 +208,10 @@ function keyboardInset(): number {
   const viewport = window.visualViewport;
   const visual = visualViewportGap(window.innerHeight, viewport);
   const virtual = virtualKeyboard()?.boundingRect.height ?? 0;
-  const css = readCssKeyboardInset(
-    document.documentElement.style.getPropertyValue("--keyboard-inset"),
-  );
   return resolveKeyboardInset([
     readNativeIme(window as ImeWindow),
     visual,
     virtual,
-    css,
   ]);
 }
 
@@ -246,11 +242,12 @@ export function useKeyboardInset() {
     const viewport = window.visualViewport;
     const keyboard = virtualKeyboard();
     try {
-      if (keyboard) keyboard.overlaysContent = true;
+      if (keyboard) keyboard.overlaysContent = false;
     } catch {
       // VirtualKeyboard API is optional.
     }
     viewport?.addEventListener("resize", syncKeyboardInset);
+    viewport?.addEventListener("scroll", syncKeyboardInset);
     keyboard?.addEventListener("geometrychange", syncKeyboardInset);
     window.addEventListener("resize", syncKeyboardInset);
     window.addEventListener("focusin", syncKeyboardInset);
@@ -258,6 +255,7 @@ export function useKeyboardInset() {
     window.addEventListener("spell-keyboard", syncKeyboardInset);
     return () => {
       viewport?.removeEventListener("resize", syncKeyboardInset);
+      viewport?.removeEventListener("scroll", syncKeyboardInset);
       keyboard?.removeEventListener("geometrychange", syncKeyboardInset);
       window.removeEventListener("resize", syncKeyboardInset);
       window.removeEventListener("focusin", syncKeyboardInset);
@@ -273,7 +271,7 @@ export function useVisualViewportBottom(
 ): RefObject<HTMLDivElement | null> {
   const ref = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!enabled) return;
     let frame = 0;
 
@@ -281,14 +279,25 @@ export function useVisualViewportBottom(
       const node = ref.current;
       if (!node) return;
       syncKeyboardInset();
-      node.style.top = "auto";
+      const viewport = window.visualViewport;
+      const pin = pinToolbarAboveKeyboard({
+        innerHeight: window.innerHeight,
+        visualOffsetTop: viewport?.offsetTop ?? 0,
+        visualHeight: viewport?.height ?? window.innerHeight,
+        nativeIme: readNativeIme(window as ImeWindow),
+        virtualIme: virtualKeyboard()?.boundingRect.height ?? 0,
+        toolbarHeight: node.offsetHeight || 48,
+      });
+      node.style.position = "fixed";
       node.style.left = "0px";
       node.style.right = "0px";
       node.style.width = "100%";
-      node.style.transform = "none";
-      node.style.bottom = "var(--keyboard-inset, 0px)";
-      node.style.paddingBottom =
-        lastKeyboardInset > 24 ? "4px" : "calc(4px + var(--safe-area-bottom))";
+      node.style.bottom = "auto";
+      node.style.top = "0px";
+      node.style.transform = `translate3d(0px, ${pin.y}px, 0px)`;
+      node.style.paddingBottom = isKeyboardOpen(pin.inset)
+        ? "4px"
+        : "calc(4px + var(--safe-area-bottom))";
     };
 
     const onChange = () => {
@@ -297,7 +306,7 @@ export function useVisualViewportBottom(
       const started = performance.now();
       const tick = () => {
         sync();
-        if (performance.now() - started < 220) {
+        if (performance.now() - started < 500) {
           frame = requestAnimationFrame(tick);
         }
       };
@@ -307,13 +316,14 @@ export function useVisualViewportBottom(
     const viewport = window.visualViewport;
     const keyboard = virtualKeyboard();
     try {
-      if (keyboard) keyboard.overlaysContent = true;
+      if (keyboard) keyboard.overlaysContent = false;
     } catch {
       // VirtualKeyboard API is optional.
     }
 
     sync();
     viewport?.addEventListener("resize", onChange);
+    viewport?.addEventListener("scroll", onChange);
     keyboard?.addEventListener("geometrychange", onChange);
     window.addEventListener("resize", onChange);
     window.addEventListener("orientationchange", onChange);
@@ -323,6 +333,7 @@ export function useVisualViewportBottom(
     return () => {
       cancelAnimationFrame(frame);
       viewport?.removeEventListener("resize", onChange);
+      viewport?.removeEventListener("scroll", onChange);
       keyboard?.removeEventListener("geometrychange", onChange);
       window.removeEventListener("resize", onChange);
       window.removeEventListener("orientationchange", onChange);

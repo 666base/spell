@@ -22,6 +22,7 @@ import {
   MobileNavBar,
   MobileScreen,
   MobileSidebarToggle,
+  MobileTintButton,
   useKeyboardInset,
 } from "./components/layout/mobile/MobileChrome";
 import { useOpenJournal } from "./components/journal/useOpenJournal";
@@ -30,6 +31,7 @@ import { shouldShowFolderPicker } from "./lib/startupSurface";
 import { isMoneyTab, type NotesScope } from "./lib/notesScope";
 import { replaceMarkdownTitle, setEditorDocumentTitle } from "./lib/noteTitle";
 import { cleanTitle } from "./lib/utils";
+import { SearchIcon } from "./components/icons/velocity";
 
 const DAILY = 1;
 
@@ -121,7 +123,15 @@ const DailyPage = memo(function DailyPage({
           <MobileSidebarToggle side="left" onClick={onOpenFolders} />
         }
         trailing={
-          <MobileSidebarToggle side="right" onClick={onOpenWorkspace} />
+          <>
+            <MobileTintButton
+              title="Find in note"
+              onClick={() => window.dispatchEvent(new Event("spell-find-in-note"))}
+            >
+              <SearchIcon />
+            </MobileTintButton>
+            <MobileSidebarToggle side="right" onClick={onOpenWorkspace} />
+          </>
         }
       />
       <div className="mobile-editor-body">
@@ -137,7 +147,7 @@ const DailyPage = memo(function DailyPage({
               onEditorReady={handleEditorReady}
             />
           ) : isLoading ? (
-            <div className="h-full bg-bg" />
+            <div className="editor-canvas h-full" />
           ) : (
             <JournalPage
               sidebarVisible={false}
@@ -198,7 +208,7 @@ function MobileNoteTitle({
 }
 
 function MobileAppContent() {
-  const { notesFolder, isLoading, createNoteInFolder } = useNotes();
+  const { notesFolder, isLoading, createNoteInFolder, selectNote } = useNotes();
   const openJournal = useOpenJournal();
   const reduceMotion = useReducedMotion();
   const [index, setIndex] = useState(DAILY);
@@ -285,12 +295,22 @@ function MobileAppContent() {
         return;
       }
       if (scope.type === "projects" || scope.type === "project" || isMoneyTab(scope)) {
+        window.dispatchEvent(new CustomEvent("spell-mobile-workspace", { detail: scope }));
         openWorkspace();
         return;
       }
       goTo(0);
     },
     [goTo, openToday, openWorkspace],
+  );
+
+  const openNoteFromHome = useCallback(
+    (id: string) => {
+      void selectNote(id);
+      setHomeOpen(false);
+      goTo(DAILY);
+    },
+    [goTo, selectNote],
   );
 
   useEffect(() => {
@@ -351,6 +371,7 @@ function MobileAppContent() {
                 compact
                 onBack={closeHome}
                 onSelectScope={selectFromHome}
+                onOpenNote={openNoteFromHome}
                 openSettingsToken={homeSettingsToken}
               />
             </motion.div>

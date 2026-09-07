@@ -103,9 +103,11 @@ export function TextColorControls({ editor, placement = "above" }: TextColorCont
     place();
     window.addEventListener("spell-keyboard", place);
     window.visualViewport?.addEventListener("resize", place);
+    window.visualViewport?.addEventListener("scroll", place);
     return () => {
       window.removeEventListener("spell-keyboard", place);
       window.visualViewport?.removeEventListener("resize", place);
+      window.visualViewport?.removeEventListener("scroll", place);
     };
   }, [open]);
 

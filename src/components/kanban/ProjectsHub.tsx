@@ -1,22 +1,45 @@
-import { useCallback, useMemo, type ReactNode } from "react";
+import { useCallback, useMemo, useState, type ReactNode } from "react";
+import { format } from "date-fns";
 import { useKanbanWorkspace } from "../../context/KanbanWorkspaceContext";
 import {
+  dueDateKeys,
+  dueProjectIds,
   dueTasks,
   formatDueDate,
+  matchesActivity,
   openTaskCount,
   overviewDueCount,
   overviewOpenCount,
+  projectClient,
   projectListSubtitle,
+  projectsForClient,
   recentTasks,
+  sameClient,
+  tasksOnDate,
   withCardCompleted,
   withCardInColumn,
+  workspaceClients,
+  type ProjectActivityFilter,
   type ProjectTaskItem,
+  type WorkspaceClient,
 } from "../../lib/kanban";
+import { isSameLocalDay, startOfLocalDay } from "../../lib/journal";
 import type { ColumnColorId } from "../../types/note";
 import { cn } from "../../lib/utils";
 import { NoteTitlebar } from "../layout/NoteTitlebar";
+import { IconButton, SegmentedControl, Select } from "../ui";
 import { CheckmarkIcon } from "../ui/StateIcon";
 import { StatusPicker, checkStatusColor } from "./StatusChip";
+import { CalendarIcon } from "../icons/velocity";
+import { JournalCalendar, type JournalCalendarMode } from "../journal/JournalCalendar";
+
+const ALL_CLIENTS = "all";
+const NO_CLIENT = "none";
+const ACTIVITY_OPTIONS = [
+  { value: "all", label: "All" },
+  { value: "open", label: "Open" },
+  { value: "due", label: "Due" },
+] as const;
 
 interface ProjectsHubProps {
   sidebarVisible?: boolean;
@@ -40,11 +63,102 @@ export function ProjectsHub({
   onOpenProject,
 }: ProjectsHubProps) {
   const { workspace, isLoading, patchProjectBoard } = useKanbanWorkspace();
-  const dues = useMemo(() => dueTasks(workspace), [workspace]);
-  const recent = useMemo(() => recentTasks(workspace), [workspace]);
-  const openCount = overviewOpenCount(workspace);
-  const dueCount = overviewDueCount(workspace);
-  const emptyInbox = dues.length === 0 && recent.length === 0;
+  const [clientFilter, setClientFilter] = useState(ALL_CLIENTS);
+  const [activity, setActivity] = useState<ProjectActivityFilter>("all");
+  const [selectedDate, setSelectedDate] = useState(() => startOfLocalDay());
+  const [calendarMode, setCalendarMode] = useState<JournalCalendarMode>("week");
+  const today = useMemo(() => startOfLocalDay(), []);
+  const selectedClient = clientFilter === ALL_CLIENTS ? null : clientFilter;
+  const clients = useMemo(() => workspaceClients(workspace), [workspace]);
+  const unassigned = useMemo(
+    () => workspace.projects.filter((project) => !projectClient(project)),
+    [workspace],
+  );
+  const dueIds = useMemo(() => dueProjectIds(workspace), [workspace]);
+  const clientRows = useMemo(() => {
+    const rows: Array<WorkspaceClient & { id: string }> = clients.map((client) => ({
+      ...client,
+      id: client.name,
+    }));
+    if (unassigned.length === 0) return rows;
+    rows.push({
+      id: NO_CLIENT,
+      name: "No client",
+      projectCount: unassigned.length,
+      openCount: unassigned.reduce((total, project) => total + openTaskCount(project), 0),
+      updatedAt: Math.max(...unassigned.map((project) => project.updatedAt)),
+    });
+    return rows;
+  }, [clients, unassigned]);
+  const visibleClients = useMemo(
+    () => clientRows.filter((client) => {
+      const hasDue = client.id === NO_CLIENT
+        ? unassigned.some((project) => dueIds.has(project.id))
+        : projectsForClient(workspace, client.name).some((project) => dueIds.has(project.id));
+      return matchesActivity(activity, client.openCount, hasDue);
+    }),
+    [activity, clientRows, dueIds, unassigned, workspace],
+  );
+  const clientProjects = useMemo(() => {
+    if (clientFilter === ALL_CLIENTS) return [];
+    const source = clientFilter === NO_CLIENT
+      ? unassigned
+      : projectsForClient(workspace, clientFilter);
+    return source.filter((project) => (
+      matchesActivity(activity, openTaskCount(project), dueIds.has(project.id))
+    ));
+  }, [activity, clientFilter, dueIds, unassigned, workspace]);
+  const clientIds = useMemo(() => {
+    if (clientFilter === ALL_CLIENTS) return null;
+    const ids = clientFilter === NO_CLIENT
+      ? unassigned.map((project) => project.id)
+      : projectsForClient(workspace, clientFilter).map((project) => project.id);
+    return new Set(ids);
+  }, [clientFilter, unassigned, workspace]);
+  const dueKeys = useMemo(() => dueDateKeys(workspace, clientIds), [clientIds, workspace]);
+  const dayKey = format(selectedDate, "yyyy-MM-dd");
+  const dayTasks = useMemo(
+    () => tasksOnDate(workspace, dayKey, clientIds),
+    [clientIds, dayKey, workspace],
+  );
+  const viewingDay = dayTasks.length > 0;
+  const dues = useMemo(
+    () => dueTasks(workspace).filter((item) => (
+      (!clientIds || clientIds.has(item.projectId)) &&
+      (activity !== "open" || item.card.completed !== true) &&
+      (!viewingDay || item.card.dueDate === dayKey)
+    )),
+    [activity, clientIds, dayKey, viewingDay, workspace],
+  );
+  const recent = useMemo(
+    () => recentTasks(workspace).filter((item) => (
+      (!clientIds || clientIds.has(item.projectId)) &&
+      activity !== "due" &&
+      !viewingDay
+    )),
+    [activity, clientIds, viewingDay, workspace],
+  );
+  const focus = selectedClient && selectedClient !== NO_CLIENT
+    ? clients.find((client) => sameClient(client.name, selectedClient))
+    : null;
+  const openCount = focus ? focus.openCount : overviewOpenCount(workspace);
+  const dueCount = selectedClient
+    ? dues.filter((item) => item.card.completed !== true).length
+    : overviewDueCount(workspace);
+  const projectCount = focus
+    ? focus.projectCount
+    : clientFilter === NO_CLIENT
+      ? unassigned.length
+      : workspace.projects.length;
+  const emptyInbox = !viewingDay && dues.length === 0 && recent.length === 0;
+  const showingProjects = clientFilter !== ALL_CLIENTS;
+  const tableCount = showingProjects ? clientProjects.length : visibleClients.length;
+  const showToday = !isSameLocalDay(selectedDate, today);
+  const dateTitle = format(selectedDate, "MMMM d");
+
+  const selectDate = useCallback((date: Date) => {
+    setSelectedDate(startOfLocalDay(date));
+  }, []);
 
   const openTask = useCallback((item: ProjectTaskItem) => {
     onOpenProject?.(item.projectId, item.card.id);
@@ -60,6 +174,18 @@ export function ProjectsHub({
     patchProjectBoard(item.projectId, (board) => withCardInColumn(board, item.card.id, columnId));
   }, [patchProjectBoard]);
 
+  const calendarToggle = !focusMode ? (
+    <IconButton
+      size="sm"
+      title={calendarMode === "month" ? "Collapse calendar" : "Expand calendar"}
+      pressed={calendarMode === "month"}
+      aria-expanded={calendarMode === "month"}
+      onClick={() => setCalendarMode((current) => current === "week" ? "month" : "week")}
+    >
+      <CalendarIcon />
+    </IconButton>
+  ) : null;
+
   const titlebar = (
     <NoteTitlebar
       sidebarVisible={sidebarVisible}
@@ -68,120 +194,213 @@ export function ProjectsHub({
       onToggleSidebar={onToggleSidebar}
       onNewNote={onNewNote}
       showWindowControls={showWindowControls}
-      center={<span className="titlebar-title">Projects</span>}
+      leading={calendarToggle}
+      center={<span className="journal-titlebar-date">{dateTitle}</span>}
+      trailing={
+        showToday ? (
+          <button
+            type="button"
+            className="journal-titlebar-today"
+            onClick={() => selectDate(today)}
+          >
+            Today
+          </button>
+        ) : null
+      }
     />
   );
 
+  const calendar = !focusMode ? (
+    <div className="journal-note-calendar">
+      <JournalCalendar
+        selected={selectedDate}
+        journalDates={dueKeys}
+        onSelectDate={selectDate}
+        mode={calendarMode}
+        onModeChange={setCalendarMode}
+        ariaLabel="Project due dates"
+      />
+    </div>
+  ) : null;
+
   const content = (
     <>
-      <header className="money-hero">
-        <p className="money-hero-label">Open</p>
-        <p className="money-hero-value">{openCount}</p>
-        <p className="money-hero-split">
-          <span>
-            Due <strong>{dueCount}</strong>
-          </span>
-          <span>
-            Projects <strong>{workspace.projects.length}</strong>
-          </span>
-        </p>
-      </header>
-
-      {workspace.projects.length === 0 && (
-        <InboxGroup>
-          <button
-            type="button"
-            className="money-row"
-            onClick={() => window.dispatchEvent(new CustomEvent("create-new-project"))}
-          >
-            <span className="money-row-title">New Project</span>
-          </button>
-        </InboxGroup>
+      {hideTitleBar && (
+        <div className="project-hub-mobile-chrome">
+          {calendarToggle}
+          {showToday && (
+            <button
+              type="button"
+              className="journal-titlebar-today"
+              onClick={() => selectDate(today)}
+            >
+              Today
+            </button>
+          )}
+        </div>
       )}
-
-      {dues.length > 0 && (
-        <InboxGroup title="Due">
-          {dues.map((item) => (
-            <OverviewTaskRow
-              key={`${item.projectId}:${item.card.id}`}
-              item={item}
-              columns={workspace.projects.find((project) => project.id === item.projectId)?.board.columns ?? []}
-              onOpen={() => openTask(item)}
-              onToggleDone={() => toggleDone(item)}
-              onMove={(columnId) => moveTask(item, columnId)}
+      {calendar}
+      <div className="project-hub-body">
+        {hideTitleBar && (
+          <h1 className="journal-empty-title">{dateTitle}</h1>
+        )}
+        <div className="project-hub-meta">
+          <p>
+            {openCount} open
+            {dueCount > 0 ? ` · ${dueCount} due` : ""}
+            {` · ${projectCount} ${projectCount === 1 ? "project" : "projects"}`}
+          </p>
+          <div className="project-hub-filters">
+            <SegmentedControl
+              ariaLabel="Activity"
+              value={activity}
+              options={ACTIVITY_OPTIONS}
+              onChange={setActivity}
             />
-          ))}
-        </InboxGroup>
-      )}
-
-      {recent.length > 0 && (
-        <InboxGroup>
-          {recent.map((item) => (
-            <OverviewTaskRow
-              key={`${item.projectId}:${item.card.id}`}
-              item={item}
-              columns={workspace.projects.find((project) => project.id === item.projectId)?.board.columns ?? []}
-              onOpen={() => openTask(item)}
-              onToggleDone={() => toggleDone(item)}
-              onMove={(columnId) => moveTask(item, columnId)}
-            />
-          ))}
-        </InboxGroup>
-      )}
-
-      {emptyInbox && workspace.projects.length > 0 && (
-        <InboxGroup>
-          {workspace.projects.map((project) => {
-            const open = openTaskCount(project);
-            return (
-              <button
-                key={project.id}
-                type="button"
-                className="money-row"
-                onClick={() => onOpenProject?.(project.id)}
+            {(clients.length > 0 || unassigned.length > 0) && (
+              <Select
+                aria-label="All clients"
+                value={clientFilter}
+                onValueChange={setClientFilter}
+                className="project-hub-select"
               >
-                <span className="money-row-main">
-                  <span className="money-row-title">{project.name || "Untitled"}</span>
-                  <span className="money-row-meta">{projectListSubtitle(project)}</span>
-                </span>
-                {open > 0 && (
-                  <span className="money-row-amount is-muted">{open}</span>
+                <option value={ALL_CLIENTS}>All clients</option>
+                {clients.map((client) => (
+                  <option key={client.name} value={client.name}>{client.name}</option>
+                ))}
+                {unassigned.length > 0 && (
+                  <option value={NO_CLIENT}>No client</option>
                 )}
-              </button>
-            );
-          })}
-          <button
-            type="button"
-            className="money-row"
-            onClick={() => window.dispatchEvent(new CustomEvent("create-new-project"))}
-          >
-            <span className="money-row-title">New Project</span>
-          </button>
-        </InboxGroup>
-      )}
+              </Select>
+            )}
+          </div>
+        </div>
+
+        {workspace.projects.length === 0 && (
+          <InboxGroup>
+            <button
+              type="button"
+              className="kanban-list-add project-hub-add"
+              onClick={() => window.dispatchEvent(new CustomEvent("create-new-project"))}
+            >
+              New Project
+            </button>
+          </InboxGroup>
+        )}
+
+        {viewingDay && (
+          <InboxGroup title={dateTitle}>
+            {dayTasks.map((item) => (
+              <OverviewTaskRow
+                key={`${item.projectId}:${item.card.id}`}
+                item={item}
+                columns={workspace.projects.find((project) => project.id === item.projectId)?.board.columns ?? []}
+                onOpen={() => openTask(item)}
+                onToggleDone={() => toggleDone(item)}
+                onMove={(columnId) => moveTask(item, columnId)}
+              />
+            ))}
+          </InboxGroup>
+        )}
+
+        {!viewingDay && dues.length > 0 && (
+          <InboxGroup title="Due">
+            {dues.map((item) => (
+              <OverviewTaskRow
+                key={`${item.projectId}:${item.card.id}`}
+                item={item}
+                columns={workspace.projects.find((project) => project.id === item.projectId)?.board.columns ?? []}
+                onOpen={() => openTask(item)}
+                onToggleDone={() => toggleDone(item)}
+                onMove={(columnId) => moveTask(item, columnId)}
+              />
+            ))}
+          </InboxGroup>
+        )}
+
+        {recent.length > 0 && (
+          <InboxGroup>
+            {recent.map((item) => (
+              <OverviewTaskRow
+                key={`${item.projectId}:${item.card.id}`}
+                item={item}
+                columns={workspace.projects.find((project) => project.id === item.projectId)?.board.columns ?? []}
+                onOpen={() => openTask(item)}
+                onToggleDone={() => toggleDone(item)}
+                onMove={(columnId) => moveTask(item, columnId)}
+              />
+            ))}
+          </InboxGroup>
+        )}
+
+        {workspace.projects.length > 0 && (clients.length > 0 || showingProjects) && (
+          <InboxGroup title={showingProjects ? (focus?.name ?? "Projects") : undefined}>
+            {tableCount === 0 ? (
+              <p className="project-hub-group-title">No matching records</p>
+            ) : showingProjects ? (
+              clientProjects.map((project) => (
+                <ProjectHubRow
+                  key={project.id}
+                  name={project.name}
+                  subtitle={projectListSubtitle(project)}
+                  onOpen={() => onOpenProject?.(project.id)}
+                />
+              ))
+            ) : (
+              visibleClients.map((client) => (
+                <ProjectHubRow
+                  key={client.id}
+                  name={client.name}
+                  subtitle={
+                    `${client.projectCount === 1 ? "1 project" : `${client.projectCount} projects`} · ${client.openCount} open`
+                  }
+                  onOpen={() => setClientFilter(client.id)}
+                />
+              ))
+            )}
+          </InboxGroup>
+        )}
+
+        {emptyInbox && !showingProjects && workspace.projects.length > 0 && clients.length === 0 && (
+          <InboxGroup>
+            {workspace.projects.map((project) => (
+              <ProjectHubRow
+                key={project.id}
+                name={project.name}
+                subtitle={projectListSubtitle(project)}
+                onOpen={() => onOpenProject?.(project.id)}
+              />
+            ))}
+            <button
+              type="button"
+              className="kanban-list-add project-hub-add"
+              onClick={() => window.dispatchEvent(new CustomEvent("create-new-project"))}
+            >
+              New Project
+            </button>
+          </InboxGroup>
+        )}
+      </div>
     </>
   );
 
   if (isLoading) {
     return (
-      <div className="flex min-w-0 flex-1 flex-col overflow-hidden bg-bg-secondary">
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden bg-bg">
         {!hideTitleBar && titlebar}
-        <div className="flex-1 bg-bg-secondary" />
+        <div className="flex-1 bg-bg" />
       </div>
     );
   }
 
   return (
-    <div className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-bg-secondary">
+    <div
+      data-calendar-page=""
+      className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-bg"
+    >
       {!hideTitleBar && titlebar}
-      <div className="relative min-h-0 flex-1">
-        {hideTitleBar ? (
-          <div className="mobile-money">{content}</div>
-        ) : (
-          <div className="money-page">
-            <div className="money-page-inner">{content}</div>
-          </div>
-        )}
+      <div className="project-hub">
+        {content}
       </div>
     </div>
   );
@@ -189,10 +408,27 @@ export function ProjectsHub({
 
 function InboxGroup({ title, children }: { title?: string; children: ReactNode }) {
   return (
-    <section className="money-group">
-      {title && <h2 className="money-group-title">{title}</h2>}
-      <div className="money-group-card">{children}</div>
+    <section className="project-hub-group">
+      {title && <h2 className="project-hub-group-title">{title}</h2>}
+      {children}
     </section>
+  );
+}
+
+function ProjectHubRow({
+  name,
+  subtitle,
+  onOpen,
+}: {
+  name: string;
+  subtitle: string;
+  onOpen: () => void;
+}) {
+  return (
+    <button type="button" className="project-hub-link" onClick={onOpen}>
+      <span className="kanban-task-title">{name || "Untitled"}</span>
+      <span className="kanban-task-meta">{subtitle}</span>
+    </button>
   );
 }
 
@@ -214,38 +450,44 @@ function OverviewTaskRow({
   const meta = [item.projectName, due?.label].filter(Boolean).join(" · ");
 
   return (
-    <div className="money-row">
-      <button
-        type="button"
-        aria-label={done ? `Mark ${item.card.title} not done` : `Mark ${item.card.title} done`}
-        aria-pressed={done}
-        data-color={checkStatusColor(item.columnTitle, item.columnColor)}
-        data-pager-ignore
-        onClick={(event) => {
-          event.stopPropagation();
-          onToggleDone();
-        }}
-        className={cn("money-row-check kanban-check", done && "is-checked")}
-      >
-        <CheckmarkIcon checked={done} className="size-2.5" />
-      </button>
-      <button type="button" onClick={onOpen} className="money-row-main">
-        <span className={cn("money-row-title", done && "is-done")}>
-          {item.card.title || "Untitled"}
+    <div className="project-hub-task">
+      <div className="kanban-task">
+        <span className="kanban-task-check">
+          <button
+            type="button"
+            aria-label={done ? `Mark ${item.card.title} not done` : `Mark ${item.card.title} done`}
+            aria-pressed={done}
+            data-color={checkStatusColor(item.columnTitle, item.columnColor)}
+            data-pager-ignore
+            onClick={(event) => {
+              event.stopPropagation();
+              onToggleDone();
+            }}
+            className={cn("kanban-done-toggle kanban-check size-[1.125rem]", done && "is-checked")}
+          >
+            <CheckmarkIcon checked={done} className="size-3.5" />
+          </button>
         </span>
-        <span className={cn("money-row-meta", due?.tone === "overdue" && "is-overdue")}>
-          {meta}
-        </span>
-      </button>
-      <StatusPicker
-        title={item.columnTitle}
-        color={item.columnColor}
-        value={item.columnId}
-        columns={columns}
-        onChange={onMove}
-        size="sm"
-        className="shrink-0"
-      />
+        <button type="button" onClick={onOpen} className="kanban-task-body">
+          <span className={cn("kanban-task-title", done && "text-text-muted")}>
+            {item.card.title || "Untitled"}
+          </span>
+          {meta && (
+            <span className={cn("kanban-task-meta", due?.tone === "overdue" && "is-overdue")}>
+              {meta}
+            </span>
+          )}
+        </button>
+        <StatusPicker
+          title={item.columnTitle}
+          color={item.columnColor}
+          value={item.columnId}
+          columns={columns}
+          onChange={onMove}
+          size="sm"
+          className="shrink-0"
+        />
+      </div>
     </div>
   );
 }

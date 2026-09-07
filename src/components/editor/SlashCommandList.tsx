@@ -12,6 +12,12 @@ interface SlashCommandListProps {
   command: (item: SlashCommandItem) => void;
 }
 
+const GROUP_LABEL: Record<SlashCommandItem["group"], string> = {
+  style: "Text",
+  list: "Lists",
+  insert: "Insert",
+};
+
 export const SlashCommandList = forwardRef<
   SlashCommandListRef,
   SlashCommandListProps
@@ -21,12 +27,12 @@ export const SlashCommandList = forwardRef<
     items={items}
     command={command}
     itemKey={(item) => item.title}
-    renderItem={(item, isSelected) => (
-      <div className="flex items-center gap-2.5">
+    groupOf={(item) => GROUP_LABEL[item.group]}
+    renderItem={(item) => (
+      <div className="flex min-w-0 items-center gap-3">
         <span
-          className={
-            isSelected ? "text-text" : "text-text-muted"
-          }
+          aria-hidden
+          className="flex size-[18px] shrink-0 items-center justify-center text-text-muted"
         >
           {item.icon}
         </span>

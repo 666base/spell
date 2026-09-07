@@ -157,12 +157,13 @@ export function filterFolderTree(folders: FolderNode[], query: string): FolderNo
   const match = (folder: FolderNode): FolderNode | null => {
     const self = folder.name.toLowerCase().includes(needle);
     if (self) return folder;
+    const notes = filterNotesByTitle(folder.notes, query);
     const children = folder.children.flatMap((child) => {
       const next = match(child);
       return next ? [next] : [];
     });
-    if (children.length === 0) return null;
-    return { ...folder, children };
+    if (notes.length === 0 && children.length === 0) return null;
+    return { ...folder, notes, children };
   };
 
   return folders.flatMap((folder) => {

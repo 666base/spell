@@ -43,6 +43,7 @@ export function AppPopover({
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
+        if (document.querySelector(".spell-calendar-layer")) return;
         event.preventDefault();
         cancel();
       }

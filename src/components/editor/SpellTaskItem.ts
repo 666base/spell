@@ -1,30 +1,8 @@
 import { mergeAttributes } from "@tiptap/core";
 import TaskItem from "@tiptap/extension-task-item";
-import {
-  CHECK_LONG_PATH,
-  CHECK_SHORT_PATH,
-  paintCheckmark,
-} from "../ui/StateIcon";
+import { CHECK_PATH, paintCheckmark } from "../ui/StateIcon";
 
-function checkPath(className: string, d: string, checked: boolean) {
-  return [
-    "path",
-    {
-      class: className,
-      d,
-      fill: "none",
-      stroke: "currentColor",
-      "stroke-width": "3",
-      "stroke-linecap": "round",
-      "stroke-linejoin": "round",
-      pathLength: "1",
-      "stroke-dasharray": "1",
-      "stroke-dashoffset": checked ? "0" : "1",
-    },
-  ] as const;
-}
-
-function checkSvg(checked: boolean) {
+function checkSvg() {
   return [
     "svg",
     {
@@ -33,8 +11,19 @@ function checkSvg(checked: boolean) {
       class: "state-checkmark-svg",
       "aria-hidden": "true",
     },
-    checkPath("state-checkmark-short", CHECK_SHORT_PATH, checked),
-    checkPath("state-checkmark-long", CHECK_LONG_PATH, checked),
+    [
+      "path",
+      {
+        class: "state-checkmark-mark",
+        d: CHECK_PATH,
+        fill: "none",
+        stroke: "currentColor",
+        "stroke-width": "3",
+        "stroke-linecap": "round",
+        "stroke-linejoin": "round",
+        pathLength: "1",
+      },
+    ],
   ] as const;
 }
 
@@ -63,8 +52,9 @@ export const SpellTaskItem = TaskItem.extend({
           {
             class: "state-checkmark",
             "data-state": node.attrs.checked ? "checked" : "unchecked",
+            "data-motion": "snap",
           },
-          checkSvg(Boolean(node.attrs.checked)),
+          checkSvg(),
         ],
       ],
       ["div", 0],
@@ -129,9 +119,9 @@ export const SpellTaskItem = TaskItem.extend({
       const ignoreMutation = view.ignoreMutation;
       return {
         ...view,
-        // ProseMirror treats SVG dashoffset writes as document mutations and
-        // redraws the task item, which remounts the check and kills the draw
-        // animation. Ignore chrome outside the editable text.
+        // ProseMirror treats check chrome (data-state / data-motion) as
+        // document mutations and remounts the task item, which kills the
+        // draw animation. Ignore chrome outside the editable text.
         ignoreMutation: (mutation) => {
           if (mutation.type === "selection") {
             return ignoreMutation?.(mutation) ?? false;

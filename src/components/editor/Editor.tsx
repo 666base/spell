@@ -96,6 +96,7 @@ import {
 import { SpinnerIcon } from "../icons/velocity";
 import { NoteTitlebar } from "../layout/NoteTitlebar";
 import { NoNotesEmpty } from "../notes/NoNotesEmpty";
+import { DocumentStatus } from "./DocumentStatus";
 
 function clearNativeSelection() {
   const selection = window.getSelection();
@@ -375,6 +376,7 @@ export function Editor({
   const blockMathPopupRef = useRef<TippyInstance | null>(null);
   const isLoadingRef = useRef(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const sourceTextareaRef = useRef<HTMLTextAreaElement>(null);
   const editorRef = useRef<TiptapEditor | null>(null);
   const currentNoteIdRef = useRef<string | null>(null);
   const currentNoteRef = useRef(currentNote);
@@ -1676,6 +1678,15 @@ export function Editor({
     });
   }, []);
 
+  useEffect(() => {
+    const onFind = () => {
+      if (!currentNote || !editor) return;
+      openEditorSearch();
+    };
+    window.addEventListener("spell-find-in-note", onFind);
+    return () => window.removeEventListener("spell-find-in-note", onFind);
+  }, [currentNote, editor, openEditorSearch]);
+
   // Cmd/Ctrl+F to open search, ⌥⌘F (macOS) / Ctrl+H to open replace
   // (works when document/editor area is focused)
   useEffect(() => {
@@ -2078,7 +2089,7 @@ export function Editor({
   if (!currentNote) {
     if (previewMode) {
       return (
-        <div className="flex-1 flex flex-col bg-bg">
+        <div className="editor-canvas flex flex-1 flex-col">
           {titlebar}
           <div className="flex-1 flex items-center justify-center">
             <SpinnerIcon className="w-6 h-6 text-text-muted animate-spin" />
@@ -2089,38 +2100,46 @@ export function Editor({
 
     if (notesCtx?.selectedNoteId) {
       return (
-        <div className="flex-1 flex flex-col bg-bg">
+        <div className="editor-canvas flex flex-1 flex-col">
           {titlebar}
-          <div className="flex-1 bg-bg" />
+          <div className="flex-1" />
         </div>
       );
     }
 
     if (notesCtx?.isLoading) {
       return (
-        <div className="flex-1 flex flex-col bg-bg overflow-hidden">
+        <div className="editor-canvas flex flex-1 flex-col overflow-hidden">
           {titlebar}
-          <div className="flex-1 bg-bg" />
+          <div className="flex-1" />
         </div>
       );
     }
 
     return (
-      <div className="flex-1 flex flex-col bg-bg overflow-hidden">
+      <div className="editor-canvas flex flex-1 flex-col overflow-hidden">
         {titlebar}
-        <NoNotesEmpty />
+        <NoNotesEmpty onCreate={onNewNote} />
       </div>
     );
   }
 
   return (
-    <div className="flex-1 flex flex-col bg-bg overflow-hidden">
+    <div className="editor-canvas flex flex-1 flex-col overflow-hidden">
       {titlebar}
 
       {/* Editor content area with resize handles overlay */}
       <div data-editor-content-area className="relative min-h-0 flex-1 overflow-hidden">
         {!focusMode && !sourceMode && !isMobileApp && (
           <EditorWidthHandles containerRef={scrollContainerRef} />
+        )}
+        {currentNote && (
+          <DocumentStatus
+            editor={editor}
+            sourceMode={sourceMode}
+            sourceContent={sourceContent}
+            sourceRef={sourceTextareaRef}
+          />
         )}
         <div
           data-editor-scroll
@@ -2148,6 +2167,7 @@ export function Editor({
             /* Markdown source textarea */
             <div className="flex h-full flex-col">
               <textarea
+                ref={sourceTextareaRef}
                 value={sourceContent}
                 onChange={(e) => handleSourceChange(e.target.value)}
                 aria-label="Markdown source for current note"
