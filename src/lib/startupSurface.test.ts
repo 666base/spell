@@ -107,6 +107,22 @@ describe("mobile shell layout", () => {
     expect(theme).toContain("isMobileApp");
     expect(theme).toContain('removeProperty("zoom")');
   });
+
+  it("gives folder lists and pager slides breathing room", () => {
+    const css = readFileSync(resolve(process.cwd(), "src/App.css"), "utf8");
+    const pager = readFileSync(
+      resolve(process.cwd(), "src/components/layout/mobile/MobilePager.tsx"),
+      "utf8",
+    );
+    expect(css).toContain("--mobile-gutter: 20px");
+    expect(css).toContain("--mobile-row-min: 52px");
+    expect(css).toContain("--mobile-group-y: 28px");
+    expect(css).toContain("min-height: var(--mobile-row-min, 52px)");
+    expect(css).toContain("margin: var(--mobile-group-y, 28px) var(--mobile-gutter, 20px)");
+    expect(css).toContain("height: 44px");
+    expect(pager).toContain("spacing:");
+    expect(pager).toContain("14");
+  });
 });
 
 describe("startup layout cache", () => {

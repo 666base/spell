@@ -52,7 +52,10 @@ export function MobilePager({ index, onIndexChange, children }: MobilePagerProps
     initial: index,
     rubberband: true,
     renderMode: "performance",
-    slides: { perView: 1 },
+    slides: {
+      perView: 1,
+      spacing: reduceMotion ? 0 : 14,
+    },
     defaultAnimation: {
       duration: reduceMotion ? 0 : MOTION_PANEL_MS,
       easing: easeOutCubic,

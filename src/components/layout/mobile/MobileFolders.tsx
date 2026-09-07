@@ -150,7 +150,7 @@ function FolderBlock({
       <button
         type="button"
         className="mobile-folder-row"
-        style={{ paddingLeft: `${16 + depth * 20}px` }}
+        style={{ paddingLeft: `${20 + depth * 14}px` }}
         {...press}
       >
         <span className="mobile-folder-icon">
@@ -225,7 +225,7 @@ function NoteRow({
     <button
       type="button"
       className="mobile-folder-row"
-      style={{ paddingLeft: `${16 + depth * 20}px` }}
+      style={{ paddingLeft: `${20 + depth * 14}px` }}
       aria-pressed={selecting ? selected : undefined}
       {...(selecting ? { onClick: () => onToggleSelect(note.id) } : press)}
     >
@@ -714,9 +714,6 @@ export const MobileFolders = memo(function MobileFolders({
             </button>
           ) : (
             <>
-              <MobileTintButton title="New Folder" onClick={() => setCreating("")}>
-                <FolderPlusGlyph />
-              </MobileTintButton>
               <MobileTintButton title="New Note" onClick={onCompose} disabled={isCreatingNote}>
                 <ComposeIcon />
               </MobileTintButton>
@@ -767,6 +764,20 @@ export const MobileFolders = memo(function MobileFolders({
         )}
         {shownRest.length > 0 && (
           <Group>{shownRest.map((item) => renderItem(item))}</Group>
+        )}
+        {!selecting && (
+          <Group>
+            <button
+              type="button"
+              className="mobile-folder-row"
+              onClick={() => setCreating("")}
+            >
+              <span className="mobile-folder-icon">
+                <FolderPlusGlyph />
+              </span>
+              <span className="mobile-folder-label">New Folder</span>
+            </button>
+          </Group>
         )}
       </MobileScroll>
       <MobileJournalDrawer
