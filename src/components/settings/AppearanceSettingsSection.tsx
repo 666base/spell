@@ -1,4 +1,5 @@
 import { useTheme, defaultThemeColors } from "../../context/ThemeContext";
+import { isMobileApp } from "../../lib/platform";
 import { Button, CodeCopyButton, IconButton, Input, SegmentedControl, Select } from "../ui";
 import { ColorPicker } from "../ui/ColorPicker";
 import type {
@@ -118,7 +119,7 @@ export function AppearanceSettingsSection() {
   };
 
   return (
-    <div className="space-y-8 py-8">
+    <div className={cn(isMobileApp ? "space-y-6 pb-4" : "space-y-8 py-8")}>
       {/* Theme Section */}
       <section className="pb-2">
         <h2 className="text-xl font-medium mb-3">Theme</h2>
@@ -279,6 +280,8 @@ export function AppearanceSettingsSection() {
             </Select>
           </div>
 
+          {!isMobileApp && (
+          <>
           {/* Page Width */}
           <div className="flex items-center justify-between">
             <label className="text-sm text-text font-medium">Page Width</label>
@@ -350,9 +353,11 @@ export function AppearanceSettingsSection() {
               </IconButton>
             </div>
           </div>
+          </>
+          )}
         </div>
 
-        {/* Preview */}
+        {!isMobileApp && (
         <div className="mt-3 relative">
           <div className="absolute top-3 left-4 flex items-center text-sm font-medium text-text-muted/70 gap-1">
             <EyeIcon className="w-4.5 h-4.5 stroke-[1.5]" />
@@ -449,6 +454,7 @@ export function AppearanceSettingsSection() {
           {/* Fade overlay - content to muted background */}
           <div className="absolute bottom-0 left-0 right-0 h-40 bg-linear-to-t from-bg to-transparent pointer-events-none" />
         </div>
+        )}
       </section>
     </div>
   );

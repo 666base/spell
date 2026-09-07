@@ -225,24 +225,24 @@ export function ProjectsHub({
 
   const content = (
     <>
-      {hideTitleBar && (
-        <div className="project-hub-mobile-chrome">
-          {calendarToggle}
-          {showToday && (
-            <button
-              type="button"
-              className="journal-titlebar-today"
-              onClick={() => selectDate(today)}
-            >
-              Today
-            </button>
-          )}
-        </div>
-      )}
       {calendar}
       <div className="project-hub-body">
         {hideTitleBar && (
-          <h1 className="journal-empty-title">{dateTitle}</h1>
+          <div className="project-hub-heading">
+            <h1 className="journal-empty-title">{dateTitle}</h1>
+            <div className="project-hub-heading-actions">
+              {calendarToggle}
+              {showToday && (
+                <button
+                  type="button"
+                  className="journal-titlebar-today"
+                  onClick={() => selectDate(today)}
+                >
+                  Today
+                </button>
+              )}
+            </div>
+          </div>
         )}
         <div className="project-hub-meta">
           <p>

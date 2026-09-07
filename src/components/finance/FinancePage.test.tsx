@@ -246,6 +246,13 @@ describe("FinancePage", () => {
     expect(screen.getByRole("button", { name: "Add transaction" })).toBeTruthy();
   });
 
+  it("uses the mobile canvas when the desktop titlebar is hidden", () => {
+    render(<FinancePage scope={{ type: "money" }} sidebarVisible={false} hideTitleBar />);
+    expect(document.querySelector(".mobile-money.is-dashboard")).toBeTruthy();
+    expect(document.querySelector(".money-page")).toBeNull();
+    expect(document.querySelector(".note-titlebar")).toBeNull();
+  });
+
   it("keeps a decimal in the amount field while typing", () => {
     render(<FinancePage scope={{ type: "money" }} />);
 

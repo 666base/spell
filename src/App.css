@@ -2477,14 +2477,14 @@ html.mobile-app .spell-overlay {
 [data-mobile-shell],
 .mobile-format-toolbar,
 html.mobile-app {
-  --notes-tint: #007aff;
+  --notes-tint: var(--color-accent);
 }
 
 .dark [data-mobile-shell],
 .dark .mobile-format-toolbar,
 html.mobile-app.dark,
 .dark html.mobile-app {
-  --notes-tint: #0a84ff;
+  --notes-tint: var(--color-accent);
 }
 
 .mobile-shell {
@@ -2694,9 +2694,14 @@ html.mobile-app .spell-calendar-layer--sheet::before {
   flex-shrink: 0;
   align-items: center;
   justify-content: center;
-  gap: 4px;
-  padding: 6px 12px 8px;
-  background: var(--color-bg-muted);
+  gap: 8px;
+  padding: 8px 12px 4px;
+  background: transparent;
+}
+
+.mobile-project-chrome .icon-button {
+  width: 44px;
+  height: 44px;
 }
 
 .mobile-project-views {
@@ -2771,6 +2776,10 @@ html.mobile-app .spell-calendar-layer--sheet::before {
 
 [data-mobile-shell] .kanban-gallery {
   padding: 8px 16px 80px;
+}
+
+html.mobile-app .kanban-gallery-grid {
+  grid-template-columns: 1fr;
 }
 
 .kanban-gallery-inner {
@@ -3143,7 +3152,7 @@ html.mobile-app .mobile-tint-button:focus {
 .mobile-select-mark.is-on {
   border-color: var(--notes-tint);
   background: var(--notes-tint);
-  color: #fff;
+  color: var(--color-text-inverse);
 }
 
 .mobile-select-mark svg {
@@ -3313,8 +3322,8 @@ html.mobile-app .ProseMirror:not(.ProseMirror-focused) *::-moz-selection {
 }
 
 [data-mobile-shell] .mobile-daily .ProseMirror {
-  padding-top: 0.85rem !important;
-  padding-bottom: 6rem !important;
+  max-width: 100% !important;
+  padding: 0.85rem 1.125rem 6rem !important;
 }
 
 [data-mobile-shell] .mobile-editor-body [data-editor-scroll] {
@@ -4359,6 +4368,49 @@ button.money-card-empty.is-action:hover {
   margin-top: 12px;
 }
 
+html.mobile-app .mobile-money.is-dashboard {
+  max-width: none;
+}
+
+html.mobile-app .money-kpis {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+html.mobile-app .money-insights {
+  grid-template-columns: 1fr;
+}
+
+html.mobile-app .money-kpi-value,
+html.mobile-app .money-card-value {
+  font-size: 18px;
+}
+
+html.mobile-app .money-card-head {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+
+html.mobile-app .money-card-aside {
+  align-items: flex-start;
+}
+
+html.mobile-app .money-toolbar {
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+html.mobile-app .money-toolbar-add {
+  height: 44px;
+  padding: 0 16px;
+  font-size: 15px;
+}
+
+html.mobile-app .money-filter.spell-select-trigger,
+html.mobile-app .money-toolbar .spell-select-trigger {
+  height: 44px;
+}
+
 .money-page-inner.is-wide .money-group {
   margin-left: 0;
   margin-right: 0;
@@ -4376,6 +4428,36 @@ button.money-card-empty.is-action:hover {
   max-width: var(--editor-max-width, 48rem);
   margin: 0 auto;
   padding: 0.5rem 1.5rem 6rem;
+}
+
+html.mobile-app .project-hub-body {
+  max-width: none;
+  padding: 0.75rem 16px 6rem;
+}
+
+.project-hub-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 0 12px;
+}
+
+.project-hub-heading .journal-empty-title {
+  min-width: 0;
+  font-size: 1.75rem;
+}
+
+.project-hub-heading-actions {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 2px;
+}
+
+.project-hub-heading-actions .icon-button {
+  width: 44px;
+  height: 44px;
 }
 
 .project-hub-meta {
@@ -4398,6 +4480,17 @@ button.money-card-empty.is-action:hover {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+html.mobile-app .project-hub-filters {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+html.mobile-app .project-hub-filters .spell-select-trigger {
+  width: 100%;
+  min-width: 0;
+  height: 44px;
 }
 
 .project-hub-filters .segmented {
@@ -4481,14 +4574,6 @@ button.money-card-empty.is-action:hover {
   padding-left: 0;
   padding-right: 0;
   border-radius: 0;
-}
-
-.project-hub-mobile-chrome {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 4px 12px 0;
 }
 
 [data-calendar-page] {
@@ -4925,8 +5010,8 @@ button.money-row:active {
 
 [data-mobile-shell] .kanban-board-column,
 [data-mobile-shell] .kanban-board-add {
-  flex: 0 0 16rem;
-  width: 16rem;
+  flex: 0 0 min(20rem, calc(100vw - 2.75rem));
+  width: min(20rem, calc(100vw - 2.75rem));
 }
 
 button.motion-interactive:not(:disabled):not(.icon-button):not(.toolbar-button):active,
@@ -6594,8 +6679,8 @@ html.dark {
   --journal-cal-month-h: 14.35rem;
   --journal-cal-row: 2.275rem;
   max-width: none;
-  padding-left: 1.5rem;
-  padding-right: 1.5rem;
+  padding-left: 16px;
+  padding-right: 16px;
 }
 
 [data-mobile-shell] .journal-calendar-day {

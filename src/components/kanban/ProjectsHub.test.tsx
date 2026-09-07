@@ -132,6 +132,8 @@ describe("ProjectsHub", () => {
   it("puts the date on the page when the titlebar is hidden", () => {
     render(<ProjectsHub hideTitleBar />);
     expect(screen.getByRole("heading", { name: "September 7" })).toBeTruthy();
+    expect(document.querySelector(".project-hub-heading")).toBeTruthy();
+    expect(document.querySelector(".project-hub-mobile-chrome")).toBeNull();
   });
 });
 

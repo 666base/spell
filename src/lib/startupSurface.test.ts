@@ -84,6 +84,31 @@ describe("first-paint surfaces", () => {
   });
 });
 
+describe("mobile shell layout", () => {
+  it("skips desktop interface zoom in the blocking startup script", () => {
+    const script = readFileSync(resolve(process.cwd(), "public/startup-theme.js"), "utf8");
+    expect(script).toContain("/Android/i");
+    expect(script).toContain('has("mobile")');
+    expect(script).toContain('removeProperty("zoom")');
+  });
+
+  it("lays out new desktop surfaces from html.mobile-app, not a viewport breakpoint", () => {
+    const css = readFileSync(resolve(process.cwd(), "src/App.css"), "utf8");
+    const theme = readFileSync(resolve(process.cwd(), "src/context/ThemeContext.tsx"), "utf8");
+    expect(css).toMatch(/html\.mobile-app \{\s*--notes-tint: var\(--color-accent\);/);
+    expect(css).toContain("html.mobile-app .money-kpis");
+    expect(css).toContain("grid-template-columns: repeat(2, minmax(0, 1fr))");
+    expect(css).toContain("html.mobile-app .money-insights");
+    expect(css).toContain("html.mobile-app .project-hub-body");
+    expect(css).toContain("html.mobile-app .project-hub-filters");
+    expect(css).toContain("flex-direction: column");
+    expect(css).toContain("[data-mobile-shell] .mobile-daily .ProseMirror");
+    expect(css).toContain("max-width: 100% !important");
+    expect(theme).toContain("isMobileApp");
+    expect(theme).toContain('removeProperty("zoom")');
+  });
+});
+
 describe("startup layout cache", () => {
   it("parses zoom, sidebar width, and editor max width", () => {
     expect(parseStoredZoom("1.15")).toBe(1.15);

@@ -9,6 +9,7 @@ import {
 } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getSettings, updateSettings } from "../services/notes";
+import { isMobileApp } from "../lib/platform";
 import { SIDEBAR_MIN_PX, SIDEBAR_MAX_PX } from "../lib/sidebar";
 import { applyResolvedTheme } from "../lib/themeSwitch";
 import {
@@ -413,6 +414,10 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
   useEffect(() => {
     if (!isInitialized) return;
     const root = document.documentElement;
+    if (isMobileApp) {
+      root.style.removeProperty("zoom");
+      return;
+    }
     const next = String(interfaceZoom);
     if (root.style.zoom === next) {
       rememberInterfaceZoom(interfaceZoom);

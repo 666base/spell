@@ -22,8 +22,13 @@
   root.dataset.startupTheme = dark ? "dark" : "light";
   root.style.colorScheme = dark ? "dark" : "light";
 
+  const mobile =
+    /Android/i.test(navigator.userAgent) ||
+    new URLSearchParams(window.location.search).has("mobile");
   const zoomNum = zoom == null || zoom === "" ? NaN : Number(zoom);
-  if (zoomNum >= 0.7 && zoomNum <= 1.5) {
+  if (mobile) {
+    root.style.removeProperty("zoom");
+  } else if (zoomNum >= 0.7 && zoomNum <= 1.5) {
     root.style.zoom = String(Math.round(zoomNum * 20) / 20);
   }
 
